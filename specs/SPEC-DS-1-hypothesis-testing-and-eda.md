@@ -1,13 +1,13 @@
 # SPEC-DS-1: Hypothesis Testing & Exploratory Data Analysis
 
-**Status:** draft
+**Status:** approved
 **Subject:** Data Science
 **Section:** Worked Examples
 **Routing:** writer=Sonnet 4.6 · research=Haiku · review=Sonnet (fresh) · architect=Opus 4.8
 **Prerequisites:** DS Local Environment Setup (Python, pandas, Jupyter) — write that first or note it as assumed.
 
-> This is the **first backlog item scoped as a demonstration** of the pipeline. It is in `draft`
-> until the owner approves. It shows the shape every chapter spec should take.
+> This is the **first backlog item scoped as a demonstration** of the pipeline. Approved by the
+> owner on 2026-09-02 to kick off the pipeline. It shows the shape every chapter spec should take.
 
 ## Intent
 A senior Java dev is comfortable asserting behaviour with unit tests but has never asked "are these
