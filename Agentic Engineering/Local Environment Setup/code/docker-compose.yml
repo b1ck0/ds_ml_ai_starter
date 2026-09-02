@@ -1,0 +1,34 @@
+# Local Postgres + pgvector for the Agentic Engineering chapters.
+#
+# Image and version verified against Docker Hub (research/NOTE-AGENT-1-stack.md, checked 2026-09-02):
+# pgvector/pgvector:pg17 -- https://hub.docker.com/r/pgvector/pgvector/tags
+#
+# Start:  docker compose -f "Agentic Engineering/Local Environment Setup/code/docker-compose.yml" up -d
+# Stop:   docker compose -f "Agentic Engineering/Local Environment Setup/code/docker-compose.yml" down
+#
+# The `vector` extension ships inside this image but is NOT enabled by default -- you still run
+# `CREATE EXTENSION vector;` once per database (see local-environment-setup.md, Section 3).
+services:
+  pgvector:
+    image: pgvector/pgvector:pg17
+    container_name: agentic-pgvector
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: agentdb
+    ports:
+      # host:container -- 55432 on the host to avoid colliding with a Postgres already
+      # listening on the default 5432, exactly like binding a Java service to a non-default
+      # port in docker-compose to dodge a clash with something else on your machine.
+      - "55432:5432"
+    volumes:
+      - pgvector-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgvector-data:

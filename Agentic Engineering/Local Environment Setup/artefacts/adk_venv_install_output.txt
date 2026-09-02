@@ -1,0 +1,47 @@
+Captured 2026-09-03, this project's real .venv-agent (fastapi 0.141.1, starlette 1.6.0 already
+installed) and a fresh .venv-adk.
+
+-- does installing google-adk==2.8.0 into the EXISTING .venv-agent resolve cleanly? --
+-- (--dry-run: computes the resolution, installs nothing, .venv-agent is untouched) --
+
+$ .venv-agent\Scripts\python.exe -m pip install google-adk==2.8.0 --dry-run
+...
+Requirement already satisfied: starlette<2,>=1.3.1 in .\.venv-agent\Lib\site-packages (from google-adk==2.8.0) (1.6.0)
+Requirement already satisfied: typing-inspection>=0.4.2 in .\.venv-agent\Lib\site-packages (from fastapi<1,>=0.133->google-adk==2.8.0) (0.4.4)
+...
+Would install aiohappyeyeballs-2.7.1 aiohttp-3.14.3 aiosignal-1.4.0 aiosqlite-0.22.1 distro-1.9.0
+  frozenlist-1.8.0 google-adk-2.8.0 google-auth-2.57.0 google-genai-2.22.0 graphviz-0.21
+  multidict-6.7.1 opentelemetry-api-1.42.1 opentelemetry-sdk-1.42.1
+  opentelemetry-semantic-conventions-0.63b1 propcache-0.5.2 pyasn1-0.6.4 pyasn1_modules-0.4.2
+  requests-2.34.2 sniffio-1.3.1 tenacity-9.1.4 tzlocal-5.4.4 urllib3-2.7.0 watchdog-6.0.0
+  websockets-15.0.1 yarl-1.24.5
+
+-- no resolver conflict reported: google-adk's own constraint (starlette<2,>=1.3.1,
+   fastapi<1,>=0.133) is satisfied by the versions already in .venv-agent. --
+
+-- separately: google-adk actually installed, for real, into its own .venv-adk --
+
+$ python -m venv .venv-adk
+$ .venv-adk\Scripts\python.exe -m pip install google-adk==2.8.0
+...
+Successfully installed aiohappyeyeballs-2.7.1 aiohttp-3.14.3 aiosignal-1.4.0 aiosqlite-0.22.1
+  annotated-doc-0.0.5 annotated-types-0.8.0 anyio-4.15.0 attrs-26.1.0 authlib-1.8.0
+  certifi-2026.7.22 cffi-2.1.1 charset_normalizer-3.5.1 click-8.5.0 cryptography-50.0.1
+  distro-1.9.0 fastapi-0.141.1 frozenlist-1.8.0 google-adk-2.8.0 google-auth-2.57.0
+  google-genai-2.22.0 graphviz-0.21 h11-0.16.0 httpcore-1.0.9 httpx-0.28.1 idna-3.19
+  joserfc-1.7.5 jsonschema-4.26.0 jsonschema-specifications-2025.9.1 multidict-6.7.1
+  opentelemetry-api-1.42.1 opentelemetry-sdk-1.42.1 opentelemetry-semantic-conventions-0.63b1
+  packaging-26.3 propcache-0.5.2 pyasn1-0.6.4 pyasn1-modules-0.4.2 pycparser-3.0 pydantic-2.13.5
+  pydantic-core-2.46.5 python-dotenv-1.2.3 python-multipart-0.0.32 pyyaml-6.0.3
+  referencing-0.37.0 requests-2.34.2 rpds-py-2026.6.3 sniffio-1.3.1 starlette-1.6.0
+  tenacity-9.1.4 typing-extensions-4.16.0 typing-inspection-0.4.4 tzdata-2026.3 tzlocal-5.4.4
+  urllib3-2.7.0 uvicorn-0.52.4 watchdog-6.0.0 websockets-15.0.1 yarl-1.24.5
+
+$ .venv-adk\Scripts\python.exe -m pip check
+No broken requirements found.
+
+$ .venv-adk\Scripts\python.exe -c "from google.adk.agents import Agent; print(Agent)"
+<class 'google.adk.agents.llm_agent.LlmAgent'>
+
+$ .venv-adk\Scripts\python.exe -c "from importlib.metadata import version as v; print(v('google-adk'), v('fastapi'), v('starlette'))"
+2.8.0 0.141.1 1.6.0

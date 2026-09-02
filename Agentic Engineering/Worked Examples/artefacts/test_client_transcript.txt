@@ -1,0 +1,87 @@
+[09/03/26 01:34:52] INFO     Starting MCP server               transport.py:242
+                             'db_query_layer' with transport
+                             'stdio'
+=== list_tables() ===
+{
+  "entities": {
+    "customers": [
+      "id",
+      "name",
+      "email",
+      "country"
+    ],
+    "orders": [
+      "id",
+      "customer_id",
+      "item",
+      "amount",
+      "status"
+    ]
+  }
+}
+
+=== describe_table(entity='orders') ===
+{
+  "entity": "orders",
+  "columns": [
+    "id",
+    "customer_id",
+    "item",
+    "amount",
+    "status"
+  ],
+  "row_count": 8
+}
+
+=== query(entity='customers', filters={'country': 'BG'}) ===
+{
+  "entity": "customers",
+  "sql": "SELECT * FROM customers WHERE country = ? LIMIT ?",
+  "row_count": 1,
+  "rows": [
+    {
+      "id": 1,
+      "name": "Ana Petrova",
+      "email": "ana.petrova@example.com",
+      "country": "BG"
+    }
+  ]
+}
+
+=== query(entity='orders', filters={'status': 'shipped'}, limit=3) ===
+{
+  "entity": "orders",
+  "sql": "SELECT * FROM orders WHERE status = ? LIMIT ?",
+  "row_count": 3,
+  "rows": [
+    {
+      "id": 1,
+      "customer_id": 1,
+      "item": "USB-C Hub",
+      "amount": 29.99,
+      "status": "shipped"
+    },
+    {
+      "id": 2,
+      "customer_id": 1,
+      "item": "Mechanical Keyboard",
+      "amount": 89.0,
+      "status": "shipped"
+    },
+    {
+      "id": 4,
+      "customer_id": 3,
+      "item": "Standing Desk",
+      "amount": 410.0,
+      "status": "shipped"
+    }
+  ]
+}
+
+=== query(entity='orders', filters={'dropped_table': 'x'})  [rejected] ===
+{
+  "error": "unknown column(s) ['dropped_table'] for entity 'orders'"
+}
+
+All assertions passed -- every row above came from the real SQLite
+database via the real MCP tool call. No LLM was involved.

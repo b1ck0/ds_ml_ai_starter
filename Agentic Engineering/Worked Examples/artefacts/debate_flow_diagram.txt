@@ -1,0 +1,91 @@
+Elders Tribunal -- debate-flow diagram (ASCII)
+================================================
+matplotlib is not installed in .venv-agent (confirmed while writing this
+chapter, 2026-09-03 -- same situation as the MCP chapter's sequence diagram,
+see ../mcp-database-query-layer.md and mcp_query_sequence_diagram.txt), so
+this flow is rendered as text instead of a PNG. It traces exactly what
+Tribunal.convene() in orchestrator.py does -- compare against
+mock_debate_transcript.txt's DEBATE 1, a real captured run of this exact flow.
+
+                              Tribunal.convene(topic)
+                                       |
+                                       v
+                    +----------------------------------------+
+                    |  round_no = 1 .. max_rounds              |
+                    |  (round-robin, fixed elder order)         |
+                    +----------------------------------------+
+                                       |
+              for each elder, IN ORDER, within this round:
+                                       |
+                                       v
+      +--------------------------------------------------------------+
+      |  elder.respond(topic, history_so_far)                        |
+      |    - history_so_far includes every statement made in EARLIER |
+      |      rounds AND by earlier elders already in THIS round       |
+      |    - elder appends a Statement(speaker, round_no, text)        |
+      |      to the shared transcript                                 |
+      |    - text MAY end with "VERDICT: <TAG>" (else = abstain)       |
+      +--------------------------------------------------------------+
+              Elder 1 (Pragmatist)  -->  Elder 2 (Architect)  -->  Elder 3 (Scale)
+                       \                        |                        /
+                        \                       |                       /
+                         `-------------  all speak once  -------------'
+                                       |
+                                       v
+                    +----------------------------------------+
+                    |  after the round: extract_verdict() on   |
+                    |  every statement made THIS round          |
+                    +----------------------------------------+
+                                       |
+                        ,--------------+---------------.
+                        |                               |
+                        v                               v
+             all elders voted AND               NOT unanimous
+             all verdicts match?                       |
+                        |                               v
+                        v                     round_no == max_rounds?
+             stop_reason = "unanimous"                  |
+             BREAK  (skip remaining rounds)     ,--------+--------.
+                        |                       |                 |
+                        |                      yes                no
+                        |                       |                 |
+                        |                       v                 v
+                        |            stop_reason = "max_rounds"  loop again
+                        |            BREAK                    (round_no += 1)
+                        |                       |
+                        `-----------+-----------'
+                                    v
+                    +----------------------------------------+
+                    |  votes = LAST round's verdicts            |
+                    |  _tally(votes) -> (winning_verdict,        |
+                    |                    deadlock: bool)          |
+                    |     strict majority (> N/2)? -> winner      |
+                    |     else                     -> None,       |
+                    |                                  deadlock   |
+                    +----------------------------------------+
+                                    |
+                                    v
+                    +----------------------------------------+
+                    |  moderator.synthesize(topic, history,     |
+                    |                        votes)               |
+                    |     - unanimous  -> "Consensus: ..."        |
+                    |     - majority   -> "Consensus by          |
+                    |                      majority: ..."         |
+                    |     - deadlock   -> "No consensus... panel  |
+                    |                      is split (...)"        |
+                    +----------------------------------------+
+                                    |
+                                    v
+                          DebateResult(transcript, votes,
+                            winning_verdict, unanimous,
+                            deadlock, consensus)
+
+Two termination paths, exactly one fires per run:
+  (A) UNANIMOUS EARLY STOP  -- every elder cast the same verdict this round;
+      the loop breaks even if rounds remain (see mock_debate_transcript.txt is
+      NOT this case for Debate 1 -- it runs the full cap; the unanimous path is
+      exercised by test_orchestrator.py's
+      test_early_stop_on_unanimous_verdict_skips_remaining_rounds).
+  (B) MAX ROUNDS REACHED -- the cap fires first; whatever the final round's
+      votes are becomes the tally handed to _tally() and the moderator. Both
+      of mock_debate_transcript.txt's debates stop this way.

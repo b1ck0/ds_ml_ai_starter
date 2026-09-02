@@ -1,0 +1,4 @@
+ANTHROPIC_API_KEY is not set -- skipping the live LLM call.
+Set it in .env (never commit it) and set ANTHROPIC_MODEL to a current
+model id, then re-run to see Claude discover and call the query tool
+itself. This script makes no network call without a key.

@@ -1,0 +1,46 @@
+Captured 2026-09-03 against a real pgvector/pgvector:pg17 container started from
+Agentic Engineering/Local Environment Setup/code/docker-compose.yml on this machine
+(Docker version 28.4.0, build d8eb465).
+
+$ docker compose -f "Agentic Engineering/Local Environment Setup/code/docker-compose.yml" up -d
+ Network code_default  Creating
+ Network code_default  Created
+ Volume "code_pgvector-data"  Creating
+ Volume "code_pgvector-data"  Created
+ Container agentic-pgvector  Creating
+ Container agentic-pgvector  Created
+ Container agentic-pgvector  Starting
+ Container agentic-pgvector  Started
+
+$ docker exec agentic-pgvector pg_isready -U postgres
+/var/run/postgresql:5432 - accepting connections
+
+$ docker exec -it agentic-pgvector psql -U postgres -d agentdb -c "CREATE EXTENSION vector;"
+CREATE EXTENSION
+
+-- raw SQL sanity check (psql, inside the container) --
+CREATE TABLE items (id bigserial PRIMARY KEY, content text, embedding vector(3));
+CREATE TABLE
+INSERT INTO items (content, embedding) VALUES
+  ('sourdough bread recipe', '[0.9, 0.1, 0.0]'),
+  ('formula one pit stop rules', '[0.1, 0.9, 0.0]'),
+  ('vector index HNSW explained', '[0.0, 0.1, 0.9]');
+INSERT 0 3
+SELECT id, content, embedding <=> '[0.85, 0.15, 0.05]' AS cosine_distance
+  FROM items
+  ORDER BY embedding <=> '[0.85, 0.15, 0.05]'
+  LIMIT 3;
+ id |           content           |    cosine_distance
+----+-----------------------------+-----------------------
+  1 | sourdough bread recipe      | 0.0037184699510960373
+  2 | formula one pit stop rules  |     0.718997508381225
+  3 | vector index HNSW explained |    0.9233629581289488
+(3 rows)
+
+-- same query, from Python, via psycopg + the pgvector client (code/pgvector_sanity_check.py) --
+$ .venv-agent\Scripts\python.exe "Agentic Engineering\Local Environment Setup\code\pgvector_sanity_check.py"
+inserted 3 rows
+nearest neighbours to query vector [0.85, 0.15, 0.05]:
+  id=1  distance=0.003718  content='sourdough bread recipe'
+  id=2  distance=0.718998  content='formula one pit stop rules'
+  id=3  distance=0.923363  content='vector index HNSW explained'

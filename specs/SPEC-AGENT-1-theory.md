@@ -1,6 +1,6 @@
 # SPEC-AGENT-1: Theory — Vector DBs, RAG, MCP, Context Windows
 
-**Status:** approved
+**Status:** in-review
 **Subject:** Agentic Engineering
 **Section:** Theory
 **Routing:** writer=Sonnet 4.6 · research=Haiku · review=Sonnet (fresh) · architect=Opus 4.8

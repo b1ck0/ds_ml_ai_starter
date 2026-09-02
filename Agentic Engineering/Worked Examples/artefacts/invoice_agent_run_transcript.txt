@@ -1,0 +1,99 @@
+[09/03/26 01:52:28] INFO     Starting MCP server               transport.py:242
+                             'invoice_write_layer' with                        
+                             transport 'stdio'                                 
+=== Step 1: extract (deterministic, rule-based, no API key) ===
+{
+  "invoice_number": "INV-2026-0042",
+  "invoice_date": "2026-08-15",
+  "bill_to": "Contoso Ltd, 77 Market St, Boston MA 02108",
+  "subtotal": "340.00",
+  "tax": "27.20",
+  "total": "367.20",
+  "vendor_name": "ACME WIDGETS INC.",
+  "vendor_address": "123 Foundry Lane, Springfield, IL 62701",
+  "line_items": [
+    {
+      "description": "Widget A - Standard",
+      "quantity": 10,
+      "unit_price": "12.50",
+      "amount": "125.00"
+    },
+    {
+      "description": "Widget B - Heavy Duty",
+      "quantity": 5,
+      "unit_price": "40.00",
+      "amount": "200.00"
+    },
+    {
+      "description": "Shipping and Handling",
+      "quantity": 1,
+      "unit_price": "15.00",
+      "amount": "15.00"
+    }
+  ]
+}
+
+=== Step 2: validate against schema.Invoice ===
+validated OK: invoice_number=INV-2026-0042 total=367.20
+
+=== Step 3: MCP insert_invoice() ===
+{
+  "status": "inserted",
+  "invoice_id": 1,
+  "invoice_number": "INV-2026-0042",
+  "line_item_count": 3
+}
+
+=== Step 4: MCP get_invoice() -- verify the row landed ===
+{
+  "invoice": {
+    "id": 1,
+    "invoice_number": "INV-2026-0042",
+    "vendor_name": "ACME WIDGETS INC.",
+    "vendor_address": "123 Foundry Lane, Springfield, IL 62701",
+    "invoice_date": "2026-08-15",
+    "bill_to": "Contoso Ltd, 77 Market St, Boston MA 02108",
+    "subtotal": "340.00",
+    "tax": "27.20",
+    "total": "367.20",
+    "created_at": "2026-09-02 22:52:29"
+  },
+  "line_items": [
+    {
+      "description": "Widget A - Standard",
+      "quantity": 10,
+      "unit_price": "12.50",
+      "amount": "125.00"
+    },
+    {
+      "description": "Widget B - Heavy Duty",
+      "quantity": 5,
+      "unit_price": "40.00",
+      "amount": "200.00"
+    },
+    {
+      "description": "Shipping and Handling",
+      "quantity": 1,
+      "unit_price": "15.00",
+      "amount": "15.00"
+    }
+  ]
+}
+
+=== Step 5: robustness -- idempotency (re-insert same invoice_number) ===
+{
+  "status": "duplicate",
+  "invoice_id": 1,
+  "invoice_number": "INV-2026-0042",
+  "message": "invoice_number already exists -- not inserted again"
+}
+
+=== Step 6: robustness -- missing required field ===
+ValidationError raised as expected (1 error(s)):
+  - total: Field required
+
+=== Step 7: robustness -- malformed PDF ===
+ExtractionError raised as expected: C:\Users\b1ck0\Documents\python_projects\ds_ml_ai_starter\Agentic Engineering\Worked Examples\code\invoice_agent\datasets\not_a_pdf.pdf: could not be read as a PDF (PdfminerException(PDFSyntaxError('No /Root object! - Is this really a PDF?')))
+
+=== Done: end-to-end flow (parse -> validate -> MCP insert -> verify) ===
+exactly one row for INV-2026-0042 exists in invoices.db (Step 5 proved the retry did not create a second one).

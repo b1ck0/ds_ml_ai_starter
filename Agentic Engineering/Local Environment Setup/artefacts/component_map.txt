@@ -1,0 +1,56 @@
+Component map -- how ADK, MCP, pgvector, and FastAPI fit together.
+Rendered as text: .venv-agent has no matplotlib installed (confirmed 2026-09-03,
+`ModuleNotFoundError: No module named 'matplotlib'`), and this course does not install a
+plotting library into the agent stack just to draw one diagram -- see the chapter, Section 5.
+
+  HTTP client                                            LLM Provider (key-gated)
+  (browser / curl /                                      Gemini, via GOOGLE_API_KEY
+   another service)                                      (or Anthropic / OpenAI, per NOTE-AGENT-1)
+        |                                                            ^
+        | HTTP request                                              | model inference call
+        v                                                            | (the ONLY step in this
+  +----------------------------+                                    |  diagram that needs a key)
+  |          FastAPI            |                                    |
+  |  your service's HTTP        |                                    |
+  |  boundary -- routes,        |                                    |
+  |  request/response models    |                                    |
+  +--------------+---------------+                                   |
+                 |                                                   |
+                 | invokes                                           |
+                 v                                                   |
+  +----------------------------------------------------------------------+
+  |                          ADK Runtime                                  |
+  |   root_agent = Agent(model=..., name=..., description=...)            |
+  |   orchestrates: reads the request, decides whether to call a tool,    |
+  |   whether to retrieve memory, when to call the LLM, and how to        |
+  |   assemble the final response                                        |
+  +---------------------+------------------------------+-----------------+
+                         |                              |
+          tool call      |                              |  memory / retrieval
+          (MCP protocol) |                              |  (pgvector)
+                         v                              v
+  +----------------------------------+     +--------------------------------------+
+  |         MCP Server(s)             |     |        Postgres + pgvector             |
+  |         (built with FastMCP)      |     |  CREATE EXTENSION vector;              |
+  |  exposes Tools / Resources /      |     |  embedding <=> query_vector            |
+  |  Prompts over a standard,         |     |  ORDER BY ... LIMIT k                  |
+  |  JSON-RPC-based protocol --       |     |  (nearest-neighbour search, not an     |
+  |  one server per wrapped system    |     |   exact-key lookup -- this chapter's   |
+  +---------------+-------------------+     |   pgvector_sanity_check.py runs this)  |
+                  |                          +--------------------------------------+
+                  | wraps
+                  v
+  +----------------------------------+
+  |   The actual system(s)            |
+  |   a database, a filesystem,       |
+  |   an internal REST API --         |
+  |   whatever the tool call reaches  |
+  +----------------------------------+
+
+Read top to bottom: a request enters through FastAPI (the only piece a Java backend engineer
+has built dozens of times already), gets handed to the ADK runtime, which decides -- per turn --
+whether it needs a tool (goes out over MCP to a FastMCP server wrapping some real system) or a
+memory lookup (goes to pgvector for a nearest-neighbour search over embeddings) before it ever
+calls the LLM provider itself. The LLM call is the one arrow in this whole diagram that is
+key-gated; every other arrow runs locally, for free, with nothing but this chapter's Docker
+container and Python environments.

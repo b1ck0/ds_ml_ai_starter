@@ -1,0 +1,47 @@
+========================================================================
+DEBATE 1 -- three elders, full round cap, majority (not unanimous)
+========================================================================
+Topic: Should this 4-engineer greenfield team start with microservices?
+Rounds run: 3 (stop reason: max_rounds)
+
+--- Transcript ---
+[Round 1] Pragmatist-Elder: Ship the monolith first -- microservices add operational overhead this 4-person team hasn't earned yet. VERDICT: NO
+[Round 1] Architect-Elder: Start with clear module boundaries inside one deployable; split into services only once a boundary proves it needs to scale independently. VERDICT: NO
+[Round 1] Scale-Elder: If the projected growth is real, retrofitting service boundaries later costs more than designing them in from day one. VERDICT: YES
+[Round 2] Pragmatist-Elder: Even after hearing the scalability case, the coordination cost of running N services outweighs the benefit for a team this size today. VERDICT: NO
+[Round 2] Architect-Elder: Agreed with Pragmatist-Elder -- premature service boundaries are harder to undo than a well-modularised monolith. VERDICT: NO
+[Round 2] Scale-Elder: I hear the team-size argument, but I still think the retrofit cost is being understated. Sticking with my position for now. VERDICT: YES
+[Round 3] Pragmatist-Elder: Position unchanged: revisit this once the team has grown or traffic data justifies the split. VERDICT: NO
+[Round 3] Architect-Elder: Holding this position through the final round. VERDICT: NO
+[Round 3] Scale-Elder: Still YES, though I'll concede this is now a minority view on this panel. VERDICT: YES
+
+--- Votes (final round) ---
+  Pragmatist-Elder: NO
+  Architect-Elder: NO
+  Scale-Elder: YES
+
+Unanimous: False   Deadlock: False   Winning verdict: NO
+
+--- Consensus (moderator) ---
+Consensus by majority: 'NO' on 'Should this 4-engineer greenfield team start with microservices?' (NO=2, YES=1, out of 3 elders).
+
+========================================================================
+DEBATE 2 -- three-way split: deadlock, no forced consensus
+========================================================================
+Topic: Should we rewrite the auth service in Rust this quarter?
+Rounds run: 1 (stop reason: max_rounds)
+
+--- Transcript ---
+[Round 1] Elder-A: Rewrite the auth service in Rust this quarter. VERDICT: YES
+[Round 1] Elder-B: Keep it in Python -- the risk isn't worth it right now. VERDICT: NO
+[Round 1] Elder-C: Neither yet -- prototype both for two weeks before deciding. VERDICT: UNCERTAIN
+
+--- Votes (final round) ---
+  Elder-A: YES
+  Elder-B: NO
+  Elder-C: UNCERTAIN
+
+Unanimous: False   Deadlock: True   Winning verdict: None
+
+--- Consensus (moderator) ---
+No consensus on 'Should we rewrite the auth service in Rust this quarter?' -- the panel is split (YES=1, NO=1, UNCERTAIN=1). Recommending the team gather more evidence or escalate to a human decision-maker rather than forcing a false majority.

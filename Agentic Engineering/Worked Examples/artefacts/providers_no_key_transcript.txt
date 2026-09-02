@@ -1,0 +1,1 @@
+Missing ANTHROPIC_API_KEY, OPENAI_API_KEY, GOOGLE_API_KEY -- skipping the live, multi-provider tribunal. Set every key above (in .env, never committed) and install the matching SDKs (anthropic==1.3.0, openai==3.7.0, google-genai==2.22.0) to run a real cross-provider debate. This script makes no network call without them.

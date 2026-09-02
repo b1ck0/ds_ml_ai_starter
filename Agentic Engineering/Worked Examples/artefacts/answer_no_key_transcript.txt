@@ -1,0 +1,25 @@
+Captured run, no ANTHROPIC_API_KEY set, 2026-09-03, .venv-agent (Python 3.13.7):
+
+    .venv-agent/Scripts/python.exe "Agentic Engineering/Worked Examples/code/rag_pdf/answer.py"
+
+Question: How long does the on-call rotation last, and how often does an engineer take primary on-call?
+
+Retrieved context (runs with no key -- this is the RAG part):
+
+[chunk 4, page 2, similarity 0.7590]
+before it can run against the staging database. Migrations that touch a table larger than ten million rows must run during the Tuesday or Wednesday maintenance window and must include a tested rollback script in the same pull request. 4. On-Call Rotation & Escalation The primary on-call rotation is one week long, handing off every Monday at 09:00 local time. Each engineer on the fleet-control team rotates through primary on-call roughly once every six weeks, assuming a team of six. If the primary on-call engineer does not acknowledge a page within ten minutes, the incident automatically escalates to the secondary
+
+[chunk 5, page 2, similarity 0.7047]
+If the primary on-call engineer does not acknowledge a page within ten minutes, the incident automatically escalates to the secondary on-call engineer; if the secondary does not acknowledge within a further ten minutes, it escalates to the engineering lead directly. Planned on-call swaps must be requested at least 48 hours in advance through the on-call calendar tool.
+
+[chunk 1, page 1, similarity 0.3741]
+flagged; rollbacks beyond that window require a written incident postmortem regardless of customer impact. Deployments are only permitted Monday through Thursday before 16:00 local time, to keep a full business day of on-call coverage available in case of a slow-burn regression. Emergency hotfixes outside that window require sign-off from the on-call lead and the service owner. 2. Incident Response Policy Incidents are classified SEV-1 through SEV-4 by customer impact. A SEV-1 incident -- full outage of the fleet-control API or any safety-critical robot command path -- requires the on-call engineer to acknowledge the page within five minutes and open a
+
+--- NO-KEY FALLBACK ---
+ANTHROPIC_API_KEY is not set, so no network call is made. Above is the full
+grounded prompt's context -- exactly what would have been sent to the model,
+with every fact traceable to a chunk id and page number. This is RAG's honest
+mechanics: retrieval works and is inspectable without any LLM at all; only the
+final prose-generation step needs a key. Set ANTHROPIC_API_KEY (and optionally
+ANTHROPIC_MODEL) in .env -- see .env.example -- and re-run for a generated,
+cited answer.

@@ -1,0 +1,56 @@
+MCP database query layer -- request -> SQL -> rows sequence
+=============================================================
+(ASCII sequence diagram -- matplotlib is not installed in .venv-agent, see
+NOTE-AGENT-3 / the chapter prose for why this is rendered as text instead of a
+PNG. Every step below is exactly what test_client.py exercises for real; see
+artefacts/test_client_transcript.txt for the captured output.)
+
+  Caller                 MCP Client              MCP Server (server.py)         SQLite (mcp_demo.db)
+ (test script   |                        |         (subprocess, stdio)     |
+  or an LLM)     |                        |                                |
+    |            |                        |                                |
+    | call_tool( |                        |                                |
+    |  "query",  |                        |                                |
+    |  entity=   |                        |                                |
+    |  "orders", |                        |                                |
+    |  filters=  |                        |                                |
+    |  {"status":|                        |                                |
+    |  "shipped"}|                        |                                |
+    |  , limit=3)|                        |                                |
+    |----------->|                        |                                |
+    |            | JSON-RPC over stdio    |                                |
+    |            |----------------------->|                                |
+    |            |                        | 1. entity in SCHEMA?           |
+    |            |                        |    "orders" -- yes             |
+    |            |                        | 2. filter columns subset of    |
+    |            |                        |    SCHEMA["orders"]? yes       |
+    |            |                        | 3. limit = min(3, MAX_LIMIT)   |
+    |            |                        | 4. build SQL (table name from  |
+    |            |                        |    SCHEMA, values as ? params) |
+    |            |                        |                                |
+    |            |                        |  SELECT * FROM orders          |
+    |            |                        |  WHERE status = ?  LIMIT ?     |
+    |            |                        |  params = ("shipped", 3)       |
+    |            |                        |------------------------------->|
+    |            |                        |                                | executes
+    |            |                        |                                | parameterised
+    |            |                        |                                | query
+    |            |                        |<-------------------------------|
+    |            |                        |   3 rows (dicts, via           |
+    |            |                        |   sqlite3.Row)                 |
+    |            |                        | 5. wrap: {entity, sql,         |
+    |            |                        |    row_count, rows}            |
+    |            |<-----------------------|                                |
+    |            | JSON-RPC result        |                                |
+    |<-----------|                        |                                |
+    | result.data|                        |                                |
+    | == real    |                        |                                |
+    | SQLite rows|                        |                                |
+    |            |                        |                                |
+
+Rejected-input variant (query(entity="orders", filters={"dropped_table": "x"})):
+step 2 above fails ("dropped_table" not in SCHEMA["orders"]'s columns) -- the
+server returns {"error": "unknown column(s) ..."} at step 2 and NEVER reaches
+step 3/4: no SQL is built, no connection is opened. See
+artefacts/test_client_transcript.txt for the real, captured output of both
+paths.

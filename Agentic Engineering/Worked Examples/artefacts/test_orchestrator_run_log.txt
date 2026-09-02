@@ -1,0 +1,15 @@
+test_deadlock_when_no_verdict_holds_a_strict_majority (test_orchestrator.TestConsensusAggregation.test_deadlock_when_no_verdict_holds_a_strict_majority) ... ok
+test_majority_vote_wins_without_unanimity (test_orchestrator.TestConsensusAggregation.test_majority_vote_wins_without_unanimity) ... ok
+test_missing_verdict_is_treated_as_abstention_not_an_error (test_orchestrator.TestConsensusAggregation.test_missing_verdict_is_treated_as_abstention_not_an_error) ... ok
+test_verdict_extraction_is_case_insensitive_and_ignores_surrounding_text (test_orchestrator.TestConsensusAggregation.test_verdict_extraction_is_case_insensitive_and_ignores_surrounding_text) ... ok
+test_requires_at_least_one_round (test_orchestrator.TestTribunalConstruction.test_requires_at_least_one_round) ... ok
+test_requires_at_least_two_elders (test_orchestrator.TestTribunalConstruction.test_requires_at_least_two_elders) ... ok
+test_early_stop_on_unanimous_verdict_skips_remaining_rounds (test_orchestrator.TestTurnTakingAndTermination.test_early_stop_on_unanimous_verdict_skips_remaining_rounds) ... ok
+test_max_rounds_reached_without_unanimity (test_orchestrator.TestTurnTakingAndTermination.test_max_rounds_reached_without_unanimity) ... ok
+test_round_robin_order_and_history_growth (test_orchestrator.TestTurnTakingAndTermination.test_round_robin_order_and_history_growth) ... ok
+test_second_speaker_sees_first_speakers_statement_same_round (test_orchestrator.TestTurnTakingAndTermination.test_second_speaker_sees_first_speakers_statement_same_round) ... ok
+
+----------------------------------------------------------------------
+Ran 10 tests in 0.001s
+
+OK

@@ -1,0 +1,29 @@
+Captured 2026-09-03, this project's real .venv-agent and .venv-adk, no LLM API key set.
+
+$ .venv-agent\Scripts\python.exe "Agentic Engineering\Local Environment Setup\code\verify_agentic_env.py"
+Python:        3.13.7
+Executable:    C:\Users\b1ck0\Documents\python_projects\ds_ml_ai_starter\.venv-agent\Scripts\python.exe
+
+-- shared .venv-agent stack --
+fastapi      0.141.1
+fastmcp      4.0.1
+pgvector     0.5.0
+psycopg      3.3.5
+pydantic     2.13.5
+
+-- google-adk (expected in a SEPARATE .venv-adk, not here) --
+google-adk     NOT INSTALLED in this interpreter (expected if this is .venv-agent)
+
+$ .venv-adk\Scripts\python.exe "Agentic Engineering\Local Environment Setup\code\verify_agentic_env.py"
+Python:        3.13.7
+Executable:    C:\Users\b1ck0\Documents\python_projects\ds_ml_ai_starter\.venv-adk\Scripts\python.exe
+
+-- shared .venv-agent stack --
+fastapi      0.141.1
+fastmcp      NOT INSTALLED in this interpreter
+pgvector     NOT INSTALLED in this interpreter
+psycopg      NOT INSTALLED in this interpreter
+pydantic     2.13.5
+
+-- google-adk (expected in a SEPARATE .venv-adk, not here) --
+google-adk     2.8.0  (import OK: google.adk.agents.Agent)
