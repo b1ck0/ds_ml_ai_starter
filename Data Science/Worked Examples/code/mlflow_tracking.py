@@ -31,7 +31,7 @@ Environment (installed in the project's DEDICATED .venv-mlflow -- see the chapte
 "Local Environment Setup" note on why this chapter gets its own venv; NOTE-16 checked
 2026-09-02, NOTE-5 checked 2026-09-02):
     mlflow==3.15.2, scikit-learn==1.9.0, pandas==2.3.3, numpy==2.5.2, matplotlib==3.11.1
-    Python 3.11+ (this script was run and gated on Python 3.13.7 in .venv-mlflow).
+    Python 3.12+ (this script was run and gated on Python 3.13.7 in .venv-mlflow).
     NOTE: mlflow==3.15.2 declares "pandas<3", which is why this chapter's pandas
     (2.3.3) differs from the 3.0.5 pinned in other Data Science chapters that don't
     depend on mlflow -- exactly the kind of transitive version conflict a dedicated

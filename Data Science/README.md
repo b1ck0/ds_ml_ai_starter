@@ -27,4 +27,4 @@ model drift, retraining triggers) · in-database ML (BigQuery ML, Redshift ML).
 MLOps pipelines, model promotion decisions, monitoring, and retraining — see the Cloud section and
 `docs/definition-of-done.md`.
 
-_First scoped chapter: [`SPEC-DS-1` — Hypothesis Testing & EDA](../specs/SPEC-DS-1-hypothesis-testing-and-eda.md) (draft)._
+_All 19 Data Science chapters (DS-0 → DS-18) are complete — see the sections above._

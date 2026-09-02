@@ -32,7 +32,7 @@ Environment (verified in research/NOTE-2-package-versions.md, research/NOTE-5-sk
 core-apis.md, and research/NOTE-11-imblearn-apis.md, checked 2026-09-02):
     numpy==2.5.2, pandas==3.0.5, matplotlib==3.11.1, scikit-learn==1.9.0,
     imbalanced-learn==0.14.2
-    Python 3.11+ (this script was run and gated on Python 3.13.7).
+    Python 3.12+ (this script was run and gated on Python 3.13.7).
 
 Run:
     python class_imbalance.py

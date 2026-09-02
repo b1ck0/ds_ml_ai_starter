@@ -47,7 +47,7 @@ architectures; Section 3 loads it and shows these three tensors on a real image.
 torch==2.14.0+cpu
 torchvision==0.29.0+cpu
 numpy==2.5.2
-Python 3.11+
+Python 3.12+
 ```
 
 Pinned and verified against PyPI on 2026-09-02

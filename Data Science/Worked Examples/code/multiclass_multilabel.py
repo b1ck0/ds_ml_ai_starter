@@ -40,7 +40,7 @@ Environment (verified in research/NOTE-5-sklearn-core-apis.md, research/NOTE-9-c
 metrics-apis.md and research/NOTE-10-classification-datasets.md, checked 2026-09-02; versions
 below verified installed in the project .venv on the same date):
     numpy==2.5.2, pandas==3.0.5, matplotlib==3.11.1, seaborn==0.13.2, scikit-learn==1.9.0
-    Python 3.11+ (this script was run and gated on Python 3.13.7).
+    Python 3.12+ (this script was run and gated on Python 3.13.7).
 
 Run:
     python multiclass_multilabel.py

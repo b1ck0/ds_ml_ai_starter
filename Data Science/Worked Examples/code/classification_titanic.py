@@ -32,7 +32,7 @@ research/NOTE-5-sklearn-core-apis.md / research/NOTE-9-classification-metrics-ap
 checked 2026-09-02):
     pandas==3.0.5, numpy==2.5.2, matplotlib==3.11.1, scipy==1.18.1, seaborn==0.13.2,
     scikit-learn==1.9.0
-    Python 3.11+ (this script was run and gated on Python 3.13.7).
+    Python 3.12+ (this script was run and gated on Python 3.13.7).
 
 Run:
     python classification_titanic.py

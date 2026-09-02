@@ -11,7 +11,7 @@ deterministic, and exactly what a `PostToolUse` hook on `.claude/agents/*.md` wo
 project (see java-sdlc-scaffold.md SS4 "what carries over").
 
 Environment: PyYAML==6.0.3 (installed in this project's .venv; verify with
-`.venv/Scripts/python.exe -c "import yaml; print(yaml.__version__)"`), Python 3.11+.
+`.venv/Scripts/python.exe -c "import yaml; print(yaml.__version__)"`), Python 3.12+.
 
 Usage:
     .venv/Scripts/python.exe "AI-assisted-sdlc/Worked Examples/code/validate_frontmatter.py" \

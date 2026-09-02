@@ -56,7 +56,7 @@ numpy==2.5.2
 matplotlib==3.11.1
 scipy==1.18.1
 seaborn==0.13.2
-Python 3.11+
+Python 3.12+
 ```
 
 Pinned and verified against PyPI on 2026-09-02

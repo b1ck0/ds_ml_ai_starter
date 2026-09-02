@@ -21,7 +21,7 @@ brand-blue / stage palette this script reuses for visual consistency across the 
 
 Environment: matplotlib==3.11.1 (pinned in research/NOTE-2-package-versions.md,
 verified against PyPI 2026-09-02; installed version confirmed live via
-`import matplotlib; matplotlib.__version__` in this project's .venv). Python 3.11+.
+`import matplotlib; matplotlib.__version__` in this project's .venv). Python 3.12+.
 
 Run with the project's shared virtual environment:
 

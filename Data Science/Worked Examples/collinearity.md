@@ -115,7 +115,7 @@ matplotlib==3.11.1
 seaborn==0.13.2
 scikit-learn==1.9.0
 statsmodels==0.15.0
-Python 3.11+
+Python 3.12+
 ```
 
 Versions verified against PyPI on 2026-09-02

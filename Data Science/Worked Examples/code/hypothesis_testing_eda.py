@@ -15,7 +15,7 @@ What it does:
 
 Environment (verified in research/NOTE-2-package-versions.md, checked 2026-09-02):
     pandas==3.0.5, numpy==2.5.2, matplotlib==3.11.1, scipy==1.18.1, seaborn==0.13.2
-    Python 3.11+ (this script was run and gated on Python 3.13.7).
+    Python 3.12+ (this script was run and gated on Python 3.13.7).
 
 Run:
     python hypothesis_testing_eda.py

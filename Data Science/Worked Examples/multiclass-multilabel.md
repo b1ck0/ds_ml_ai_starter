@@ -44,7 +44,7 @@ pandas==3.0.5
 matplotlib==3.11.1
 seaborn==0.13.2
 scikit-learn==1.9.0
-Python 3.11+
+Python 3.12+
 ```
 
 Pinned and verified against PyPI on 2026-09-02

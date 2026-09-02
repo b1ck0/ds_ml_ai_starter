@@ -14,8 +14,8 @@ Python · TensorFlow · PyTorch · torchvision.
 ## Worked Examples
 - **Computer Vision** — image classification (MNIST), object detection (COCO), semantic segmentation
   (COCO); metrics: mAP, mAR, IoU.
-- **Natural Language** — text classification (RoBERTa); text generation (generative model TBD by
-  research — RoBERTa is encoder-only).
+- **Natural Language** — text classification (DistilBERT, a small pretrained encoder); text generation
+  (distilgpt2, a decoder — RoBERTa is encoder-only and cannot generate, explained in the generation chapter).
 - **LLMs** — the transformer from the inside; text generation.
 
 ## Cloud Environment Setup

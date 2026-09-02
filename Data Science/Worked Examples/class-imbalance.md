@@ -21,7 +21,7 @@ pandas==3.0.5
 matplotlib==3.11.1
 scikit-learn==1.9.0
 imbalanced-learn==0.14.2
-Python 3.11+
+Python 3.12+
 ```
 
 Pinned and verified against PyPI on 2026-09-02

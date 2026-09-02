@@ -31,7 +31,7 @@ What it does (mirrors the chapter's sections):
 Environment (verified in research/NOTE-12-timeseries-apis.md, research/NOTE-6-statsmodels-vif.md,
 research/NOTE-5-sklearn-core-apis.md, research/NOTE-2-package-versions.md, checked 2026-09-02):
     statsmodels==0.15.0, scikit-learn==1.9.0, numpy==2.5.2, pandas==3.0.5, matplotlib==3.11.1
-    Python 3.11+ (this script was run and gated on Python 3.13.7, matching the pinned versions
+    Python 3.12+ (this script was run and gated on Python 3.13.7, matching the pinned versions
     with no substitutions).
 
 Run:

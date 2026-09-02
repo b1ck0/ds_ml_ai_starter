@@ -15,7 +15,7 @@ Java toolchain docs, verified 2026-09-02); the concrete pointers (CLAUDE.md, doc
 java-project/ scaffold, read directly.
 
 Environment: matplotlib==3.11.1 (research/NOTE-2-package-versions.md, verified against PyPI
-2026-09-02; confirmed live against this project's installed .venv interpreter), Python 3.11+.
+2026-09-02; confirmed live against this project's installed .venv interpreter), Python 3.12+.
 Run with the project .venv:
 
     .venv/Scripts/python.exe "AI-assisted-sdlc/Worked Examples/code/java_feature_loop_diagram.py"

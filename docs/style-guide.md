@@ -29,7 +29,7 @@ Every worked example ends in something the reader can see: a plot, a metrics tab
 matrix, a printed DataFrame. Commit the artefact under the chapter's `artefacts/` and reference it.
 
 ## Code conventions
-- Python 3.11+. Snippets are complete and runnable: real imports, pinned deps, no `...` elisions
+- Python 3.12+. Snippets are complete and runnable: real imports, pinned deps, no `...` elisions
   unless the block is explicitly pseudocode.
 - Prefer small, deterministic examples (set random seeds). Reproducibility is a feature.
 - State the environment the snippet expects (which `requirements` / extras).

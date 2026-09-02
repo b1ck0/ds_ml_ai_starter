@@ -671,7 +671,7 @@ scikit-learn==1.9.0
 numpy==2.5.2
 pandas==3.0.5
 matplotlib==3.11.1
-Python 3.11+
+Python 3.12+
 ```
 
 Pinned and verified against PyPI/official docs on 2026-09-02

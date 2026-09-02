@@ -10,7 +10,7 @@ This is the ONLY runnable code artefact for this chapter (the SDK snippets in th
 chapter prose are reference-only -- cloud services cannot execute in this sandbox).
 
 Environment: matplotlib==3.11.1 (pinned in research/NOTE-2-package-versions.md,
-verified against PyPI 2026-09-02), Python 3.11+. Run with the project .venv:
+verified against PyPI 2026-09-02), Python 3.12+. Run with the project .venv:
 
     .venv/Scripts/python.exe "Data Science/Cloud Environment Setup/code/platform_workflow_diagram.py"
 

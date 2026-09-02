@@ -56,7 +56,7 @@ Grounded facts:
 
 Environment (research/NOTE-2-package-versions.md checked 2026-09-02, both versions
 re-verified live against this project's .venv-ml on 2026-09-02):
-    numpy==2.5.2, matplotlib==3.11.1, Python 3.11+ (this venv runs 3.13.7). No torch
+    numpy==2.5.2, matplotlib==3.11.1, Python 3.12+ (this venv runs 3.13.7). No torch
     import anywhere in this file -- per SPEC-ML-1, the runnable demo is numpy-only.
 
 Run:

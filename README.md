@@ -38,10 +38,12 @@ ungrounded — every fact traces to a `research/NOTE-*.md` or an inline citation
 3. The architect dispatches the **Sonnet writer** against the one approved spec.
 4. A **fresh Sonnet** reviews against `docs/definition-of-done.md`; the architect merges.
 
-First scoped chapter (draft): [`SPEC-DS-1` — Hypothesis Testing & EDA](specs/SPEC-DS-1-hypothesis-testing-and-eda.md).
+All four subjects are complete — 42 chapters written from approved specs and Haiku-grounded notes:
+Data Science (19), Machine Learning (13), Agentic Engineering (7), AI-assisted SDLC (3). Each
+subject folder's README lists its chapters.
 
 ## Local setup
-Python 3.11+. Create a virtualenv and install the shared tooling; heavy per-subject deps (PyTorch,
+Python 3.12+. Create a virtualenv and install the shared tooling; heavy per-subject deps (PyTorch,
 etc.) are installed per chapter as its spec declares.
 ```bash
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate

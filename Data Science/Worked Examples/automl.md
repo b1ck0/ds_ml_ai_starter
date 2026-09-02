@@ -51,7 +51,7 @@ pandas==3.0.5
 numpy==2.5.2
 matplotlib==3.11.1
 seaborn==0.13.2
-Python 3.11+
+Python 3.12+
 ```
 
 Framework choice, version, and API verified in

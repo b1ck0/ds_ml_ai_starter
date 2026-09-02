@@ -14,7 +14,7 @@ chapter prose are reference-only -- no GCP/AWS/Azure account exists in this sand
 execute them against).
 
 Environment: matplotlib==3.11.1 (pinned in research/NOTE-2-package-versions.md,
-verified against PyPI 2026-09-02), Python 3.11+. Run with the project's ML venv:
+verified against PyPI 2026-09-02), Python 3.12+. Run with the project's ML venv:
 
     .venv-ml/Scripts/python.exe "Machine Learning/Cloud Environment Setup/code/training_workflow_diagram.py"
 

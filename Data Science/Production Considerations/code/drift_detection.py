@@ -57,7 +57,7 @@ Grounded:
 
 Environment (research/NOTE-2-package-versions.md, checked 2026-09-02):
     numpy==2.5.2, matplotlib==3.11.1, scipy==1.18.1, scikit-learn==1.9.0,
-    Python 3.11+ (this script was run and gated against exactly those installed
+    Python 3.12+ (this script was run and gated against exactly those installed
     versions in this project's .venv).
 
 Run:

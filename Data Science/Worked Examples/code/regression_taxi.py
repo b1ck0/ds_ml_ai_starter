@@ -31,7 +31,7 @@ What it does:
 Environment (verified in research/NOTE-2-package-versions.md and
 research/NOTE-5-sklearn-core-apis.md, checked 2026-09-02):
     pandas==3.0.5, numpy==2.5.2, matplotlib==3.11.1, scipy==1.18.1, scikit-learn==1.9.0
-    Python 3.11+ (this script was run and gated on Python 3.13.7 -- see chapter for exact
+    Python 3.12+ (this script was run and gated on Python 3.13.7 -- see chapter for exact
     version installed in this project's .venv).
 
 Run:

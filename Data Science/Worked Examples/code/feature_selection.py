@@ -39,7 +39,7 @@ What it does (mirrors the chapter's sections):
 Environment (installed versions in the project .venv; NOTE-5 / NOTE-13 checked
 2026-09-02):
     numpy==2.5.2, pandas==3.0.5, matplotlib==3.11.1, scikit-learn==1.9.0, scipy==1.18.1
-    Python 3.11+ (this script was run and gated on Python 3.13.7 in the project .venv).
+    Python 3.12+ (this script was run and gated on Python 3.13.7 in the project .venv).
 
 Run:
     .venv/Scripts/python.exe feature_selection.py

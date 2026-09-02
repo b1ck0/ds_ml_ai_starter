@@ -61,7 +61,7 @@ torchvision==0.29.0+cpu
 matplotlib==3.11.1
 numpy==2.5.2
 scikit-learn==1.9.0
-Python 3.11+
+Python 3.12+
 ```
 
 Pinned and verified against PyPI on 2026-09-02, install command confirmed against

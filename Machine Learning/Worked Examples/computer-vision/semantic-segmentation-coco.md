@@ -61,7 +61,7 @@ torch==2.14.0+cpu
 torchvision==0.29.0+cpu
 matplotlib==3.11.1
 numpy==2.5.2
-Python 3.11+
+Python 3.12+
 ```
 
 Same pinned, verified versions and the same separate `.venv-ml` virtualenv as ML-4/ML-5

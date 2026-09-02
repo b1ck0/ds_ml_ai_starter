@@ -35,7 +35,7 @@ Grounded:
     contrasting shape, no version claims made about it in this script.
 
 Environment (research/NOTE-2-package-versions.md, checked 2026-09-02):
-    matplotlib==3.11.1, Python 3.11+ (this script was run and gated against
+    matplotlib==3.11.1, Python 3.12+ (this script was run and gated against
     exactly the installed version in this project's .venv).
 
 Run:

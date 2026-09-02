@@ -36,7 +36,7 @@ Grounded APIs:
 
 Environment (research/NOTE-2-package-versions.md, research/NOTE-5-sklearn-core-apis.md,
 checked 2026-09-02):
-    numpy==2.5.2, matplotlib==3.11.1, scikit-learn==1.9.0, Python 3.11+.
+    numpy==2.5.2, matplotlib==3.11.1, scikit-learn==1.9.0, Python 3.12+.
 
 Run:
     python bias_variance_overfitting.py
