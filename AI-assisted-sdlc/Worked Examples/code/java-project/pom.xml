@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  java-project — the reference project for SPEC-SDLC-2 (AI-assisted-sdlc / Worked Examples).
+
+  Versions pinned here are grounded in research/NOTE-SDLC-1-java-toolchain.md and
+  research/NOTE-SDLC-3-java-gates.md (both verified 2026-09-02), and match the same pins already
+  used by this book's SPEC-SDLC-0 "hello-java" reference project:
+    - maven.compiler.release = 25        (JDK 25 LTS, released Sept 2025 — NOTE-SDLC-1)
+    - junit-jupiter            5.14.3    (NOTE-SDLC-1 / NOTE-SDLC-3)
+    - maven-surefire-plugin    3.5.6     (stable line; 3.6.0-M1 is a milestone — NOTE-SDLC-1)
+    - maven-checkstyle-plugin  3.6.0, pinned to Checkstyle 14.1.0                 (NOTE-SDLC-3)
+    - spotless-maven-plugin    2.46.1                                            (NOTE-SDLC-3)
+    - spotbugs-maven-plugin    4.10.3.0                                          (NOTE-SDLC-3)
+
+  Build + test:      mvn clean test
+  Full local gate:    mvn -q test checkstyle:check spotless:check spotbugs:check
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.example</groupId>
+  <artifactId>java-project</artifactId>
+  <version>1.0.0</version>
+  <packaging>jar</packaging>
+
+  <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <maven.compiler.release>25</maven.compiler.release>
+    <junit.jupiter.version>5.14.3</junit.jupiter.version>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <version>${junit.jupiter.version}</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <finalName>java-project</finalName>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>3.5.6</version>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-checkstyle-plugin</artifactId>
+        <version>3.6.0</version>
+        <configuration>
+          <configLocation>checkstyle.xml</configLocation>
+          <consoleOutput>true</consoleOutput>
+          <failsOnError>true</failsOnError>
+          <violationSeverity>warning</violationSeverity>
+        </configuration>
+        <dependencies>
+          <dependency>
+            <groupId>com.puppycrawl.tools</groupId>
+            <artifactId>checkstyle</artifactId>
+            <version>14.1.0</version>
+          </dependency>
+        </dependencies>
+      </plugin>
+
+      <plugin>
+        <groupId>com.diffplug.spotless</groupId>
+        <artifactId>spotless-maven-plugin</artifactId>
+        <version>2.46.1</version>
+        <configuration>
+          <java>
+            <googleJavaFormat/>
+          </java>
+        </configuration>
+      </plugin>
+
+      <plugin>
+        <groupId>com.github.spotbugs</groupId>
+        <artifactId>spotbugs-maven-plugin</artifactId>
+        <version>4.10.3.0</version>
+      </plugin>
+    </plugins>
+  </build>
+</project>

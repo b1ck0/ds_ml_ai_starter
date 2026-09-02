@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Minimal Maven project for SPEC-SDLC-0 (Local Environment Setup).
+
+  Versions pinned here are grounded in research/NOTE-SDLC-1-java-toolchain.md (verified against
+  Oracle's Java SE Support Roadmap, Apache Maven, and the JUnit 5 release notes, 2026-09-02):
+    - maven.compiler.release = 25  (JDK 25 LTS, released Sept 2025 -- current recommended LTS)
+    - junit-jupiter            5.14.3
+    - maven-surefire-plugin    3.5.6  (stable line; 3.6.0-M1 is a milestone, not used here)
+
+  Build/test with:  mvn clean test
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.example</groupId>
+  <artifactId>hello-java</artifactId>
+  <version>1.0.0</version>
+  <packaging>jar</packaging>
+
+  <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <maven.compiler.release>25</maven.compiler.release>
+    <junit.jupiter.version>5.14.3</junit.jupiter.version>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <version>${junit.jupiter.version}</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <finalName>hello-java</finalName>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>3.5.6</version>
+      </plugin>
+    </plugins>
+  </build>
+</project>
