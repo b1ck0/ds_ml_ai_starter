@@ -1,0 +1,14 @@
+# Shared tooling for the worked examples. Versions are intentionally UNPINNED here — the Haiku
+# researcher verifies and pins the exact versions per chapter (in its research/NOTE-*.md), which is
+# the project's grounding rule. Treat this as the baseline DS stack; heavy per-subject deps
+# (PyTorch, torchvision, transformers, ADK, fastmcp, pgvector clients, cloud SDKs) are installed
+# per chapter as that chapter's spec declares.
+pandas
+numpy
+matplotlib
+scikit-learn
+scipy
+seaborn
+jupyter
+# Snippet/quality tooling used by the content gate:
+ruff

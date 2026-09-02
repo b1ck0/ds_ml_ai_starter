@@ -1,0 +1,6 @@
+# Keep hook scripts LF so they run under Git Bash on Windows (CRLF breaks the shebang).
+*.sh text eol=lf
+.claude/hooks/check_snippets.py text eol=lf
+
+# Normalize text; let Git decide the rest.
+* text=auto

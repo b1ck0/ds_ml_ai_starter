@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+.ipynb_checkpoints/
+
+# Secrets / env
+.env
+.env.*
+!.env.example
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Large / generated data — datasets are fetched by a documented step, not committed as blobs.
+# Commit small teaching datasets deliberately; keep big ones out.
+*.csv.gz
+*.parquet
+*.zip
+*.tar.gz
+data/raw/
+**/datasets/_downloaded/
+
+# Model / training outputs
+*.pt
+*.pth
+*.onnx
+*.h5
+mlruns/
