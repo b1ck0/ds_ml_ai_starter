@@ -1,0 +1,66 @@
+Real transcript captured from the running online_service (SPEC-DS-16), 2026-09-02.
+Environment: dedicated .venv-serving (fastapi==0.141.1, uvicorn==0.52.4, pydantic==2.13.5,
+joblib==1.6.0, scikit-learn==1.9.0, numpy==2.5.2), Python 3.13.7, Windows.
+Server started with: .venv-serving/Scripts/python -m uvicorn app:app --host 127.0.0.1 --port 8000
+
+=== uvicorn server log (stdout) ===
+INFO:     Started server process [39016]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:51771 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51773 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51774 - "POST /predict HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51775 - "POST /predict HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:51776 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51777 - "POST /predict HTTP/1.1" 200 OK
+
+=== python request_example.py output (client side) ===
+GET /health -> 200
+{
+  "status": "ok",
+  "model_version": "eta-regressor-v1"
+}
+
+POST /predict (valid) -> 200
+request body: {"distance_km": 4.2, "num_items": 3, "is_peak_hour": true}
+response body: {
+  "eta_minutes": 31.68,
+  "model_version": "eta-regressor-v1"
+}
+
+POST /predict (invalid: negative distance_km) -> 422
+request body: {"distance_km": -1.0, "num_items": 3, "is_peak_hour": true}
+response body: {
+  "detail": [
+    {
+      "type": "greater_than",
+      "loc": [
+        "body",
+        "distance_km"
+      ],
+      "msg": "Input should be greater than 0",
+      "input": -1.0,
+      "ctx": {
+        "gt": 0.0
+      }
+    }
+  ]
+}
+
+=== curl transcript (equivalent requests, run separately) ===
+$ curl -s http://127.0.0.1:8000/health
+{"status":"ok","model_version":"eta-regressor-v1"}
+
+$ curl -s -X POST http://127.0.0.1:8000/predict -H "Content-Type: application/json" \
+    -d "{\"distance_km\": 2.5, \"num_items\": 1, \"is_peak_hour\": false}"
+{"eta_minutes":19.28,"model_version":"eta-regressor-v1"}
+
+=== model artefact used for this run ===
+model_metadata.json (written by train_model.py):
+{
+  "model_version": "eta-regressor-v1",
+  "feature_order": ["distance_km", "num_items", "is_peak_hour"],
+  "sklearn_version": "1.9.0",
+  "test_rmse_minutes": 3.13
+}

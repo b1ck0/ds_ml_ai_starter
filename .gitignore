@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 .venv/
+.venv-*/
 venv/
 env/
 *.egg-info/
@@ -33,3 +34,12 @@ data/raw/
 *.onnx
 *.h5
 mlruns/
+mlartifacts/
+
+# Local MLOps stores (MLflow sqlite, Feast registry/online store)
+*.db
+*.sqlite
+*.sqlite3
+**/feast_demo/**/data/
+**/feast_demo/**/registry.db
+**/.ipynb_checkpoints/

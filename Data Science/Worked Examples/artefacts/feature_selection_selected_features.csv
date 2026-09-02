@@ -1,0 +1,32 @@
+feature,filter_SelectKBest,wrapper_RFE,wrapper_RFECV,wrapper_SFS_forward,wrapper_SFS_backward,embedded_L1_logistic,embedded_RF_importance,n_methods_selected
+mean concave points,1,1,1,1,1,1,1,7.0
+worst texture,1,1,1,1,1,1,1,7.0
+worst perimeter,1,1,1,1,1,1,1,7.0
+worst area,1,1,1,1,1,1,1,7.0
+radius error,1,1,1,0,1,1,1,6.0
+mean texture,1,1,1,0,1,1,1,6.0
+worst symmetry,1,1,1,1,1,1,0,6.0
+worst concave points,1,1,1,0,1,1,1,6.0
+worst smoothness,1,1,1,1,1,1,0,6.0
+worst concavity,1,1,1,0,1,1,1,6.0
+worst radius,1,1,1,1,0,1,1,6.0
+mean area,1,1,1,1,1,0,1,6.0
+mean radius,1,1,1,1,0,0,1,5.0
+mean perimeter,1,1,1,1,0,0,1,5.0
+compactness error,0,1,1,1,1,1,0,5.0
+mean concavity,1,1,1,1,0,0,1,5.0
+mean compactness,1,1,1,1,1,0,0,5.0
+area error,1,1,1,0,1,0,1,5.0
+fractal dimension error,0,0,1,1,1,1,0,4.0
+perimeter error,1,1,1,0,0,0,0,3.0
+worst compactness,1,0,0,0,1,0,1,3.0
+smoothness error,0,0,1,0,1,1,0,3.0
+concave points error,0,0,0,1,1,0,0,2.0
+mean fractal dimension,0,0,0,1,0,1,0,2.0
+mean symmetry,0,0,0,1,1,0,0,2.0
+texture error,0,0,0,1,0,0,0,1.0
+symmetry error,0,0,1,0,0,0,0,1.0
+concavity error,0,0,0,1,0,0,0,1.0
+worst fractal dimension,0,0,1,0,0,0,0,1.0
+mean smoothness,0,0,0,0,0,0,0,0.0
+TOTAL_SELECTED,19,19,23,19,19,15,15,

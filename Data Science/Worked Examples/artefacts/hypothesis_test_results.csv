@@ -1,0 +1,3 @@
+test,statistic,p_value,effect_size_name,effect_size
+"Welch t-test: flipper_length_mm, Adelie vs Chinstrap",-5.780384584564813,6.049266635901903e-08,Cohen's d,-0.8724635906001581
+Chi-square: species vs island,299.55032743148195,1.3545738297192517e-63,Cramer's V,0.6598431008795325

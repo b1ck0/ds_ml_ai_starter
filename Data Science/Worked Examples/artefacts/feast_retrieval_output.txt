@@ -1,0 +1,57 @@
+$ .venv-feast/Scripts/python.exe generate_data.py
+anchor NOW = 2026-09-02T19:00:00+00:00 -> .../feature_repo/data/anchor_time.txt
+wrote 75 rows -> .../feature_repo/data/driver_stats.parquet
+wrote 40 rows -> .../feature_repo/data/driver_activity.parquet
+ driver_id           event_timestamp  conv_rate  avg_daily_trips                   created
+      1005 2026-08-31 19:00:00+00:00   0.637692        16.177845 2026-09-02 19:00:00+00:00
+      1005 2026-09-01 19:00:00+00:00   0.475740        14.558325 2026-09-02 19:00:00+00:00
+      1005 2026-09-02 19:00:00+00:00   0.428687        14.087789 2026-09-02 19:00:00+00:00
+ driver_id           event_timestamp  trips_today  minutes_since_last_trip                   created
+      1005 2026-09-02 17:36:00+00:00            1                21.023930 2026-09-02 19:00:00+00:00
+      1005 2026-09-02 18:18:00+00:00            2                36.258439 2026-09-02 19:00:00+00:00
+      1005 2026-09-02 19:00:00+00:00            3                34.582870 2026-09-02 19:00:00+00:00
+
+$ .venv-feast/Scripts/python.exe run_demo.py
+No project found in the repository. Using project name driver_demo defined in feature_store.yaml
+Applying changes for project driver_demo
+Created project driver_demo
+Created entity driver
+Created feature view driver_activity
+Created feature view driver_stats
+
+Created sqlite table driver_demo_driver_activity
+Created sqlite table driver_demo_driver_stats
+
+[apply] entities/feature views registered.
+
+Materializing 2 feature views from 2026-08-12 19:00:00+00:00 to 2026-09-02 19:00:00+00:00 into the sqlite online store.
+
+driver_activity:
+driver_stats:
+[materialize] offline -> online copy complete.
+
+[get_historical_features] point-in-time-correct training rows:
+ driver_id           event_timestamp  conv_rate  avg_daily_trips
+      1001 2026-08-23 19:00:00+00:00   0.880474        15.669845
+      1001 2026-09-02 19:00:00+00:00   0.874866        15.613771
+      1002 2026-08-28 19:00:00+00:00   0.513299        21.447451
+      1003 2026-09-02 19:00:00+00:00   0.653797        10.380756
+
+[get_online_features] latest values for a live request:
+ driver_id  conv_rate  avg_daily_trips  trips_today  minutes_since_last_trip
+      1001   0.874866        15.613770            6                40.243675
+      1002   0.539256        21.707018            3                42.486187
+      1003   0.653797        10.380756            6                 6.243503
+
+driver 1001 conv_rate via get_historical_features (row timestamped NOW): np.float64(0.874866159786819)
+driver 1001 conv_rate via get_online_features       (latest, right now): np.float64(0.8748661875724792)
+agree to within 1e-6 (both retrieval paths, same FeatureView): True
+
+--- Environment ---
+Python 3.13.7
+feast==0.66.0
+pandas==2.3.3
+numpy==2.5.2
+matplotlib==3.11.1
+Captured 2026-09-02 from a real run in the project's dedicated .venv-feast
+(NOTE-17-feast-api.md).

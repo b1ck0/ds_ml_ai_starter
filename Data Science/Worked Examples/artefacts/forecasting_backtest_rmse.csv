@@ -1,0 +1,5 @@
+signal,arima_order,arima_mean_rmse,lag_regression_mean_rmse,best_model
+signal_1_linear_sine,"(1, 1, 0) seasonal=(1, 0, 0, 12)",9.329389789398693e-05,5.4977794707378764e-14,lag-feature regression (12 lags)
+signal_2_linear_noise,"(1, 1, 0) seasonal=(0, 0, 0, 0)",14.123314743946773,10.401037442014049,lag-feature regression (12 lags)
+signal_3_sine_noise,"(1, 0, 0) seasonal=(1, 0, 0, 12)",12.440314255683298,10.290231159774581,lag-feature regression (12 lags)
+signal_4_quadratic_noise,"poly_deg=2, AR(1)",10.295523512234897,11.132861957702938,polyfit(deg=2) detrend + AR(1) on residual

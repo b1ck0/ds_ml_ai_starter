@@ -1,0 +1,36 @@
+Experiment: ds12-churn-model-registry-demo (id=1)
+Tracking URI: sqlite:///C:/Users/b1ck0/Documents/python_projects/ds_ml_ai_starter/Data Science/Worked Examples/code/mlflow.db
+
+Registered model: churn_classifier
+  alias '@champion' -> version 2
+  versions:
+    version=2  source_run_id=96aacd69ba8f43039ee529749e60d617  status=READY (aliases: @champion)
+    version=1  source_run_id=a323ce7498784cd29ffa2c00ce71bb04  status=READY
+
+On-disk artifact tree (mlruns/), directories only:
+    1f3f0587664f453dae87f87dbec29974/
+      artifacts/
+    93e445fcadd748689442f9613c20b88d/
+      artifacts/
+    96aacd69ba8f43039ee529749e60d617/
+      artifacts/
+    a323ce7498784cd29ffa2c00ce71bb04/
+      artifacts/
+    e767795b2fff490f870a15cb2da38c67/
+      artifacts/
+    fd62b88bf7484eb488edac6a7ecbca24/
+      artifacts/
+        notes/
+    models/
+      m-07f7154881e94444b4e200b5e10d9c49/
+        artifacts/
+      m-1a592fe977034bf695aca76f050714ee/
+        artifacts/
+      m-444dab35175f4759a1e3047fe69a344a/
+        artifacts/
+      m-9067356fce924091898ca0d516cc7094/
+        artifacts/
+      m-a41568dd5a264cac94b479af808de56b/
+        artifacts/
+      m-c6fc95f5d30e4b1b9c273550c33fc938/
+        artifacts/

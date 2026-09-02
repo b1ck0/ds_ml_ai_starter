@@ -1,0 +1,10 @@
+{
+  "model_version": "eta-regressor-v1",
+  "feature_order": [
+    "distance_km",
+    "num_items",
+    "is_peak_hour"
+  ],
+  "sklearn_version": "1.9.0",
+  "test_rmse_minutes": 3.13
+}
