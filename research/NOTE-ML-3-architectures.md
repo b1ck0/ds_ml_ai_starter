@@ -81,3 +81,6 @@
 4. **Encoder-decoder section:** Draw input sequence → encoder hidden states → context/attention → decoder output sequence; label each component.
 5. **Autoencoder section:** Sketch bottleneck as narrowing layer; emphasize that output reconstructs input (unlike classification where output is class label).
 6. **Convolution demo code:** Use `scipy.signal.convolve2d(..., mode='same')` on small image (e.g., edge-detect kernel); show before/after.
+
+## Correction (verified during authoring, 2026-09-03)
+The autoencoder source `introml.mit.edu/notes/autoencoders.html` is DEAD (404) — verified during ML-2 authoring; use the still-live `v7labs.com/blog/autoencoders-guide` instead.

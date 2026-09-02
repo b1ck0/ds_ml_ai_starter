@@ -85,3 +85,6 @@
    - **Theory chapter (ML-3):** Use numpy hand-vectors (10 words, 8D embeddings); no dependencies, fast.
    - **Production use (Agentic):** Recommend sentence-transformers with all-MiniLM-L6-v2 (or jina-embeddings-v5-text-small) for CPU.
 7. **Cite Hu et al. 2021 for LoRA** when introducing fine-tuning concepts; strongly grounded reference.
+
+## Correction (verified during authoring, 2026-09-03)
+The LoRA citation URLs in evidence item 5 resolve to unrelated papers; the correct LoRA reference is Hu et al. 2021, arXiv:2106.09685 — verified during ML-3 authoring.

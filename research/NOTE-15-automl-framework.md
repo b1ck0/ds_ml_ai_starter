@@ -54,3 +54,6 @@ Do NOT attempt auto-sklearn (Windows blocker); TPOT and H2O are viable but overk
 - [auto-sklearn PyPI](https://pypi.org/project/auto-sklearn/) — Windows error output from pip install attempt
 - [FLAML GitHub / Microsoft Research](https://github.com/microsoft/FLAML)
 - [BlendSearch algorithm documentation](https://microsoft.github.io/FLAML/docs/)
+
+## Correction (verified during authoring, 2026-09-03)
+Running `AutoML.fit(task='classification')` with named estimators needs the `automl` extra: `pip install flaml[automl]`, which pulls lightgbm + xgboost (~125MB), not the ~349KB bare `flaml` — verified during DS-11 authoring.

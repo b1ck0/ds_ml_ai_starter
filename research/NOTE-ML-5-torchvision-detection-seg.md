@@ -61,3 +61,6 @@
 3. **For sample images:** Download Penn-Fudan dataset via the PyTorch tutorial script (automatic) OR use a public CC0 image (e.g., from Unsplash) and demonstrate detection/segmentation on it.
 4. **For post-processing:** Teach score thresholding (e.g., scores > 0.5) and NMS explicitly, even though FasterRCNN does NMS internally; note this in the explanation.
 5. **For segmentation visualization:** Recommend using matplotlib with a colormap on the argmax mask; discuss class imbalance (many background pixels).
+
+## Correction (verified during authoring, 2026-09-03)
+torchvision detection `weights.meta['categories']` has 91 entries (background + 80 real classes + 10 'N/A' gaps), NOT a 1-indexed 1..80 list; `categories[label]` needs no offset — verified live during ML-5 authoring.

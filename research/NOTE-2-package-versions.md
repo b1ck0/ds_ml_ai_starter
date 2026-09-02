@@ -31,3 +31,6 @@
   ```
 - **For Python 3.11 only:** Pin pandas==3.0.5, matplotlib==3.11.1, seaborn==0.13.2, but check PyPI for latest numpy 1.26.x and scipy 1.17.x versions.
 - **Verification step:** In the chapter's environment setup, run `import pandas, numpy, matplotlib, scipy, seaborn; print(f"pandas={pandas.__version__}, numpy={numpy.__version__}, scipy={scipy.__version__}, seaborn={seaborn.__version__}")` to confirm versions in use.
+
+## Correction (verified during authoring, 2026-09-03)
+sklearn `MissingIndicator` default `features` is `'missing-only'` (not `'auto'`) on scikit-learn 1.9.0 — verified live during DS-2 authoring.

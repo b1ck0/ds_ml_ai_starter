@@ -56,3 +56,6 @@ root_agent = Agent(
 5. When combining google-adk + fastapi, test install in a throwaway venv first to catch dependency conflicts before committing.
 
 **Date checked:** 2026-09-02
+
+## Correction (verified during authoring, 2026-09-03)
+The starlette conflict between google-adk and fastapi is STALE: google-adk 2.8.0 loosened its pin to `starlette<2,>=1.3.1`, which is compatible with fastapi 0.141.1 (starlette 1.6.0). `pip install google-adk==2.8.0` co-installs cleanly (dry-run + `pip check` clean) — verified live during AGENT-0 authoring. The two-venv split in AGENT-0 is a defensive choice, not a current hard conflict.
