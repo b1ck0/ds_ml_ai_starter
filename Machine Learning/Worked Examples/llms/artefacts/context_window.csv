@@ -1,0 +1,7 @@
+description,token_count
+"short prompt, raw token count",5
+"same prompt, through chat template",14
+"long prompt, untruncated",2221
+"long prompt, truncated to max_length=2048",2048
+prompt budget (ctx 2048 - max_new_tokens 100),1948
+generate() at the 2048-token boundary (+5 new tokens),2053

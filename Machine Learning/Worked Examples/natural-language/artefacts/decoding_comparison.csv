@@ -1,0 +1,56 @@
+setting,params,full_text,continuation,seconds
+greedy,"{'do_sample': False, 'num_beams': 1}","The future of AI is not yet clear.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+",not yet clear.,1.18
+beam_5,"{'do_sample': False, 'num_beams': 5}","The future of AI is in the hands of the AI.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+",in the hands of the AI.,1.67
+temperature_0.7,"{'do_sample': True, 'temperature': 0.7, 'top_k': 0, 'top_p': 1.0}","The future of AI is not just the work of the AI, but also the work of the human being and the mind itself. The AI's design process is not just about","not just the work of the AI, but also the work of the human being and the mind itself. The AI's design process is not just about",0.73
+temperature_1.5,"{'do_sample': True, 'temperature': 1.5, 'top_k': 0, 'top_p': 1.0}","The future of AI is solid and intelligent work moves on in humanoid conversations, smart hearts translating crucial commands once again would we ever understand interacting with siblings)."" >>> Once It ACM","solid and intelligent work moves on in humanoid conversations, smart hearts translating crucial commands once again would we ever understand interacting with siblings)."" >>> Once It ACM",0.69
+top_k_10,"{'do_sample': True, 'temperature': 1.0, 'top_k': 10, 'top_p': 1.0}","The future of AI is not just the future, it's the future, it is the future, and it is the future. The AI is the future, it is the","not just the future, it's the future, it is the future, and it is the future. The AI is the future, it is the",0.65
+top_p_0.95,"{'do_sample': True, 'temperature': 1.0, 'top_k': 0, 'top_p': 0.95}","The future of AI is solid and intelligent and moves on in humanoid conversations, smart, intelligent, and even clearer. AI can understand, perceive, act, act, respond,","solid and intelligent and moves on in humanoid conversations, smart, intelligent, and even clearer. AI can understand, perceive, act, act, respond,",0.99

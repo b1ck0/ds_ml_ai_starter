@@ -1,0 +1,25 @@
+text,true_label,pred_label,confidence,correct
+This movie was a masterpiece from start to finish.,POSITIVE,POSITIVE,0.9997,True
+I want my two hours back. Absolutely dreadful.,NEGATIVE,NEGATIVE,0.9998,True
+"The plot dragged, but the acting saved it.",POSITIVE,POSITIVE,0.873,True
+One of the worst films I have ever sat through.,NEGATIVE,NEGATIVE,0.9998,True
+"A charming, witty, endlessly rewatchable comedy.",POSITIVE,POSITIVE,0.9999,True
+The dialogue was wooden and the pacing was glacial.,NEGATIVE,NEGATIVE,0.9998,True
+I've never laughed so hard in a theater.,POSITIVE,POSITIVE,0.9996,True
+"Not the worst thing I've seen, but close to it.",NEGATIVE,POSITIVE,0.9756,False
+A visually stunning film with a story to match.,POSITIVE,POSITIVE,0.9999,True
+"Predictable, overlong, and badly edited.",NEGATIVE,NEGATIVE,0.9998,True
+This is not a bad movie at all — quite enjoyable.,POSITIVE,POSITIVE,0.9998,True
+"It was fine, nothing special, forgettable really.",NEGATIVE,NEGATIVE,0.963,True
+An absolute triumph of storytelling and performance.,POSITIVE,POSITIVE,0.9999,True
+Two hours of my life I will never get back.,NEGATIVE,POSITIVE,0.7447,False
+The cinematography alone is worth the ticket price.,POSITIVE,POSITIVE,0.9998,True
+A confusing mess that never finds its footing.,NEGATIVE,NEGATIVE,0.9998,True
+Surprisingly good given the low expectations going in.,POSITIVE,POSITIVE,0.9998,True
+I struggled to stay awake through the second act.,NEGATIVE,NEGATIVE,0.9991,True
+Every performance in this cast is pitch perfect.,POSITIVE,POSITIVE,0.9999,True
+The sequel fails to capture any of the original's magic.,NEGATIVE,NEGATIVE,0.9998,True
+A small gem that deserves a much wider audience.,POSITIVE,POSITIVE,0.9998,True
+"Loud, dumb, and proud of it — skip this one.",NEGATIVE,NEGATIVE,0.9738,True
+Genuinely moving without ever feeling manipulative.,POSITIVE,POSITIVE,0.9999,True
+The special effects can't disguise the lazy script.,NEGATIVE,NEGATIVE,0.9958,True

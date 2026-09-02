@@ -1,0 +1,8 @@
+step,"output_shape (batch, seq_len, d_model)"
+input x,"(2, 5, 8)"
+"MultiHeadAttention(x, x, x)","(2, 5, 8)"
+x + attn_out (residual),"(2, 5, 8)"
+LayerNorm(residual1),"(2, 5, 8)"
+FeedForward(x),"(2, 5, 8)"
+x + ffn_out (residual),"(2, 5, 8)"
+LayerNorm(residual2) = block output,"(2, 5, 8)"

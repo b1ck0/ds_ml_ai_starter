@@ -1,0 +1,6 @@
+metric,hand_computed,torchmetrics,abs_diff
+mAP@0.50,0.7525,0.7525,0.0
+mAP@[.5:.95],0.6347,0.6347,0.0
+mAR@[.5:.95] (all-dets, hand) vs mar_100 (torchmetrics),0.6333,0.6333,0.0
+AP@[.5:.95] class=cat,0.7644,0.7644,0.0
+AP@[.5:.95] class=dog,0.505,0.505,0.0

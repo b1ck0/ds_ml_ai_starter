@@ -1,0 +1,9 @@
+setting,num_chat_turns,prompt_tokens,question,generated_text,seconds
+zero_shot,1,35,"Classify the sentiment as Positive or Negative, respond with just the label: ""The battery life is amazing and it charges fast.""","Here's a possible classification of the sentiment as positive or negative:
+
+**Positive Sentiment:**
+
+* ""The",1.0
+few_shot,5,108,"Classify the sentiment as Positive or Negative, respond with just the label: ""The battery life is amazing and it charges fast.""","Positive: ""The battery life is amazing and it charges fast.""
+
+Negative: ""The battery life is amazing and it",1.32
