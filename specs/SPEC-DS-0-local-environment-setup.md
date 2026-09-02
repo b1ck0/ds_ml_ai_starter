@@ -1,6 +1,6 @@
 # SPEC-DS-0: Local Environment Setup (Data Science)
 
-**Status:** approved
+**Status:** done (written by Sonnet, grounded by Haiku, independently reviewed + merged 2026-09-03)
 **Subject:** Data Science
 **Section:** Local Environment Setup
 **Routing:** writer=Sonnet 4.6 · research=Haiku · review=Sonnet (fresh) · architect=Opus 4.8

@@ -1,6 +1,6 @@
 # SPEC-ML-8: Text Classification with Transformers (RoBERTa/DistilBERT)
 
-**Status:** approved
+**Status:** done (written by Sonnet, grounded by Haiku, independently reviewed + merged 2026-09-03)
 **Subject:** Machine Learning
 **Section:** Worked Examples (Natural Language)
 **Routing:** writer=Sonnet 4.6 · research=Haiku · review=Sonnet (fresh) · architect=Opus 4.8

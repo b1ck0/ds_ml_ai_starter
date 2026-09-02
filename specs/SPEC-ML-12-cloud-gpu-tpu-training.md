@@ -1,6 +1,6 @@
 # SPEC-ML-12: Cloud — GPU/TPU training and blob storage (Google/AWS/Azure)
 
-**Status:** approved
+**Status:** done (written by Sonnet, grounded by Haiku, independently reviewed + merged 2026-09-03)
 **Subject:** Machine Learning
 **Section:** Cloud Environment Setup
 **Routing:** writer=Sonnet 4.6 · research=Haiku · review=Sonnet (fresh) · architect=Opus 4.8

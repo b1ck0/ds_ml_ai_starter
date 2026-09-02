@@ -1,6 +1,6 @@
 # SPEC-SDLC-1: Theory — Prompts, Rules, Hooks, Gates, Tools, Sub-agents, Skills
 
-**Status:** approved
+**Status:** done (written by Sonnet, grounded by Haiku, independently reviewed + merged 2026-09-03)
 **Subject:** AI-assisted-sdlc
 **Section:** Theory
 **Routing:** writer=Sonnet 4.6 · research=Haiku · review=Sonnet (fresh) · architect=Opus 4.8

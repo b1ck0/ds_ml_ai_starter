@@ -1,6 +1,6 @@
 # SPEC-AGENT-3: RAG over PDFs
 
-**Status:** approved
+**Status:** done (written by Sonnet, grounded by Haiku, independently reviewed + merged 2026-09-03)
 **Subject:** Agentic Engineering
 **Section:** Worked Examples
 **Routing:** writer=Sonnet 4.6 · research=Haiku · review=Sonnet (fresh) · architect=Opus 4.8

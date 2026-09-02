@@ -1,6 +1,6 @@
 # SPEC-DS-7: Multi-class and multi-label classification
 
-**Status:** approved
+**Status:** done (written by Sonnet, grounded by Haiku, independently reviewed + merged 2026-09-03)
 **Subject:** Data Science
 **Section:** Worked Examples
 **Routing:** writer=Sonnet 4.6 · research=Haiku · review=Sonnet (fresh) · architect=Opus 4.8

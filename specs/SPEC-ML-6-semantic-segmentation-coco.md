@@ -1,6 +1,6 @@
 # SPEC-ML-6: Semantic Segmentation — pretrained models, pixel-wise labels
 
-**Status:** approved
+**Status:** done (written by Sonnet, grounded by Haiku, independently reviewed + merged 2026-09-03)
 **Subject:** Machine Learning
 **Section:** Worked Examples (Computer Vision)
 **Routing:** writer=Sonnet 4.6 · research=Haiku · review=Sonnet (fresh) · architect=Opus 4.8

@@ -1,6 +1,6 @@
 # SPEC-AGENT-0: Local Environment Setup (Agentic Engineering)
 
-**Status:** in-review (written 2026-09-03 by Sonnet chapter-writer; gate evidence in the writer's report — snippet-check pass, live pgvector Docker run, .venv-agent/.venv-adk verification; awaiting independent chapter-reviewer + architect merge)
+**Status:** done (written by Sonnet, grounded by Haiku, independently reviewed + merged 2026-09-03)
 **Subject:** Agentic Engineering
 **Section:** Local Environment Setup
 **Routing:** writer=Sonnet 4.6 · research=Haiku · review=Sonnet (fresh) · architect=Opus 4.8
