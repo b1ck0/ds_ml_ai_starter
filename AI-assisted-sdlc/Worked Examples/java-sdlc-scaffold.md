@@ -97,14 +97,17 @@ sub-agent making unsupervised. The three roles that *are* files:
   independently doubt it. Its process explicitly re-runs the gate itself rather than trusting the
   implementer's report — see §5.
 
-All three frontmatter blocks match the schema
-[`research/NOTE-SDLC-2-claude-code.md`](../../research/NOTE-SDLC-2-claude-code.md) and
-[`research/NOTE-SDLC-3-java-gates.md`](../../research/NOTE-SDLC-3-java-gates.md) document —
-required `name` + `description`, `model` from the documented set
+All three frontmatter blocks use only the **core** sub-agent fields — required `name` + `description`,
+plus `model` from the documented set
 [source: Subagents — Claude Code Docs](https://code.claude.com/docs/en/sub-agents) (checked
-2026-09-03: the live page's frontmatter table lists exactly `name` (required), `description`
-(required), `tools`, `model` — with the documented values `sonnet`, `opus`, `haiku`, `fable`, a full
-model ID, or `inherit` — matching NOTE-SDLC-2/3 exactly). This isn't asserted from memory:
+2026-09-03: the live page's frontmatter table lists `name` (required), `description` (required),
+`tools`, and `model` — with the documented values `sonnet`, `opus`, `haiku`, `fable`, a full model ID,
+or `inherit`). These four are all this scaffold needs.
+[`research/NOTE-SDLC-2-claude-code.md`](../../research/NOTE-SDLC-2-claude-code.md) and
+[`research/NOTE-SDLC-3-java-gates.md`](../../research/NOTE-SDLC-3-java-gates.md) additionally catalog
+the **optional** extended fields (`permissionMode`, `maxTurns`, `skills`, `mcpServers`, `hooks`,
+`memory`, `isolation`, `color`, and others) for when you need them — see NOTE-SDLC-2 for the full list.
+This isn't asserted from memory:
 [`code/validate_frontmatter.py`](code/validate_frontmatter.py) parses all three files' YAML
 frontmatter with PyYAML and checks it against that documented schema programmatically. Real,
 captured run:
@@ -279,7 +282,7 @@ file has no *syntax* error hiding behind the missing-dependency errors — every
 The Luhn checksum itself — double every second digit counting from the right, subtract 9 from any
 doubled digit over 9, sum everything, valid iff the total is a multiple of 10 — is grounded inline
 in the feature spec and the Javadoc, not asserted from memory: [source: Luhn algorithm —
-Wikipedia](https://en.wikipedia.org/wiki/Luhn_algorithm) (checked 2026-09-03). This is why
+Wikipedia](https://en.wikipedia.org/wiki/Luhn_algorithm) (checked 2026-09-02). This is why
 [`docs/features/FEATURE-1-luhn-validator.md`](code/java-project/docs/features/FEATURE-1-luhn-validator.md)'s
 own "Claims to ground" section says **none required**: the algorithm is a fixed, fully-specified
 piece of arithmetic with an authoritative inline citation, not a package version, a dataset licence,

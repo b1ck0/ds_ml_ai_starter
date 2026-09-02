@@ -395,11 +395,10 @@ merge → reopen — and that loop is not a metaphor for this book: it is the li
 produced this chapter, gated by the same `verify.sh`/`guard.sh` hooks and the same
 `docs/definition-of-done.md` checklist described above.
 
-This chapter assumed Claude Code is already installed and authenticated — that's **Local
-Environment Setup** (SPEC-SDLC-0), the AI-assisted-sdlc subject's prerequisite chapter *(its spec is
-approved; its prose is not yet written — see `specs/SPEC-SDLC-0-local-environment-setup.md`)*. Next
-in the subject is the capstone worked example, **Scaffolding a governed SDLC for a new Java project**
-(SPEC-SDLC-2) *(also approved, also not yet written — `specs/SPEC-SDLC-2-java-project-sdlc-scaffold.md`)*:
-it takes every primitive defined here and reproduces this exact `.claude/` scaffold — charter, docs,
-agent roster, hooks, settings — for a Java project on the reader's own home turf, then runs one real
-feature through the whole loop, spec to merge.
+This chapter assumed Claude Code is already installed and authenticated — that's
+[**Local Environment Setup**](../Local%20Environment%20Setup/local-environment-setup.md) (SPEC-SDLC-0),
+the AI-assisted-sdlc subject's prerequisite chapter. Next in the subject is the capstone worked
+example, [**Scaffolding a governed SDLC for a new Java project**](../Worked%20Examples/java-sdlc-scaffold.md)
+(SPEC-SDLC-2): it takes every primitive defined here and reproduces this exact `.claude/` scaffold —
+charter, docs, agent roster, hooks, settings — for a Java project on the reader's own home turf, then
+runs one real feature through the whole loop, spec to merge.
