@@ -43,3 +43,15 @@ mlartifacts/
 **/feast_demo/**/data/
 **/feast_demo/**/registry.db
 **/.ipynb_checkpoints/
+
+# Reference repos — the owner's other projects, cloned locally as source material only.
+# Chapters must REIMPLEMENT self-contained; these are never committed into the book.
+reference-repos/
+object-detection/
+tensorflow-samples/
+Python-Refresher-Course/
+transfer-training-samples/
+Bayesian-Inference/
+topcoder_chess/
+kaggle_chess/
+Kaggle/

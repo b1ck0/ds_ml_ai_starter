@@ -37,6 +37,15 @@ A chapter is DONE only when **every** box below is checked. No exceptions "to be
 - [ ] Every external link resolves.
 - [ ] No secrets committed; `.env.example` updated if config changed.
 
+## Repository coherence (standing rule)
+Adding, renaming, or rescoping a chapter is not done until **every related document** is updated in
+the same change, so the repo stays internally consistent:
+- [ ] `docs/curriculum.md` (backlog / chapter list) reflects the change.
+- [ ] The relevant `<subject>/README.md` section listing includes the chapter in the right order.
+- [ ] Sibling cross-links updated — prerequisites, "what's next" pointers, and any "you are here" maps.
+- [ ] `docs/architecture.md` updated if the repository shape changed.
+- [ ] `NN-` numbering stays contiguous and matches the intended reading order.
+
 ## Process
 - [ ] One chapter per PR; PR body maps each acceptance criterion → its evidence (snippet / NOTE / artefact).
 - [ ] Independent review by a **fresh** reviewer (not the writer) — sign-off recorded.
