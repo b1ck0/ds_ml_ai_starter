@@ -2,23 +2,68 @@
 
 *Machine Learning · Worked Examples · Computer Vision · SPEC-ML-4*
 
-Every ML-1/ML-2 theory chapter so far has talked *about* neurons, gradients, and convolutions. This
-chapter turns that theory into about a minute of your CPU's time: a convolutional neural network that
-looks at 60,000 handwritten digits, adjusts ~207,000 numbers by gradient descent, and ends up
-correctly reading digits it has never seen with **98.88% accuracy** — the actual number this
-chapter's code produced, not a textbook claim (full run log in Section 4). MNIST is deep learning's
-"hello world" for a good reason: it's small enough to train on a laptop CPU in minutes, but it forces
-you to write every piece of a real training pipeline — data loading, a model, a loop, an evaluation —
-exactly the shape you'll reuse for far bigger problems later in this course.
+## Teaching a machine to read a five
+
+Somewhere in a US Census Bureau office in the early 1990s, an employee filled in a form by hand —
+a stray "5," maybe a rushed loop that made it look a little like a "3." Nobody thought twice about
+it. That digit, and tens of thousands like it from Census workers and from high-school students in
+Bethesda, Maryland, ended up as the raw material for one of the most-cited datasets in the history
+of machine learning.
+
+**Yann LeCun, Corinna Cortes, and Christopher J.C. Burges** built the **MNIST database** ("Modified
+NIST") before the summer of 1994 by remixing two existing NIST collections — SD-3 (223,125 digits
+from Census workers) and SD-7 (58,646 digits from high-schoolers) — because the originals had a
+problem for machine learning: NIST had put the neat, easy Census-worker digits in the training set
+and the messier student handwriting in the test set. LeCun, Cortes, and Burges shuffled the two
+together and normalized every digit to a fixed 28×28-pixel grayscale image, split 60,000 for
+training and 10,000 for testing
+([source: Wikipedia, "MNIST database"](https://en.wikipedia.org/wiki/MNIST_database), checked
+2026-09-03). LeCun's 1998 paper *Gradient-Based Learning Applied to Document Recognition* — the
+paper that introduced the LeNet-5 convolutional network whose shape you'll recognize in Section 3 —
+used this exact dataset, reporting a support-vector machine that reached 0.8% error on it
+([source: Wikipedia, "MNIST database"](https://en.wikipedia.org/wiki/MNIST_database), checked
+2026-09-03).
+
+Three decades later, MNIST is still the dataset a new deep-learning framework gets pointed at
+first — its "hello world." Not because reading digits is a hard problem any more (this chapter's
+own model gets **98.88%** of them right, Section 4), but because it's small enough to train on a
+laptop CPU in about a minute while forcing you to write every moving part of a real training
+pipeline: load data, define a model, run a training loop, evaluate it. That's the whole shape of
+this chapter, and it's the shape every later computer-vision chapter in this course reuses on
+harder problems.
+
+Here's the one-sentence version you could repeat at dinner: **teach a computer to recognize a
+handwritten digit by showing it tens of thousands of examples and letting it slowly correct its own
+mistakes.** The rest of this chapter is that sentence, unpacked one step at a time.
+
+```mermaid
+flowchart LR
+    A["Step 1<br/>load 70,000 digit images<br/>(MNIST via torchvision)"] --> B["Step 2<br/>build a small CNN<br/>(nn.Module)"]
+    B --> C["Step 3<br/>train: forward, loss,<br/>backward, optimizer step<br/>(repeated 2,814 times)"]
+    C --> D["Step 4<br/>evaluate on 10,000<br/>unseen digits"]
+    D --> E["Step 5<br/>read the mistakes<br/>(confusion matrix, sample grid)"]
+    E -.->|"this chapter runs the loop once, on handwritten digits"| A
+```
+
+Five words this chapter leans on constantly — plain-language glosses, up front, so nothing is left
+unexplained the first time it shows up in code:
+
+| Term | Plain gloss |
+|---|---|
+| **epoch** | one full pass over all 60,000 training images |
+| **batch** | one small group of images (64, here) the model looks at before updating its weights once |
+| **loss** | one number: how wrong the model's predictions were on the current batch |
+| **optimizer** | the algorithm that nudges every weight a little, in whichever direction would have made that loss smaller |
+| **`DataLoader`** | PyTorch's iterator that pages through a dataset in shuffled batches — a `Stream`-like wrapper around a `List`-like `Dataset` |
 
 ## 1. What & why
 
 A Java service you write by hand has a control-flow graph you can read: `if fraudScore > 0.8, deny`.
 A CNN has no such branches — it has **weights**: millions of `float` values, initialized randomly,
 that get nudged a tiny bit after each look at the data until the network's output starts agreeing
-with the labels. Training *is* that nudging process, repeated tens of thousands of times. This
-section maps the vocabulary onto things you already know, then the rest of the chapter builds it in
-code.
+with the labels. Training *is* that nudging process, repeated tens of thousands of times — "Step 3"
+in the map above, unpacked in full in Section 4. This section maps the rest of the vocabulary onto
+things you already know; the rest of the chapter builds it in code.
 
 **Epoch and batch — the Java analogy.** If you've ever written a nightly batch job that streams a
 table in JDBC pages of 500 rows, committing after each page, you already understand the mechanic:
@@ -42,7 +87,7 @@ layer is a tiny `Module`; the CNN you'll build in Section 3 is a bigger `Module`
 ones — composition, the same instinct you already have for composing small, testable Java classes
 into a larger service.
 
-**Autograd — the part with no Java equivalent.** When you call `loss.backward()` in Section 5,
+**Autograd — the part with no Java equivalent.** When you call `loss.backward()` in Section 4,
 PyTorch walks backward through every operation that produced `loss` and computes, automatically, how
 much each of the ~207,000 weights contributed to the error — the *gradient*. There is no equivalent
 in ordinary Java code; the closest mental model is a build tool computing a dependency graph and then
@@ -82,10 +127,22 @@ required or used anywhere in this chapter).
 
 **MNIST** is 70,000 grayscale images of handwritten digits (0–9), each 28×28 pixels: 60,000 for
 training, 10,000 held out for testing — confirmed by loading the dataset and calling `len()` on it
-(Section 2 output below), not assumed. `torchvision.datasets.MNIST` downloads and caches it for you;
-NOTE-ML-1 flags that Yann LeCun's original server intermittently returns 403s, so torchvision now
-pulls from a more reliable S3 mirror by default
+(below), not assumed. `torchvision.datasets.MNIST` downloads and caches it for you; NOTE-ML-1 flags
+that Yann LeCun's original server intermittently returns 403s, so torchvision now pulls from a more
+reliable S3 mirror by default
 ([source: NOTE-ML-1-torch-install](../../../research/NOTE-ML-1-torch-install.md)).
+
+Four moves turn those 70,000 files on disk into shuffled batches of tensors a model can actually
+train on — a `Dataset` that knows how to fetch example *N*, a `transform` that converts and rescales
+pixels, and a `DataLoader` that pages through the whole thing in shuffled batches:
+
+```mermaid
+flowchart LR
+    RAW["MNIST files<br/>70,000 grayscale digits<br/>28x28 pixels, labels 0-9"] --> DS["datasets.MNIST<br/>a Dataset: knows how to<br/>fetch example N"]
+    DS --> TF["transforms.v2<br/>ToImage, then ToDtype(scale=True)<br/>uint8 0..255 to float32 0.0..1.0"]
+    TF --> DL["DataLoader<br/>batch_size=64, shuffle=True"]
+    DL --> BATCH["one batch<br/>images (64,1,28,28)<br/>labels (64,)"]
+```
 
 ```python
 from pathlib import Path
@@ -166,7 +223,23 @@ labels.
 ## 3. Model — a small CNN as `nn.Module`
 
 The architecture: two convolution blocks (convolve → activate → downsample), then two fully connected
-layers that turn the final feature map into 10 class scores, one per digit.
+layers that turn the final feature map into 10 class scores, one per digit — the classic
+conv → relu → pool → fc stack, drawn once here so the code in a moment is just this picture typed
+out:
+
+```mermaid
+flowchart TD
+    IN["input image<br/>1x28x28 grayscale"] --> C1["Conv2d 1 to 16 channels<br/>3x3 kernel, padding=1<br/>16x28x28"]
+    C1 --> R1["ReLU"]
+    R1 --> P1["MaxPool2d 2x2<br/>16x14x14"]
+    P1 --> C2["Conv2d 16 to 32 channels<br/>3x3 kernel, padding=1<br/>32x14x14"]
+    C2 --> R2["ReLU"]
+    R2 --> P2["MaxPool2d 2x2<br/>32x7x7"]
+    P2 --> FL["flatten<br/>1568 numbers"]
+    FL --> FC1["Linear 1568 to 128"]
+    FC1 --> R3["ReLU"]
+    R3 --> FC2["Linear 128 to 10<br/>10 raw logits, one per digit"]
+```
 
 ```python
 from torch import nn
@@ -240,7 +313,35 @@ adjusts, a little, after every single batch in Section 4.
 
 ## 4. Train — the loop, line by line
 
-This is the part with no direct Java equivalent, so each line gets its own explanation.
+Here's the question every ML-1/ML-2 theory chapter has been building toward, and the one this
+section finally answers with running code: **how does a network actually learn to read a digit?**
+Not "what is a gradient" in the abstract — what actually happens, one line at a time, between a
+randomly-initialized model that gets everything wrong and a model that's right 98.88% of the time?
+
+The answer is a four-step cycle, repeated once per batch:
+
+1. **Forward pass** — show the model a batch of images; it guesses, badly at first (Section 3's
+   `forward()` method, called once).
+2. **Loss** — measure exactly how wrong those guesses were, as one number.
+3. **Backward pass** — work out how much *each* of the ~207,000 weights is to blame for that number.
+4. **Optimizer step** — nudge every weight a little, in the direction that would have made the loss
+   smaller.
+
+Then repeat, on the next batch — 938 times per epoch, for 3 epochs, 2,814 nudges in total. That
+loop, running unattended, is what turns a useless random model into a 98.88%-accurate one. Here's
+the cycle as a picture, before it's code:
+
+```mermaid
+flowchart LR
+    ZG["zero_grad<br/>clear last batch's blame"] --> FWD["forward pass<br/>logits = model(images)"]
+    FWD --> LOSS["loss_fn(logits, labels)<br/>how wrong, one number"]
+    LOSS --> BWD["loss.backward()<br/>autograd: blame each of the<br/>~207,000 weights"]
+    BWD --> STEP["optimizer.step()<br/>nudge every weight downhill"]
+    STEP -.->|"next batch, 938 times per epoch"| ZG
+```
+
+This is the part with no direct Java equivalent, so each line of the actual code gets its own
+explanation below.
 
 ```python
 from torch import optim
@@ -303,7 +404,27 @@ for epoch in range(1, EPOCHS + 1):
 like dropout/batch-norm (this particular model has neither, but the habit is universal) to behave in
 training mode. Section 6 covers its evaluation-time counterpart, `model.eval()`.
 
-### Running it
+**Forward and backward, side by side.** `forward()` runs top to bottom through Section 3's layers to
+produce `logits`; `loss.backward()` then walks back through that *exact same chain of operations*,
+in reverse, leaving a gradient at every layer it passes through:
+
+```mermaid
+flowchart TD
+    subgraph FWD["forward pass: images to logits"]
+        I1["images<br/>64x1x28x28"] --> L1["conv1, relu, pool"] --> L2["conv2, relu, pool"] --> L3["flatten, fc1, relu, fc2"] --> O1["logits<br/>64x10"]
+    end
+    O1 --> LS["loss_fn(logits, labels)"]
+    LS --> G1["backward: gradient at fc2"]
+    G1 --> G2["gradient at fc1"]
+    G2 --> G3["gradient at conv2"]
+    G3 --> G4["gradient at conv1<br/>every weight now has a .grad"]
+```
+
+Autograd is what makes the bottom half of that picture automatic — you write the forward pass once,
+in ordinary Python, and PyTorch derives the entire backward pass from it. There's nothing to
+hand-code and nothing resembling it in typical Java code.
+
+### Running it — watch it get smarter, epoch by epoch
 
 The full script (`code/mnist_cnn.py`) wraps this loop with per-epoch evaluation and seeds every
 source of randomness — Python's `random`, NumPy, and PyTorch — with `SEED = 42`, so the numbers below
@@ -313,7 +434,8 @@ reproduce exactly on any machine running the pinned CPU wheels:
 .venv-ml/Scripts/python.exe "Machine Learning/Worked Examples/computer-vision/code/mnist_cnn.py"
 ```
 
-Actual run log, unedited:
+Actual run log, unedited — watch the loss column fall and the accuracy column climb, together,
+across all three epochs:
 
 ```text
 Device: cpu
@@ -479,10 +601,11 @@ pixel patterns.
   — Section 1 mapped batch/epoch onto a JDBC paging job and `nn.Module` onto a composable interface;
   autograd (the automatic backward walk through every tensor operation in `forward()`) has no direct
   equivalent and is the one genuinely new idea.
-- **The training loop is five lines that repeat every batch:** `zero_grad()` → `model(images)` (the
-  forward pass) → `loss_fn(logits, labels)` → `loss.backward()` (autograd computes gradients) →
-  `optimizer.step()` (Adam applies them). Miss the first line and gradients silently accumulate across
-  batches; that's Section 6's single most common real bug.
+- **The training loop is a four-step cycle that repeats every batch:** forward pass (`model(images)`)
+  → loss (`loss_fn(logits, labels)`, how wrong) → backward pass (`loss.backward()`, autograd assigns
+  blame to each of the ~207,000 weights) → optimizer step (`optimizer.step()`, nudge every weight
+  downhill) — preceded each time by `zero_grad()`. Miss that first line and gradients silently
+  accumulate across batches; that's Section 6's single most common real bug.
 - **A small CNN (2 conv blocks + 2 FC layers, ~207K parameters) reached 98.88% test accuracy in 3
   epochs and under 62 seconds, entirely on CPU** — the actual run log is reproduced verbatim in
   Section 4, and the model, loss curve, confusion matrix, and sample-prediction artefacts in
@@ -520,3 +643,15 @@ producing. The trained weights (`artefacts/mnist_cnn.pt`, ~830 KB) are committed
 are fully regenerable — `*.pt` is gitignored — by rerunning `code/mnist_cnn.py`, which reproduces
 identical numbers given the fixed seed (verified by running the script twice; both runs produced
 `test_accuracy=0.9888` and an identical confusion matrix).
+
+**Restyle note (2026-09-03):** this chapter was restyled into the storytelling/heavy-visual house
+style (`docs/style-guide.md`). Every `python` code block, artefact reference, and real number
+(accuracy, epochs, wall-clock, loss values, parameter counts) is unchanged from the prior version —
+only prose structure and five new Mermaid diagrams were added. The one genuinely new claim introduced
+by the restyle is the MNIST/LeCun origin story in the cold open (creators, SD-3/SD-7 source data,
+1994 construction date, the 1998 LeNet-5 paper's 0.8% SVM error rate), grounded inline against
+[Wikipedia, "MNIST database"](https://en.wikipedia.org/wiki/MNIST_database) (checked 2026-09-03) —
+Yann LeCun's own MNIST page (`yann.lecun.com/exdb/mnist`) was attempted first but was unreachable
+(connection refused) from this environment at the time of writing, so Wikipedia was used as the
+authoritative fallback per the style guide's inline-citation allowance; no NOTE was produced for this
+single-fact historical claim since it does not affect any runnable code, version, or metric.
