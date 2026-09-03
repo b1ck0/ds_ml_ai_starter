@@ -2,12 +2,48 @@
 
 *Data Science · Local Environment Setup · SPEC-DS-0*
 
-Every chapter after this one assumes you already have a working Python data-science environment:
-an interpreter, an isolated place for dependencies, a way to pin exactly what you installed, an
-IDE that knows where to find all of it, and a notebook you can run cells in. This chapter builds
-that environment once, explains every piece against the Java toolchain you already know, and ends
-with a script that proves the whole stack is wired up correctly. Skip nothing here — a shaky
-environment is the single most common reason a later chapter's code "doesn't work on my machine."
+## The install that broke a working project two weeks later
+
+You've felt this exact failure before, just wearing a Java costume: a build that worked yesterday
+fails today with no code change, and someone eventually traces it to a dependency version that
+quietly moved out from under the project. In Java, that's rare and usually a build-tool
+misconfiguration — Maven and Gradle give every module its own resolved dependency tree by default,
+so it takes real effort to let two projects fight over the same JAR.
+
+Python does not give you that for free. Picture two projects on the same laptop: Project A was
+built against `pandas==2.1.0`, Project B needs the newer `pandas==3.0.5` for a feature it relies
+on. Install Python normally, `pip install` each project's dependencies the obvious way — no other
+tool involved — and both commands write into the **same** global `site-packages` directory. The
+second install wins. Project A's tests, which were green on Monday, start throwing
+`AttributeError`s on Wednesday because a method it depended on changed shape between pandas 2.1
+and 3.0 — and nobody touched Project A's code. That is the whole bug report: "it broke, and I
+didn't change anything," which is the single most common environment failure a newcomer to Python
+hits, and it is entirely avoidable.
+
+Here's the one-sentence fix, the kind you could repeat at dinner: **give every project its own
+private copy of "installed packages," the same way Java gives every module its own resolved
+classpath, so installing something for one project can never break another.** That private copy is
+called a **virtual environment**, or `venv`, and building one — plus the tools that fill it,
+declare it, and point an IDE and a notebook at it — is this entire chapter.
+
+```mermaid
+flowchart LR
+    PY["Python interpreter<br/>(3.12+)"] --> VENV["venv<br/>(an isolated classpath,<br/>per project)"]
+    VENV --> PIP["pip install -r<br/>requirements.txt"]
+    PIP --> STACK["the DS stack<br/>(pandas, numpy, matplotlib,<br/>scipy, seaborn, scikit-learn)"]
+    STACK --> IDE["PyCharm<br/>(interpreter pointed at this venv)"]
+    STACK --> NB["Jupyter<br/>(notebook kernel on this venv)"]
+    IDE --> READY["you are here --<br/>ready for SPEC-DS-1"]
+    NB --> READY
+```
+
+That's the whole toolchain, left to right, and this chapter builds every box in it, in order. Every
+chapter after this one assumes you already have a working Python data-science environment: an
+interpreter, an isolated place for dependencies, a way to pin exactly what you installed, an IDE
+that knows where to find all of it, and a notebook you can run cells in. This chapter builds that
+environment once, explains every piece against the Java toolchain you already know, and ends with a
+script that proves the whole stack is wired up correctly. Skip nothing here — a shaky environment
+is the single most common reason a later chapter's code "doesn't work on my machine."
 
 ## 1. What & why — the Python toolchain vs. the Java one
 
@@ -33,6 +69,21 @@ over it. A virtual environment exists purely to reintroduce the isolation Java g
 it is a private copy of `site-packages` plus a pointer back at a real interpreter, so
 `pip install pandas==3.0.5` in one project's venv can coexist peacefully with
 `pandas==2.1.0` in another's.
+
+Here's the failure from the opening story and its fix, side by side:
+
+```mermaid
+flowchart TB
+    subgraph NOVENV["no venv: one global site-packages"]
+        A1["Project A<br/>pip install pandas==2.1.0"] --> SHARED["one shared<br/>site-packages"]
+        A2["Project B<br/>pip install pandas==3.0.5"] --> SHARED
+        SHARED --> BROKEN["Project A's import now<br/>silently sees 3.0.5 --<br/>green Monday, red Wednesday"]
+    end
+    subgraph ISOVENV["with venv: isolated per project"]
+        B1["Project A<br/>.venv-a: pandas==2.1.0"] --> SEP1["A's own<br/>site-packages"]
+        B2["Project B<br/>.venv-b: pandas==3.0.5"] --> SEP2["B's own<br/>site-packages"]
+    end
+```
 
 Keep that "isolated classpath per project" framing in mind for the rest of this chapter — every
 step below is either creating that isolation (venv), filling it declaratively (pip +
@@ -73,8 +124,15 @@ checked 2026-09-02).
 
 Activation is what points your shell's `python` and `pip` commands at the venv's private
 interpreter instead of the system one — conceptually the same switch as `sdk use` in a Java
-version manager, just scoped to one venv instead of one JDK. The exact command depends on your
-shell, per the official Python documentation
+version manager, just scoped to one venv instead of one JDK:
+
+```mermaid
+flowchart LR
+    SHELL["your shell's<br/>python / pip commands"] -->|"before activation"| SYS["system Python<br/>(no isolation)"]
+    SHELL -->|"after activation"| VENVPY["venv's private<br/>interpreter + site-packages"]
+```
+
+The exact command depends on your shell, per the official Python documentation
 ([source: venv — Creation of virtual environments](https://docs.python.org/3/library/venv.html),
 checked 2026-09-02):
 
@@ -146,6 +204,14 @@ into the venv's private `site-packages` — the same "resolve, download, install
 resolver is simpler; large projects sometimes reach for a lockfile tool like `pip-tools` or
 `poetry` for that reason — this course sticks with plain `pip` + `requirements.txt`, which is
 enough for every chapter here).
+
+```mermaid
+flowchart LR
+    REQ["requirements.txt<br/>(the dependency list)"] --> RESOLVE["pip resolves<br/>each pinned version"]
+    RESOLVE --> DL["downloads the matching<br/>wheel for your OS/Python"]
+    DL --> INSTALL["installs into .venv's<br/>private site-packages"]
+    INSTALL --> VERIFY["verify_env.py confirms<br/>every import works (Section 3.4)"]
+```
 
 ### 3.2 What each library is for
 
@@ -265,8 +331,16 @@ is all this chapter, and every chapter after it, requires.
 ### 4.2 Point PyCharm at the venv's interpreter
 
 This is the step with a direct Java analogue: it's the same move as pointing an IntelliJ module at
-a specific JDK/SDK, just for a virtualenv instead of a JDK install. Open the project folder in
-PyCharm, then:
+a specific JDK/SDK, just for a virtualenv instead of a JDK install.
+
+```mermaid
+flowchart LR
+    IJ["IntelliJ:<br/>Project Structure -> SDK"] -.->|"same move,<br/>different tool"| PC["PyCharm:<br/>Settings -> Python Interpreter"]
+    PC --> PICK["point at .venv's<br/>python.exe / python"]
+    PICK --> RESOLVED["PyCharm now runs & resolves<br/>imports using THIS venv"]
+```
+
+Open the project folder in PyCharm, then:
 
 1. **File → Settings → Project → Python Interpreter** (macOS: **PyCharm → Settings → …**).
 2. Click **Add Interpreter → Add Local Interpreter**.
@@ -305,6 +379,20 @@ closer to a JShell session: you evaluate an expression, its result (and any vari
 stays live in the session, and you can go back and evaluate a different snippet next, still seeing
 everything defined so far — except a notebook *saves* that sequence of inputs and outputs to a file
 you can reopen, re-run, and share, which JShell's history does not do by default.
+
+```mermaid
+flowchart LR
+    subgraph SCRIPT["python script.py<br/>(fresh state every run)"]
+        S1["top"] --> S2["middle"] --> S3["bottom"]
+    end
+    subgraph NOTEBOOK["Jupyter notebook<br/>(a saved, reopenable JShell session)"]
+        N1["cell 1"] -.->|"run in any order"| N2["cell 2"]
+        N2 -.->|"run in any order"| N3["cell 3"]
+        N1 --> STATE["variables stay live<br/>between runs, saved to .ipynb"]
+        N2 --> STATE
+        N3 --> STATE
+    end
+```
 
 This makes notebooks well suited to the exploratory phase of data science: load a dataset in one
 cell, inspect it in the next, try a plot, tweak it, try again — all without re-running the
@@ -380,6 +468,19 @@ serving `.ipynb` files from the current directory using the active venv's interp
 - `verify_env.py` (Section 3.4) is the one script every later Data Science chapter assumes you've
   already run successfully — its output confirms the whole stack (pandas, numpy, matplotlib, scipy,
   seaborn, scikit-learn, jupyter) is installed and importable.
+
+Back to the map from the opening story — every box is now built:
+
+```mermaid
+flowchart LR
+    PY["Python interpreter<br/>(3.12+) -- done, S2.1"] --> VENV["venv<br/>-- done, S2.2-2.3"]
+    VENV --> PIP["pip install -r<br/>requirements.txt -- done, S3"]
+    PIP --> STACK["the DS stack<br/>-- verified, S3.4"]
+    STACK --> IDE["PyCharm<br/>-- done, S4"]
+    STACK --> NB["Jupyter<br/>-- done, S5"]
+    IDE --> READY["you are here --<br/>ready for SPEC-DS-1"]
+    NB --> READY
+```
 
 From here, the curriculum's next stop is **SPEC-DS-1 (Hypothesis Testing & EDA)** — the first
 chapter that actually loads a dataset and uses this environment for real.
