@@ -45,3 +45,40 @@ matrix, a printed DataFrame. Commit the artefact under the chapter's `artefacts/
 3. **Worked example** — dataset → code → artefact → interpretation.
 4. **Pitfalls** — what goes wrong, how to see it.
 5. **Recap & what's next** — link to the next chapter in the curriculum.
+
+## Storytelling & visualisation (house style)
+The book is taught as a **story**, one idea at a time, with a picture on nearly every beat. Model the
+"Data Science for non-IT" deck: a curious reader with no ML background should be pulled through it.
+
+**Storytelling moves — use these deliberately:**
+- **Cold open with a concrete story, not theory.** Start each chapter (or major section) with a real,
+  relatable case, then name the concept it illustrates. (E.g. regression opens with Prof. Ashenfelter
+  predicting Bordeaux wine prices, `price = 0.642·AGST − 3.547`, before the word "regression".) Reduce
+  the idea to one plain sentence the reader could repeat at dinner.
+- **Numbered steps, one idea each.** Break a concept into "Step 1 … Step 2 …", each a single move.
+- **Build with real numbers first, then generalise.** Show the actual arithmetic on a tiny example
+  (`0.642×17 − 3.547 = 7.37`), *then* write the general formula. Never open with the general formula.
+- **Error-driven narrative for iterative work.** Frame feature engineering / model improvement as a
+  journey: "model error 50% → add a distance feature → 30% → bucket the map → 20% → …", one change per beat.
+- **Recurring "you are here" map.** Keep one process/architecture diagram for the subject and re-show
+  it (with the current step highlighted) at each section boundary, so the reader never loses the thread.
+- **Historical timelines** where a field evolved (e.g. CNNs: LeNet → AlexNet → VGG → ResNet →
+  EfficientNet), each entry naming *what it introduced* and *why*.
+
+**Visualise constantly — prefer GitHub-native, theme-aware formats (no external tooling):**
+- **Mermaid** for flow, sequence, timeline, mindmap, state, and block/architecture diagrams — fenced as
+  ```` ```mermaid ````. GitHub renders it natively. Aim for **at least one diagram per major section**;
+  a wall of prose with no picture is a smell. Keep diagrams small and labelled; avoid colour that breaks
+  in dark mode (rely on shapes/labels, not colour alone).
+- **LaTeX math** via `$…$` / `$$…$$` — GitHub renders it. Use it for every formula (metrics, losses,
+  update rules) instead of ASCII.
+- **Tables** for comparisons ("which model favours numeric vs categorical", "cloud service mapping").
+- **The runnable artefacts you already generate** (plots, confusion matrices, parity plots) stay — the
+  Mermaid/story wraps around them, it doesn't replace them.
+
+**Reusing the owner's slide material (`docs/curriculum.md` lists the decks):**
+- You MAY reuse the owner's own explanations and **original diagrams** (redrawn as Mermaid/SVG is
+  preferred — cleaner, theme-aware, versionable). Recreate rather than screenshot wherever practical.
+- Do **NOT** commit third-party images embedded in those decks (dataset photos, ImageNet/Ranger-7
+  imagery, logos, book/paper figures) into this public repo — recreate the idea as a diagram instead.
+- When you do embed an owner-original image, put it under the chapter's `artefacts/` and attribute it.
