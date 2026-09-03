@@ -2,14 +2,37 @@
 
 *Agentic Engineering · Worked Examples · SPEC-AGENT-2*
 
-An LLM cannot touch your database. It has no socket, no driver, no credentials — it only ever
-produces text. Every "agent that queries a database" you have seen is actually two pieces wired
-together: a small, deliberately narrow service that *can* touch the database, and a protocol that
-lets the model discover what that service offers and ask for it in a structured way. **MCP** (the
-Model Context Protocol) standardises that second piece, and this chapter builds the first piece —
-a real MCP server, running locally, exposing a seeded SQLite database as three typed, read-only
-tools — then drives it two ways: a plain Python test client with no LLM involved at all, and an
-(optional, key-gated) LLM client that discovers the tools itself and decides which one to call.
+## The demo that should scare you
+
+Picture the fastest way to let an LLM answer "which of our customers in Bulgaria have a shipped
+order over $50?" You hand it a live database connection string and a system prompt that says
+"write whatever SQL you need." Five minutes of work, and it genuinely answers the question.
+
+Now picture the same setup facing a *different* input — one a user typed, not you: a customer name
+field containing `Ana'; DROP TABLE orders; --`. The model is a text generator, not a firewall. It
+has no built-in notion of "this is data to filter on" versus "this is a second SQL statement to
+execute" unless something in the pipeline draws that line for it. Nothing in "give the model a
+connection and let it write SQL" does. This is not a hypothetical — early "AI agent" demos really
+did wire an LLM straight to a database — and it means a malicious prompt, or even the model simply
+hallucinating a plausible-looking but destructive query, can read, corrupt, or drop anything the
+connection string can reach.
+
+You would never accept that shape of risk from a *human* caller. If a code review handed you a
+`@RestController` where one `@PostMapping` took a raw SQL string from the request body and executed
+it verbatim, you would reject it on sight — no schema to reject a malformed request, no
+least-privilege boundary to stop a `DROP TABLE`, no typed contract a test could check. The fix is
+not "trust the caller more." It is a narrow, typed service interface in front of the database — and
+that fix works just as well when the caller is a model, it just needs a protocol the model can
+*discover at run time*, instead of code a person writes once at compile time.
+
+**That protocol is MCP** (the Model Context Protocol), and this chapter builds the narrow service
+behind it: a real MCP server, running locally, exposing a seeded SQLite database as three typed,
+read-only tools — no `run_sql` tool anywhere in sight. It then drives that server two ways: a plain
+Python test client with no LLM involved at all, and an (optional, key-gated) LLM client that
+discovers the tools itself and decides which one to call.
+
+One sentence to keep, the kind you could repeat at dinner: **give the model a menu of safe, named
+actions — never a live connection and the freedom to write its own SQL.**
 
 If you have ever written a `@RestController` with a handful of narrow endpoints instead of handing
 a caller a raw JDBC `Connection`, you already understand the shape of the decision this chapter is
@@ -18,20 +41,49 @@ service.
 
 ## 1. What & why — MCP as a typed tool boundary
 
-Picture the alternative to what this chapter builds: an LLM that gets a live database connection
-string and is told "write and run whatever SQL you need." That is not a hypothetical bad idea —
-early "AI agent" demos did exactly this — and it fails for the same reason you would reject a pull
-request that let an HTTP handler `Statement.executeUpdate()` a string built from request
-parameters: the caller (here, a probabilistic text generator) controls the entire surface area of
-what can happen to your data. There is no schema to reject a malformed request, no least-privilege
-boundary to stop a `DROP TABLE`, and no typed contract a reviewer — or a test — can check.
+**Plain-language glosses, before anything else:**
 
-**MCP is a specification for the boundary instead.** A server declares a small set of *tools* —
-each with a name, a description, and a typed input schema (JSON Schema, generated here from Python
-type hints) — and a *client* connects, asks "what tools do you have?", and calls one by name with
+| Term | Plain meaning |
+|---|---|
+| **MCP** (Model Context Protocol) | An open standard for how an AI application asks an external program "what can you do for me, and how do I ask?" — a USB-C port for AI applications: one standard connector instead of a bespoke integration per tool ([source: MCP docs, "What is MCP?"](https://modelcontextprotocol.io/introduction), checked 2026-09-03). |
+| **Tool** | One named, typed action a server offers — the MCP equivalent of a single `@PostMapping` endpoint or one method on a narrow service interface. |
+| **Schema** | The typed shape of a tool's input — what a Jackson-annotated DTO is to a REST endpoint, generated here straight from Python type hints. |
+| **Parameterised query** | A SQL statement where *values* travel separately from the query text (`?` placeholders), so a value can never change the query's structure. |
+| **Least privilege** | Give a caller — human, service, or model — exactly the access its job requires, and no more. |
+
+**MCP follows a client-server architecture.** An MCP *host* (the AI application — Claude Desktop,
+an IDE, or, in this chapter, a small Python script) creates one MCP *client* per server it talks to;
+each client holds a dedicated connection to one MCP *server*, the program that does the actual work
+and answers with data
+([source: MCP docs, "Architecture overview"](https://modelcontextprotocol.io/docs/learn/architecture),
+checked 2026-09-03). This chapter's server runs locally over stdio, so there is exactly one client,
+one server, and no network hop at all:
+
+```mermaid
+flowchart LR
+    subgraph HOST["MCP host (your script, or an LLM app)"]
+        CLIENT["MCP client<br/>(fastmcp.Client)"]
+    end
+    subgraph SERVERBOX["MCP server (server.py, stdio subprocess)"]
+        TOOLS["3 typed, read-only tools"]
+    end
+    CLIENT -- "1. what tools do you have?" --> TOOLS
+    TOOLS -- "2. list_tables, describe_table, query<br/>+ their JSON schemas" --> CLIENT
+    CLIENT -- "3. call_tool query with args" --> TOOLS
+    TOOLS --> DB[("SQLite<br/>mcp_demo.db")]
+    DB --> TOOLS
+    TOOLS -- "4. JSON rows" --> CLIENT
+```
+
+**MCP is a specification for that typed boundary.** A server declares a small set of *tools* — each
+with a name, a description, and a typed input schema (JSON Schema, generated here from Python type
+hints) — and a client connects, asks "what tools do you have?", and calls one by name with
 arguments that must match its schema. The server is the only thing that ever touches the database;
 the model only ever sees the tool names, their schemas, and whatever JSON the tool chooses to
-return.
+return. That is the direct fix for the cold open above: an LLM that only ever sees
+`query(entity, filters, limit)` cannot send `DROP TABLE` no matter what text it produces, because
+there is no path from "text the model generated" to "SQL that runs" that skips the tool's own
+validation.
 
 **The Java analogy that holds up:** an MCP server is structurally the same idea as a `@RestController`
 with a handful of narrow `@PostMapping` endpoints and DTOs, or a `.proto` file's `service` block —
@@ -55,9 +107,15 @@ Section 3 grounds the FastMCP API this is built on
 each of these design choices — the allowlist, the read-only surface, the `limit` cap — is actually
 defending against.
 
+The rest of this chapter is a discovery walk, one step at a time: **seed a real database → expose
+it as three narrow, typed tools → prove a plain Python client can call them and get real rows back,
+with no LLM anywhere in the loop → only then wire an LLM in, gated behind an API key.** Each section
+below is one of those steps.
+
 ## 2. The database — a seeded, deterministic SQLite file
 
-The example domain is deliberately small and boring: two tables, five customers, eight orders, so
+**Step 1 of the discovery walk: seed something real to query.** The example domain is deliberately
+small and boring: two tables, five customers, eight orders, so
 every number in this chapter is reproducible and every row printed later can be checked by eye.
 `seed.py` drops and recreates both tables on every run, so re-running it always produces the exact
 same database:
@@ -150,6 +208,12 @@ driver is `sqlite3`, Python's standard-library module — no extra dependency, n
 server process to run separately from the MCP server itself.
 
 ## 3. The FastMCP server — three typed, read-only tools
+
+**Step 2 of the discovery walk: expose the database as narrow, typed tools instead of a raw
+connection.** No tool built in this section accepts raw SQL, and every tool checks its inputs
+against a hard-coded allowlist before it goes anywhere near the database — the concrete shape
+"least privilege" from Section 1's gloss table takes here: the smallest surface that still answers
+every question Section 4's client (and, later, an LLM) needs answered.
 
 ### 3.1 Declaring a tool
 
@@ -302,6 +366,33 @@ by step:
 5. `sqlite3.Row` turns each result row into something that behaves like a `dict`, so
    `[dict(row) for row in cur.fetchall()]` gives you plain JSON-serialisable dicts back.
 
+The same five steps, drawn as a sequence diagram instead of ASCII art (the committed artefact,
+[artefacts/mcp_query_sequence_diagram.txt](artefacts/mcp_query_sequence_diagram.txt), is the plain-text
+version of this exact picture):
+
+```mermaid
+sequenceDiagram
+    participant Caller as Caller
+    participant Client as MCP Client
+    participant Server as MCP Server
+    participant DB as SQLite mcp_demo.db
+
+    Caller->>Client: call_tool "query" entity=orders filters={status: shipped} limit=3
+    Client->>Server: JSON-RPC over stdio
+    Server->>Server: 1. entity in SCHEMA? orders -- yes
+    Server->>Server: 2. filter columns subset of SCHEMA[orders]? yes
+    Server->>Server: 3. limit = min(3, MAX_LIMIT)
+    Server->>DB: SELECT * FROM orders WHERE status = ? LIMIT ? params=(shipped, 3)
+    DB-->>Server: 3 rows via sqlite3.Row
+    Server->>Server: 5. wrap entity, sql, row_count, rows
+    Server-->>Client: JSON-RPC result
+    Client-->>Caller: result.data equals real SQLite rows
+```
+
+Request→tool→parameterised SQL→rows, in one picture: the caller never gets closer to the database
+than a JSON argument, and the server never lets a name or a value skip validation before it becomes
+part of a query.
+
 That distinction in step 4 — *names* are allowlisted, *values* are parameterised — is the one thing
 to take away from this section, and Section 6.1 shows exactly what goes wrong if you conflate the
 two. Full file: [code/mcp_db/server.py](code/mcp_db/server.py).
@@ -324,6 +415,7 @@ needs to be shared rather than launched per-client, but out of scope here (NOTE-
 
 ## 4. Testing without an LLM — a direct client asserting on real rows
 
+**Step 3 of the discovery walk: prove a plain client can call the tools and get real rows back.**
 This is the part of the chapter that runs completely offline, with no API key of any kind, and it is
 the part every acceptance criterion for this chapter cares about most: the server and the database
 are real, and every row below comes from SQLite, not from a hand-typed fixture (LO3).
@@ -516,6 +608,7 @@ section was typed by hand into the chapter; it was captured from an actual run a
 
 ## 5. Wiring an LLM client — key-gated, separate from the runnable path
 
+**Step 4 of the discovery walk: let a model discover and call the same tools, if you choose to.**
 Everything so far proves the *server* works without needing a single LLM token. The other half of
 MCP's value is that the *same* server, with the *same* tool definitions, is also callable by a model
 that has never seen this codebase — it discovers the tools' names, descriptions, and JSON schemas at
@@ -653,6 +746,21 @@ there is no query structure for it to corrupt
 ([source: NOTE-AGENT-3](../../research/NOTE-AGENT-3-fastmcp.md), citing Python's official sqlite3
 docs, checked 2026-09-02).
 
+But "parameterise everything" is only half the rule — values and identifiers (table and column
+names) need two *different* defences, and the vulnerable/safe path is different for each:
+
+```mermaid
+flowchart TD
+    subgraph VALUES["a VALUE, e.g. a customer name"]
+        V1["string-format the raw value<br/>into the SQL text"] -->|"attacker input can close the<br/>quote and append a new statement"| VBAD["INJECTABLE"]
+        V2["pass it as a ? parameter:<br/>conn.execute(sql, (value,))"] -->|"driver escapes it --<br/>value can never change query structure"| VOK["SAFE"]
+    end
+    subgraph IDENT["an IDENTIFIER, e.g. a table name"]
+        I1["string-format it into the SQL<br/>text with no check at all"] -->|"caller can name any table,<br/>or smuggle SQL via the name itself"| IBAD["INJECTABLE"]
+        I2["check it against a hard-coded<br/>SCHEMA allowlist first, THEN<br/>string-format the checked name"] -->|"only names already known<br/>to the server ever reach SQL"| IOK["SAFE"]
+    end
+```
+
 Here is the detail that trips people up: **table and column names cannot be passed as `?`
 parameters** — sqlite3's placeholder syntax is only for values, never for identifiers (NOTE-AGENT-3).
 So `query(entity, filters, limit)` in Section 3.4 genuinely does interpolate `entity` and each filter
@@ -705,7 +813,22 @@ directly:
 ### 6.4 Least privilege as the organising principle
 
 Every defence in this chapter is one instance of the same idea: **give the tool exactly the access
-its job requires, and no more.** No tool in `server.py` can write, update, or delete a row — the
+its job requires, and no more.** Line up this chapter's three narrow tools against the one-tool
+shortcut from Section 6.2 and the difference is a difference in blast radius, not just line count:
+
+```mermaid
+flowchart LR
+    subgraph BROAD["one broad tool"]
+        RUNSQL["run_sql(sql)<br/>accepts anything"] --> BLAST["blast radius:<br/>the entire database"]
+    end
+    subgraph NARROW["three narrow tools"]
+        LT["list_tables()<br/>no arguments"] --> BR1["blast radius:<br/>schema names only"]
+        DT["describe_table(entity)<br/>allowlisted entity"] --> BR2["blast radius:<br/>row count + columns,<br/>one allowlisted table"]
+        Q["query(entity, filters, limit)<br/>allowlisted entity + columns,<br/>capped limit"] --> BR3["blast radius:<br/>at most MAX_LIMIT rows,<br/>one allowlisted table,<br/>read-only"]
+    end
+```
+
+No tool in `server.py` can write, update, or delete a row — the
 server is read-only by construction, not by convention, because no `INSERT`/`UPDATE`/`DELETE`
 statement appears anywhere in the file. No tool can reach a table outside `SCHEMA`. No `query()` call
 can filter on a column outside that entity's allowlist, or request an unbounded number of rows. If
@@ -719,6 +842,11 @@ the caller deciding which tool to invoke, and with what arguments, is a model yo
 control.
 
 ## 7. Recap & what's next
+
+Back to the cold open: an LLM handed a live connection string could be talked into running
+`DROP TABLE orders`. The same LLM, talking MCP to `server.py`, can only ever call three named,
+schema-validated, read-only tools — there is no path from "text the model produced" to "SQL that
+runs" that skips validation. That gap is what this whole chapter closed.
 
 - **MCP is a typed tool boundary**, not a direct database connection: a server declares narrow,
   named tools with generated JSON schemas; a client — human-written or an LLM — discovers and calls

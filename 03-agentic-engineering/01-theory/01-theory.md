@@ -2,16 +2,63 @@
 
 *Agentic Engineering · Theory · SPEC-AGENT-1*
 
-Every chapter you're about to write in this subject — a database query layer, a RAG app over PDFs, an
-invoice-extraction agent, a multi-agent debate — is, underneath, the same fix applied to the same
-problem. [`llm-text-generation.md`](../../02-machine-learning/03-worked-examples/03-llms/02-llm-text-generation.md)
-(SPEC-ML-11) ended by asking SmolLM-135M-Instruct three questions it structurally could not answer:
-today's date, a 2026 sports result, and the installed version of a Python library sitting right there
-in its own virtual environment. Every hosted model — the 135M-parameter one in that chapter, and the
-largest model you'll ever call — shares that same shape of limitation. This chapter is the theory that
-explains *why*, and introduces the two standard fixes: **RAG** (give the model the missing facts, in
-the prompt, at query time) and **MCP** (give the model a standard way to reach out and *act*, not just
-read). Everything after this chapter in Agentic Engineering builds one or both of those.
+## The model that couldn't tell you its own version number
+
+Pick up exactly where [`llm-text-generation.md`](../../02-machine-learning/03-worked-examples/03-llms/02-llm-text-generation.md)
+(SPEC-ML-11) left off. That chapter loaded a real, small language model — SmolLM-135M-Instruct, no
+cloud, no API key, running on a laptop CPU — and asked it three questions any junior engineer could
+answer in ten seconds: What's today's date? What happened in a 2026 sports result? What version of
+the `transformers` Python library is installed in the very virtual environment currently running this
+model? The model didn't crash. It generated fluent, grammatical English for every question. And it got
+every one wrong, or simply trailed off mid-sentence rather than commit to an answer
+([source: HuggingFaceTB/SmolLM-135M-Instruct model card](https://huggingface.co/HuggingFaceTB/SmolLM-135M-Instruct),
+checked 2026-09-02) — because nothing in its weights has any way to know. A bigger model doesn't fix
+this. It just produces a more fluent, more confident *wrong* answer, because fluency is what
+next-token training optimizes for — correctness about anything outside the weights isn't something the
+architecture can guarantee at all.
+
+That's not one bug in one small model. Every hosted LLM you will ever call — the 135-million-parameter
+one in that chapter, and the largest, most expensive model on the market today — shares the exact same
+three structural limits:
+
+- **Stateless.** No call remembers any earlier call. What looks like "conversation memory" in a chat
+  product is an illusion the *client* maintains by resending the entire prior transcript every time.
+- **Bounded.** Every model has a hard ceiling on how many tokens it can attend over in one request —
+  the **context window**. Not a rate limit, not a pricing tier — an architectural fact about the shapes
+  the model was trained on.
+- **Frozen at a cutoff.** Training ends on some date, and the weights never move again after that
+  (outside an explicit fine-tuning run). Anything published, changed, or discovered after that date is
+  invisible — not "unlikely to know," structurally *incapable* of knowing, the same way a compiled JAR
+  can't see a file created after it was built.
+
+Here's the one-sentence version you could repeat at dinner: **an LLM only ever knows two things — what
+got baked into its weights at training time, and whatever you paste back into the prompt yourself.**
+Everything else in this chapter, and every remaining chapter in Agentic Engineering, is built on that
+one sentence. Two structurally different fixes exist, plus the piece of infrastructure that makes the
+first one practical at scale:
+
+```mermaid
+flowchart LR
+    L1["Stateless<br/>no memory between calls"]
+    L2["Bounded<br/>finite context window"]
+    L3["Frozen<br/>frozen at a training cutoff"]
+    F1["Fix: RAG<br/>retrieve facts, put them in the prompt"]
+    F2["Fix: MCP<br/>give the model actions, not just reads"]
+    F3["Fix: vector DB<br/>the memory that makes retrieval fast"]
+    L1 --> F1
+    L3 --> F1
+    L1 --> F2
+    F3 -.->|"powers"| F1
+    L2 -.->|"a budget both fixes must respect"| F1
+    L2 -.->|"a budget both fixes must respect"| F2
+```
+
+1. **RAG** — before generating, retrieve the missing facts from an external store and put them *in the
+   prompt*. Solves "the model doesn't know this" (Sections 3–4).
+2. **MCP** — give the model a standard way to call out to tools and live data sources mid-conversation,
+   not just read text you pasted in ahead of time. Solves "the model can't *do* anything" (Section 5).
+3. **Vector databases** — the storage-and-search layer underneath RAG: an index built to answer "find
+   me the facts closest in meaning to this query," fast, even over millions of documents (Section 3).
 
 If you've built a typed service boundary in Java — a REST controller with a request DTO, a repository
 interface backed by a real datastore — the shapes here will feel familiar faster than the vocabulary
@@ -48,6 +95,10 @@ The first run downloads and caches the ~90 MB `all-MiniLM-L6-v2` model weights f
 
 ## 1. The problem — LLMs are stateless, bounded, and frozen
 
+The cold open above already named the shape of the problem; this section pins down the mechanics
+behind each of the three limits, because each one drives a specific consequence you'll design around
+for the rest of this subject.
+
 An LLM's weights encode a snapshot of everything it saw at training time, and nothing else. Three
 consequences fall directly out of that:
 
@@ -81,9 +132,19 @@ Two structurally different fixes exist, and this chapter covers both:
 
 ## 2. Context windows — a finite, shared budget
 
+```mermaid
+flowchart LR
+    S1["1 - The problem<br/>(stateless, bounded, frozen)"] --> S2["2 - Context windows<br/>◀ you are here"]
+    S2 --> S3["3 - Embeddings + vector DB"]
+    S3 --> S4["4 - RAG pipeline"]
+    S4 --> S5["5 - MCP"]
+    S5 --> S6["6 - Pitfalls"]
+```
+
 The context window is the maximum number of tokens a model can hold in one request — **prompt tokens
-and generated output tokens combined**, not two separate budgets. A token is a unit from the model's own
-vocabulary, not a word and not a character: SPEC-ML-11 measured this directly with SmolLM's tokenizer —
+and generated output tokens combined**, not two separate budgets. A **token** — the unit a model
+actually measures its budget in — is a unit from the model's own vocabulary, not a word and not a
+character: SPEC-ML-11 measured this directly with SmolLM's tokenizer —
 five English words encoded to five raw tokens, but the same five words wrapped in that model's chat
 template cost 14 tokens, because the role-marker scaffolding (`<|im_start|>user`, `<|im_end|>`, and so
 on) is real token cost paid on every turn, not something that comes free just because it "isn't the
@@ -118,16 +179,46 @@ inside them.
 
 ## 3. Embeddings and vector databases — semantic search on meaning, not keywords
 
-### From "contains the word" to "means the same thing"
+```mermaid
+flowchart LR
+    S1["1 - The problem<br/>(stateless, bounded, frozen)"] --> S2["2 - Context windows"]
+    S2 --> S3["3 - Embeddings + vector DB<br/>◀ you are here"]
+    S3 --> S4["4 - RAG pipeline"]
+    S4 --> S5["5 - MCP"]
+    S5 --> S6["6 - Pitfalls"]
+```
+
+RAG's promise (Section 1) is "retrieve the missing facts and put them in the prompt." But retrieve
+*how*? A real knowledge base might hold thousands of documents — how do you find the three or four
+that actually answer *this* question, out of all of them, in milliseconds? That's the discovery
+problem this section solves, and — true to how this chapter works — the obvious first attempt fails
+before the real fix arrives.
+
+### Step 1 — the obvious first attempt: keyword search
 
 A traditional search index (think Lucene, or a SQL `LIKE`/full-text index) matches on tokens: it finds
-documents that literally contain your search terms. It has no notion that "car" and "automobile" are
-related — to that index they're as unrelated as "car" and "spreadsheet." An **embedding** fixes exactly
-that: a dense, fixed-length vector assigned to a piece of text, trained so that semantically similar
-texts land near each other in the vector space (`representations.md`, SPEC-ML-3, Section 2 covers the
-full mechanism, including the "king − man + woman ≈ queen" geometry that makes this concrete). Retrieval
+documents that literally contain your search terms. Picture a support-ticket search box where a user
+types **"car maintenance tips"**, and the one document in your knowledge base that actually answers it
+is titled *"automobile servicing guide."* Zero words in common. A keyword index has no notion that
+"car" and "automobile" are related — to that index they're as unrelated as "car" and "spreadsheet" — so
+the query returns **0 results**, even though the perfect answer is sitting right there in the corpus.
+
+```mermaid
+flowchart LR
+    Q["query: 'car maintenance tips'"] --> KW{"keyword search<br/>(exact token match)"}
+    KW -->|"doc says 'automobile servicing guide' --<br/>zero shared words"| MISS["0 results -- a miss,<br/>even though it's the perfect answer"]
+    Q --> SEM{"semantic search<br/>(nearest-neighbour on embeddings)"}
+    SEM -->|"'car' and 'automobile' land<br/>close together in vector space"| HIT["top result -- a hit"]
+```
+
+### Step 2 — give meaning geometry: embeddings
+
+An **embedding** — think of it as a cache key you can do arithmetic on — fixes exactly that failure: a
+dense, fixed-length vector assigned to a piece of text, trained so that semantically similar texts land
+near each other in the vector space (`representations.md`, SPEC-ML-3, Section 2 covers the full
+mechanism, including the "king − man + woman ≈ queen" geometry that makes this concrete). Retrieval
 over embeddings finds documents whose *meaning* is close to your query's meaning, even when they share
-almost no words in common.
+almost no words in common — which is exactly what turns the keyword-search miss above into a hit.
 
 This chapter's demo uses **`sentence-transformers/all-MiniLM-L6-v2`**: a 384-dimensional dense embedding
 model, Apache 2.0 licensed, that runs on CPU with no API key
@@ -137,13 +228,14 @@ input gets truncated (NOTE-AGENT-2), which matters directly for chunking (Sectio
 `sentence-transformers==6.0.1` (NOTE-AGENT-2, citing [PyPI](https://pypi.org/project/sentence-transformers/),
 checked 2026-09-02) — matching the installed version confirmed above.
 
-### A vector database is an index built for "nearest," not "equal"
+### Step 3 — search by distance, not exact match: a vector database
 
-A **vector database** stores embeddings and answers *nearest-neighbour* queries: "give me the K vectors
-closest to this query vector," instead of a B-tree index's "give me the row where `id = 42`." If you've
-reached for a `HashMap<String, double[]>` to cache feature vectors before, a vector DB is the answer to
-what happens once "which cached vector is *closest* to this one" becomes a real query pattern instead of
-an exact-key lookup — no `HashMap` answers that question at all.
+A **vector database** — the index that makes Step 2's geometry queryable — stores embeddings and
+answers *nearest-neighbour* queries: "give me the K vectors closest to this query vector," instead of a
+B-tree index's "give me the row where `id = 42`." If you've reached for a `HashMap<String, double[]>` to
+cache feature vectors before, a vector DB is the answer to what happens once "which cached vector is
+*closest* to this one" becomes a real query pattern instead of an exact-key lookup — no `HashMap`
+answers that question at all.
 
 Two ways to run one, per NOTE-AGENT-2:
 
@@ -156,7 +248,20 @@ Two ways to run one, per NOTE-AGENT-2:
   ([source: FAISS](https://github.com/facebookresearch/faiss), checked 2026-09-02) for development,
   testing, or genuinely small corpora, which is exactly what this chapter's demo below uses.
 
-### ANN indexes — why ANN exists, and what it trades away
+Here's what a nearest-neighbour query actually returns, using this chapter's own demo corpus (Step 5
+below runs this for real) — one query vector, ranked against every stored document by how close it
+lands:
+
+```mermaid
+flowchart LR
+    Q(["query embedding:<br/>'What ingredients go into<br/>a basic sourdough loaf?'"])
+    Q -->|"cos = 0.7721 (nearest)"| D1["sourdough_bread"]
+    Q -->|"cos = 0.1368"| D2["formula_one_pitstop"]
+    Q -->|"cos = 0.1304"| D3["rag_pipeline"]
+    Q -.->|"cos even lower"| D4["... 6 other stored vectors"]
+```
+
+### Step 4 — do it fast at scale: ANN indexes (HNSW, IVF)
 
 A **Flat** index is brute-force exact search: compare the query vector against every stored vector, keep
 the top K. At ten documents (this chapter's demo) or ten thousand, that's instant. Past some point — a
@@ -183,7 +288,7 @@ enough, which is precisely why this chapter's ten-document demo below deliberate
 not an ANN index: at this scale ANN would add complexity for zero measurable benefit, and the honest
 teaching point is "this is what HNSW/IVF are approximating," not "here is a production index."
 
-### Worked example — real cosine top-k retrieval, no API key
+### Step 5 — prove it: real cosine top-k retrieval, no API key
 
 `code/tiny_rag_demo.py` builds a ten-document knowledge base (deliberately mixed-topic — some passages
 about vector search, RAG, and MCP themselves; some unrelated Java/Python trivia; some totally unrelated
@@ -241,15 +346,16 @@ The same rows, rendered as the committed artefact:
 
 Read what actually happened, not just the scores: the first query never uses the word "HNSW" — it
 describes graph-based search with layered graphs and long-range links, and the correct document wins
-anyway, at 0.5811, ahead of the topically-adjacent-but-wrong IVF document at 0.5692. That's semantic
-search doing its job: matching *meaning*, not literal keyword overlap. Notice too how close HNSW and
-IVF land to each other (0.5811 vs 0.5692) — they're both ANN-index documents, genuinely similar in
-topic, and a keyword search would have no way to rank between them at all; embeddings at least separate
-them, even if not by a wide margin. Contrast that with the sourdough query: 0.7721 for the actually
-relevant document against 0.1368 for the next-best (an unrelated Formula 1 fact) — a wide, unambiguous
-margin, because nothing else in the corpus is *about* anything remotely similar. Retrieval confidence is
-not uniform; a wide margin is a strong signal, a narrow one is a much weaker one, and Section 6 covers
-what to do when the top result's margin over the rest is too thin to trust.
+anyway, at 0.5811, ahead of the topically-adjacent-but-wrong IVF document at 0.5692. That's Step 2's
+semantic search doing its job: matching *meaning*, not literal keyword overlap, exactly like the
+car/automobile example from Step 1 predicted it would. Notice too how close HNSW and IVF land to each
+other (0.5811 vs 0.5692) — they're both ANN-index documents, genuinely similar in topic, and a keyword
+search would have no way to rank between them at all; embeddings at least separate them, even if not by
+a wide margin. Contrast that with the sourdough query: 0.7721 for the actually relevant document against
+0.1368 for the next-best (an unrelated Formula 1 fact) — a wide, unambiguous margin, because nothing
+else in the corpus is *about* anything remotely similar. Retrieval confidence is not uniform; a wide
+margin is a strong signal, a narrow one is a much weaker one, and Section 6 covers what to do when the
+top result's margin over the rest is too thin to trust.
 
 The script asserts every query's top-1 result matches the expected document — if a future model swap
 ever silently changed the retrieval geometry, the run fails loudly instead of printing a wrong "example"
@@ -257,6 +363,20 @@ ever silently changed the retrieval geometry, the run fails loudly instead of pr
 set for its own numbers: reproduce, don't assert from memory.
 
 ## 4. RAG — the pipeline, chunking, and when it beats the alternatives
+
+```mermaid
+flowchart LR
+    S1["1 - The problem<br/>(stateless, bounded, frozen)"] --> S2["2 - Context windows"]
+    S2 --> S3["3 - Embeddings + vector DB"]
+    S3 --> S4["4 - RAG pipeline<br/>◀ you are here"]
+    S4 --> S5["5 - MCP"]
+    S5 --> S6["6 - Pitfalls"]
+```
+
+Section 3 solved *discovery* in isolation — given a query, find the right chunks. RAG is the system
+that wraps that discovery step on both ends: prepare the corpus so discovery is possible at all
+(offline, once), and splice the discovered chunks into a prompt the LLM can actually use (online, on
+every request).
 
 ### Definition
 
@@ -269,10 +389,26 @@ with those documents supplementing whatever the model's own weights already enco
 2026-09-02; NOTE-AGENT-2). RAG originates from Meta AI Research's 2020 paper *Retrieval-Augmented
 Generation for Knowledge-Intensive Tasks* (NOTE-AGENT-2).
 
-### The pipeline
+### The pipeline — seven steps, two schedules
 
 RAG splits cleanly into an **offline indexing path**, which runs once per document (and again whenever
 the corpus changes), and an **online query path**, which runs on every request:
+
+```mermaid
+flowchart TB
+    subgraph OFFLINE["Offline indexing -- runs once per document"]
+        SRC["Source documents<br/>(PDFs, wiki, DB exports)"] --> CHUNK["1. Chunk<br/>(split into passages)"]
+        CHUNK --> EMB1["2. Embed<br/>(sentence-transformer)"]
+        EMB1 --> STORE["3. Store<br/>(embeddings + ANN index)"]
+    end
+    subgraph ONLINE["Online query -- runs on every request"]
+        Q["User query"] --> EMB2["4. Embed query<br/>(same model)"]
+        EMB2 --> SEARCH["5. Search<br/>(ANN top-k)"]
+        SEARCH --> AUG["6. Augment prompt<br/>(query + top-k chunks)"]
+        AUG --> GEN["7. Generate<br/>(LLM answers)"]
+    end
+    STORE -.->|"top-k vectors looked up here"| SEARCH
+```
 
 ![RAG pipeline diagram: the offline indexing path (source documents to chunk to embed to vector store) running once per document, and the online query path (user query to embed query to ANN search to augment prompt to LLM generate) running on every request, with the vector store built offline feeding the ANN search step online](artefacts/rag_pipeline_diagram.png)
 
@@ -301,7 +437,7 @@ tokens per chunk, 50 tokens of overlap** between consecutive chunks (so an idea 
 boundary doesn't vanish from both sides), tuned from there based on measured retrieval quality — not a
 universal constant, a starting point to measure and adjust.
 
-### RAG vs fine-tuning vs long-context
+### When does RAG actually earn its place? RAG vs fine-tuning vs long-context
 
 Three different ways to get an LLM to work with information beyond its base training, and they solve
 different problems:
@@ -331,6 +467,15 @@ trained on — especially facts that change — and fine-tuning only when the ga
 
 ## 5. MCP — a standard protocol for tools and data, not a bespoke integration per source
 
+```mermaid
+flowchart LR
+    S1["1 - The problem<br/>(stateless, bounded, frozen)"] --> S2["2 - Context windows"]
+    S2 --> S3["3 - Embeddings + vector DB"]
+    S3 --> S4["4 - RAG pipeline"]
+    S4 --> S5["5 - MCP<br/>◀ you are here"]
+    S5 --> S6["6 - Pitfalls"]
+```
+
 ### The problem MCP solves
 
 Section 4's RAG pipeline gets an LLM *reading* — retrieving text and putting it in the prompt. It
@@ -356,6 +501,19 @@ chat app); **Clients** — connectors living inside the host application, one pe
 **Servers** — the services that actually provide context and capabilities (a database, a filesystem, a
 search API) (official MCP Specification, cited above). Concretely:
 
+```mermaid
+flowchart LR
+    subgraph HOST["Host application (e.g. an agent / IDE / chat app)"]
+        LLM["LLM"]
+        CA["Client A<br/>(1:1 connection)"]
+        CB["Client B<br/>(1:1 connection)"]
+        LLM --> CA
+        LLM --> CB
+    end
+    CA <-->|"JSON-RPC"| SDB["MCP Server: database<br/>Tools: run_query<br/>Resources: schema docs"]
+    CB <-->|"JSON-RPC"| SFS["MCP Server: filesystem<br/>Tools: read_file, search<br/>Resources: file contents"]
+```
+
 ![MCP architecture diagram: a host application containing an LLM and two clients, each client holding a 1:1 JSON-RPC connection to its own MCP server -- one server wrapping a database exposing a run_query tool and schema-docs resource, another wrapping a filesystem exposing read_file/search tools and file-contents resources](artefacts/mcp_client_server_diagram.png)
 
 Each server independently exposes whatever mix of Tools/Resources/Prompts makes sense for what it wraps
@@ -375,6 +533,15 @@ exactly this: a real FastMCP server exposing a database as a set of tools, teste
 before any LLM is ever wired to it.
 
 ## 6. Pitfalls
+
+```mermaid
+flowchart LR
+    S1["1 - The problem<br/>(stateless, bounded, frozen)"] --> S2["2 - Context windows"]
+    S2 --> S3["3 - Embeddings + vector DB"]
+    S3 --> S4["4 - RAG pipeline"]
+    S4 --> S5["5 - MCP"]
+    S5 --> S6["6 - Pitfalls<br/>◀ you are here"]
+```
 
 **Bad chunking.** Section 4 already named the trade-off; the failure mode is what happens in practice.
 Chunks too large embed as a blur of several unrelated ideas and end up matching *no* query precisely —
@@ -420,16 +587,18 @@ Pin the embedding model per vector store and re-embed the whole corpus if you ev
 
 LLMs are stateless, bounded by a hard token ceiling that costs money and affects positional attention,
 and frozen at a training cutoff (Section 1–2) — three structural facts, not implementation details a
-bigger model quietly fixes. Embeddings turn text into vectors where distance encodes meaning; vector
-databases (pgvector, FAISS/numpy) answer nearest-neighbour queries over those vectors; ANN indexes like
-HNSW (graph-based) and IVF (clustering-based) trade a little recall for a lot of speed once brute-force
-scanning stops being cheap, and this chapter's own retrieval demo showed that trade-off's baseline — an
-exact Flat scan — finding the right document by *meaning*, not by keyword overlap (Section 3). RAG
-chains chunk → embed → store (offline) and query → embed → search → augment → generate (online) into a
-pipeline that updates instantly when the underlying documents change, which is why it beats fine-tuning
-for facts and beats raw long-context for cost and relevance (Section 4). MCP standardises how an agent
-reaches tools and live data — Hosts, Clients, Servers, and the Tools/Resources/Prompts primitives — so
-that giving an LLM a new capability stops meaning a bespoke integration per provider (Section 5).
+bigger model quietly fixes. A naive keyword search fails to bridge that gap because it has no notion of
+meaning (Section 3, Step 1) — embeddings fix that by turning text into vectors where distance encodes
+meaning; vector databases (pgvector, FAISS/numpy) answer nearest-neighbour queries over those vectors;
+ANN indexes like HNSW (graph-based) and IVF (clustering-based) trade a little recall for a lot of speed
+once brute-force scanning stops being cheap, and this chapter's own retrieval demo showed that trade-off's
+baseline — an exact Flat scan — finding the right document by *meaning*, not by keyword overlap
+(Section 3). RAG chains chunk → embed → store (offline) and query → embed → search → augment → generate
+(online) into a pipeline that updates instantly when the underlying documents change, which is why it
+beats fine-tuning for facts and beats raw long-context for cost and relevance (Section 4). MCP
+standardises how an agent reaches tools and live data — Hosts, Clients, Servers, and the
+Tools/Resources/Prompts primitives — so that giving an LLM a new capability stops meaning a bespoke
+integration per provider (Section 5).
 
 This is the foundation every remaining Agentic Engineering chapter builds on directly:
 
