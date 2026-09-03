@@ -48,8 +48,8 @@ assumed turns out to be unavailable or paywalled.
 
 ## Repository shape
 
-- Four subject folders: `Data Science/`, `Machine Learning/`, `Agentic Engineering/`,
-  `AI-assisted-sdlc/`. Each holds the chapter markdown plus its `code/`, `datasets/`, and
+- Four subject folders: `01-data-science/`, `02-machine-learning/`, `03-agentic-engineering/`,
+  `04-ai-assisted-sdlc/`. Each holds the chapter markdown plus its `code/`, `datasets/`, and
   `artefacts/` sub-content, organised under the five standard sections (Theory · Local Environment
   Setup · Worked Examples · Cloud Environment Setup · Production Considerations).
 - `specs/` — one `SPEC-*.md` per chapter (+ `SPEC-TEMPLATE.md`).

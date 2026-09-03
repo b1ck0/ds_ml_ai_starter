@@ -5,10 +5,10 @@ AI-assisted SDLC — written for an experienced backend engineer (15+ years Java
 and ML. Every concept lands as runnable code and a visible artefact, not just prose.
 
 ## The four parts
-1. [Data Science](Data%20Science/) — stats, EDA, regression, classification, forecasting, MLOps.
-2. [Machine Learning](Machine%20Learning/) — neural nets, CV, NLP, LLMs with PyTorch/TensorFlow.
-3. [Agentic Engineering](Agentic%20Engineering/) — vector DBs, RAG, MCP, multi-agent apps.
-4. [AI-assisted SDLC](AI-assisted-sdlc/) — driving agents with specs, gates, hooks, and subagents.
+1. [Data Science](01-data-science/) — stats, EDA, regression, classification, forecasting, MLOps.
+2. [Machine Learning](02-machine-learning/) — neural nets, CV, NLP, LLMs with PyTorch/TensorFlow.
+3. [Agentic Engineering](03-agentic-engineering/) — vector DBs, RAG, MCP, multi-agent apps.
+4. [AI-assisted SDLC](04-ai-assisted-sdlc/) — driving agents with specs, gates, hooks, and subagents.
 
 ## How this repo is built (it eats its own dog food)
 

@@ -43,7 +43,7 @@ the prose actually delivers.
 
 ## 4. Repository shape
 
-- `Data Science/`, `Machine Learning/`, `Agentic Engineering/`, `AI-assisted-sdlc/` — the four
+- `01-data-science/`, `02-machine-learning/`, `03-agentic-engineering/`, `04-ai-assisted-sdlc/` — the four
   subjects. Each is organised under five sections: **Theory**, **Local Environment Setup**,
   **Worked Examples**, **Cloud Environment Setup**, **Production Considerations**. Chapter prose lives
   in `.md`; runnable code in `code/`; data in `datasets/`; generated outputs in `artefacts/`.

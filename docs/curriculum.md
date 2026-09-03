@@ -12,7 +12,7 @@ Every subject folder is organised under the same five sections:
 
 ---
 
-## 1. Data Science (`Data Science/`) — prefix `DS`
+## 1. Data Science (`01-data-science/`) — prefix `DS`
 
 ### Theory
 - Hypothesis testing; imputation; feature engineering; regression; classification (binary,
@@ -73,7 +73,7 @@ Every subject folder is organised under the same five sections:
 
 ---
 
-## 2. Machine Learning (`Machine Learning/`) — prefix `ML`
+## 2. Machine Learning (`02-machine-learning/`) — prefix `ML`
 
 ### Theory
 - Neural networks; gradient descent; neurons; activation functions; dense layers; dropout;
@@ -102,7 +102,7 @@ Every subject folder is organised under the same five sections:
 
 ---
 
-## 3. Agentic Engineering (`Agentic Engineering/`) — prefix `AGENT`
+## 3. Agentic Engineering (`03-agentic-engineering/`) — prefix `AGENT`
 
 ### Theory
 - Vector databases; RAG; MCP; context window.
@@ -124,7 +124,7 @@ Every subject folder is organised under the same five sections:
 
 ---
 
-## 4. AI-assisted SDLC (`AI-assisted-sdlc/`) — prefix `SDLC`
+## 4. AI-assisted SDLC (`04-ai-assisted-sdlc/`) — prefix `SDLC`
 
 ### Theory
 - Prompts; hooks; rules; gates; sub-agents; tools; skills.
