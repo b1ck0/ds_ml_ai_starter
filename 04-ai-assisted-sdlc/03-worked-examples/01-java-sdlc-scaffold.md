@@ -2,6 +2,27 @@
 
 *AI-assisted-sdlc · Worked Examples · SPEC-SDLC-2 (the capstone)*
 
+## The shortcut that ships the exact bug it was supposed to fix
+
+Give an agent a feature request — "reject a malformed card number before it reaches the payment
+gateway" — and no gate, and here is the fastest path from prompt to a green checkmark: write a
+test, watch it fail, start on the real implementation, notice the clock, and reach for the one-line
+escape hatch instead of finishing the work: `mvn -q test -DskipTests`, or a stray `@Disabled` on the
+one test still red. The build goes green. The PR looks done — the diff has a validator, a test file,
+and a passing CI badge. Nothing in Git, and nothing in a review that trusts the badge instead of
+reading the diff, tells you the validator was never actually exercised. The chargebacks the feature
+was supposed to stop keep arriving, because the code that was meant to catch them was never proven
+to catch anything.
+
+That is not a hypothetical shape of failure — it is the literal one `docs/definition-of-done.md`'s
+"Test-first" checklist and this chapter's `guard.sh` hook exist to close, by making `-DskipTests` a
+command that never *completes* rather than a temptation you hope nobody reaches for.
+[SPEC-SDLC-1 (Theory)](../01-theory/01-theory.md) named the fix in the abstract: of the four
+scaffolding primitives an agentic coding tool needs, **a hook is the one that can actually block a
+bad action instead of just advising against it.** This chapter is where that primitive gets welded
+onto a real Java build, and a real feature runs through it end to end — including the one moment
+(§4) where you watch the shortcut above get vetoed for real, not just described.
+
 ## 1. What & why — the same four primitives, a different build
 
 [SPEC-SDLC-1 (Theory)](../01-theory/01-theory.md) named four scaffolding primitives an agentic coding
@@ -44,6 +65,41 @@ JDK 25 LTS, Maven 3.9.16, JUnit 5.14.3 (`org.junit.jupiter:junit-jupiter`), Mave
 but no Maven or Gradle installed; §5 is explicit about exactly which evidence below is real,
 captured output from *this* sandbox, and which is the verified-reference `mvn`/`gradle` command you
 run on a machine that has them.
+
+### The map: four primitives, one file each
+
+Before touring the scaffold file by file, here is where everything in it lives — the same
+"you are here" map this chapter keeps coming back to as each section builds one more piece of it:
+
+```mermaid
+flowchart TB
+    subgraph RULES["Prompts and rules -- advisory, read by the architect"]
+        CLAUDEMD["CLAUDE.md"]
+        ARCHMD["docs/architecture.md"]
+        DODMD["docs/definition-of-done.md"]
+    end
+    subgraph ROSTER["Sub-agents and skills -- fresh-context dispatch"]
+        RESEARCHERMD[".claude/agents/researcher.md -- Haiku"]
+        IMPLEMENTERMD[".claude/agents/implementer.md -- Sonnet"]
+        REVIEWERMD[".claude/agents/reviewer.md -- fresh Sonnet"]
+    end
+    subgraph GATEBOX["Hooks and gates -- the only layer that can block"]
+        GUARDSH[".claude/hooks/guard.sh -- PreToolUse on Bash"]
+        VERIFYSH[".claude/hooks/verify.sh -- PostToolUse on Edit/Write"]
+        CONTEXTSH[".claude/hooks/context.sh -- SessionStart"]
+    end
+    subgraph WIRING["Tools and MCP -- the typed capability an agent calls"]
+        SETTINGSJSON[".claude/settings.json"]
+    end
+    RULES -.->|"architect (Opus) reads first"| ROSTER
+    SETTINGSJSON -->|"wires hook scripts to lifecycle events"| GATEBOX
+    ROSTER -->|"Bash calls the implementer makes"| GATEBOX
+```
+
+§2 tours `RULES` (the charter and docs); §3 tours `ROSTER` (the three agent files); §4 tours
+`WIRING` and `GATEBOX` (`settings.json` and the three hook scripts). §5 is the payoff: all four
+layers, working together, on one real feature — including the shortcut from the top of this chapter
+getting caught.
 
 ## 2. The charter + docs — one-to-one with this repository's own
 
@@ -186,8 +242,12 @@ gate swapped in:
   `docs/features/FEATURE-*.md` and its status, so a new session immediately sees what's approved and
   waiting for an implementer.
 
-All three were actually executed against synthetic hook payloads (exactly the JSON Claude Code
-would pipe to a `command` hook on stdin), not just read and trusted:
+Here is the shortcut from this chapter's cold open, for real. Without `guard.sh` wired into
+`PreToolUse`, nothing stops an implementer under time pressure from running
+`mvn -q -DskipTests package` and reporting a green build that never actually ran a test. With it
+wired in, that exact command is the first thing thrown at it below — and it never completes. All
+three hook scripts were actually executed against synthetic hook payloads (exactly the JSON Claude
+Code would pipe to a `command` hook on stdin), not just read and trusted:
 
 ```text
 $ printf '{"command":"mvn -q -DskipTests package"}' | bash guard.sh
@@ -236,6 +296,29 @@ transposed, one dropped — that were never validated before hitting the payment
 real, small, self-contained feature: reject an obviously malformed card number for free, before
 paying a gateway round-trip to find out. It runs through every stage of the loop exactly once.
 
+Drawn plainly, ignoring for a moment which primitive lives where, the loop is five boxes and two
+decision points — and both of those decision points are exit ramps back to the implementer, not
+dead ends, which is the whole reason a fresh reviewer and a real gate matter more than good
+intentions:
+
+```mermaid
+flowchart LR
+    SPEC["spec: docs/features/FEATURE-*.md<br/>written by the architect (Opus)"] --> GROUND{"new external<br/>fact needed?"}
+    GROUND -->|"yes"| RESEARCH["researcher.md (Haiku)<br/>grounds it, writes it down"]
+    GROUND -->|"no -- FEATURE-1 skips this,<br/>see Stage 2 below"| IMPL
+    RESEARCH --> IMPL["implementer.md (Sonnet)<br/>failing test first, then the code"]
+    IMPL --> GATEBOX2["gate: guard.sh + verify.sh<br/>mvn test + checkstyle + spotless + spotbugs"]
+    GATEBOX2 -->|"red"| IMPL
+    GATEBOX2 -->|"green"| REVIEW["reviewer.md (fresh Sonnet)<br/>re-runs the gate itself"]
+    REVIEW -->|"changes requested"| IMPL
+    REVIEW -->|"approve"| MERGE["merge (architect, Opus)"]
+    MERGE -.->|"loop closes -- next feature"| SPEC
+```
+
+The picture [SPEC-SDLC-1](../01-theory/01-theory.md) built color-codes each stage by which of the
+four primitives is active there — the same loop, more detail, naming the actual `java-project/`
+file that plays each role:
+
 ![Diagram of a six-stage rectangular loop for the java-project feature workflow: 1. Request -> spec, 2. Ground (if needed), 3. Failing test -> implement (top row, left to right), then down to 4. Gate, 5. Review, 6. Merge (bottom row, right to left), with an arrow looping back up from Merge to Request labelled "loop closes -> next feature." Each stage box lists the concrete primitives active there, colour-coded exactly as in the Theory chapter's diagram: blue for prompts & rules, red for hooks & gates, green for tools & MCP, purple for sub-agents & skills, each row naming the actual file in java-project/ that plays that role.](artefacts/java_feature_loop_diagram.png)
 
 *(Generated by [`code/java_feature_loop_diagram.py`](code/java_feature_loop_diagram.py) — reproduce
@@ -247,9 +330,22 @@ reviewer's verdict, and the merge — is
 [`artefacts/feature-loop-transcript.md`](artefacts/feature-loop-transcript.md). It is explicitly
 labelled a **reference transcript**: the file names, the spec, the code, and the review verdict's
 reasoning are all real and match what's committed under `code/java-project/`; the exact console
-bytes of an `mvn test` run are illustrative, because this sandbox has no Maven installed. What *is*
-real, captured evidence, run while writing this chapter (JDK 24.0.1, `javac`/`java`, no Maven or
-Gradle on `PATH` — confirmed with `which mvn`, `which gradle`, and no `~/.m2` cache present):
+bytes of an `mvn test` run are illustrative, because this sandbox has no Maven installed.
+
+Notice what the reviewer stage actually checks, not just that it says yes: it re-runs the gate
+itself instead of trusting the implementer's report, confirms the test genuinely failed before the
+code existed to satisfy it (via the implementer's own step-1 log), and checks that nothing outside
+`FEATURE-1`'s two listed files changed. Any one of those checks coming up short — a test that was
+never seen to fail, a gate the reviewer can't reproduce locally, a stray edit to an unrelated
+class — is a **CHANGES REQUESTED** verdict sent back to stage 3, not a rubber stamp; §6 names each
+of those failure modes directly, because they're the ones a reviewer exists to catch. For
+`FEATURE-1`, every check passes cleanly on the first pass — which is exactly why the transcript
+reads as a straight line from spec to merge instead of a loop back through the implementer, the way
+the diagram above draws it as a real possibility, not a formality.
+
+What *is* real, captured evidence, run while writing this chapter (JDK 24.0.1, `javac`/`java`, no
+Maven or Gradle on `PATH` — confirmed with `which mvn`, `which gradle`, and no `~/.m2` cache
+present):
 
 ```text
 $ javac -d out -Xlint:all src/main/java/com/example/sdlcdemo/LuhnValidator.java
@@ -353,6 +449,11 @@ scope for this chapter — see [SPEC-SDLC-2](../../specs/SPEC-SDLC-2-java-projec
 "Scope: Out." The gate commands themselves don't change moving into CI; only *where* they run does.
 
 ## 8. Recap & what's next
+
+Back to the shortcut this chapter opened with: `mvn -q test -DskipTests` never got a chance to run
+in `java-project/`, because `guard.sh` doesn't ask an agent to resist temptation — it makes the
+command fail outright, and §4 showed that happening for real, not just described. That's the
+concrete payoff of the four primitives below, proven twice now.
 
 Four primitive categories, one governed loop, now proven twice: once for a textbook chapter
 (SPEC-SDLC-1, this repository's own scaffold), once for a Java feature (this chapter,

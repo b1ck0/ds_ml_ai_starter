@@ -2,13 +2,45 @@
 
 *AI-assisted SDLC · Local Environment Setup · SPEC-SDLC-0*
 
-Every other chapter in this subject assumes two things are already on your machine: a Java project
-you can build and test with a single command, and Claude Code pointed at it. This chapter builds
-both, on ground you already own — you have run `mvn test` a thousand times; the new piece is putting
-an agent in the loop next to it. By the end you will have a tiny Maven project that compiles and
-tests cleanly, Claude Code installed and authenticated, a first task run against that project, and a
-map of the files (`CLAUDE.md`, `.claude/`) that steer what the agent does — the same files this
-repository itself uses to write its own chapters.
+## The rule that changed nothing
+
+Suppose you write a golden rule into this project's own `CLAUDE.md`: "never run `rm -rf`." Every
+Java engineer has written the equivalent before — a `README` warning, a code-review comment, a wiki
+page nobody reads twice. Here's the uncomfortable fact about that sentence: an agent that happens to
+respect it will avoid the command. An agent that doesn't — a bug, a misread instruction, a
+prompt-injected file it just read — pays that sentence no mind at all, because nothing about *running*
+Claude Code checks whether the model actually followed it. Quoting the tool's own documentation
+directly: "Instructions in your prompt or `CLAUDE.md` shape what Claude tries to do, but they don't
+change what Claude Code allows."
+([source: Claude Code — Configure permissions](https://code.claude.com/docs/en/permissions), checked
+2026-09-03.)
+
+Here's the one-sentence version, the kind you could repeat at dinner: **a rule written in prose is a
+request; a rule enforced by the tool is a guarantee — and a governed local setup is entirely about
+building the second kind, not settling for the first.**
+
+This repository's own toolchain is the fix, and every box in the map below is something this chapter
+builds, end to end, on ground you already own:
+
+```mermaid
+flowchart LR
+    EDITOR["Editor / agent<br/>Claude Code, proposing changes"] --> RULES["Rules<br/>CLAUDE.md (instructions, not enforced)<br/>+ settings.json (enforced)"]
+    RULES --> HOOKS["Hooks<br/>guard.sh (PreToolUse)<br/>verify.sh (PostToolUse)"]
+    HOOKS --> GATES["Gates<br/>permission prompts:<br/>deny, then ask, then allow"]
+    GATES --> REPO["Repo<br/>hello-java working tree"]
+```
+
+Read it left to right and you have the whole chapter in one picture: an editor/agent proposing
+changes, rules that only state intent versus rules the tool actually checks, hooks that run
+deterministic scripts before and after every tool call, and permission gates that ask before anything
+risky lands — only then reaching your repository. This map recurs at the end of every section below,
+with each box checked off as you build it, so you never lose track of where "governed" actually comes
+from.
+
+By the end of this chapter you will have a tiny Maven project that compiles and tests cleanly, Claude
+Code installed and authenticated, a first task run against that project with every guard in the map
+above firing for real, and a tour of the files (`CLAUDE.md`, `.claude/`) that do the governing — the
+same files this repository itself uses to write its own chapters.
 
 ## 1. What & why — AI-assisted SDLC on ground you already own
 
@@ -20,13 +52,23 @@ involved yet**, is to separate two concerns that are easy to tangle together the
 
 1. Does the *project* build and test correctly, independent of any agent? (Section 2 — familiar Java
    ground.)
-2. Once it does, what does putting an agent in front of it change? (Sections 3–5 — new ground.)
+2. Once it does, what does putting an agent in front of it change? (Sections 3–5 — new ground, and
+   where the map above actually gets built.)
 
-Keeping these separate matters because when something goes wrong later — a test fails, a build
-breaks — you want to know immediately whether it's a Java problem (debug it the way you always have)
-or an agent-interaction problem (a permission you denied, a misunderstood instruction). Section 2
-gives you a project you've *personally verified* builds clean, so any surprise after that point is
-scoped to Sections 3 onward.
+**Why we do it this way.** Keeping these two concerns separate matters because when something goes
+wrong later — a test fails, a build breaks — you want to know *immediately* which kind of problem
+you're looking at:
+
+```mermaid
+flowchart TB
+    Q{"Something breaks later --<br/>which concern is it?"}
+    Q -->|"a Java error,<br/>same as always"| JAVA["A build/test problem --<br/>debug it the way you always have"]
+    Q -->|"the agent did something<br/>you didn't expect"| AGENT["An agent-interaction problem --<br/>a permission you denied,<br/>a misunderstood instruction"]
+```
+
+Section 2 gives you a project you've *personally verified* builds clean before any agent touches it —
+so any surprise after that point is scoped to Sections 3 onward, and you skip the wasted half hour of
+wondering whether `javac` or Claude Code is the thing misbehaving.
 
 ## 2. A JDK, Maven, and a starter project
 
@@ -269,6 +311,16 @@ checked 2026-09-02).
 If your own `mvn -version` reports a JDK older than 25, the fix is Section 2.1, not the `pom.xml` —
 lower the pin only as a deliberate, temporary compromise, never silently.
 
+**You are here** — the Java half of the map is done; nothing agentic has run yet:
+
+```mermaid
+flowchart LR
+    EDITOR["Editor / agent -- not started yet"] --> RULES["Rules -- not read yet"]
+    RULES --> HOOKS["Hooks -- not fired yet"]
+    HOOKS --> GATES["Gates -- nothing to approve yet"]
+    GATES --> REPO["Repo -- hello-java BUILDS + TESTS, S2 done"]
+```
+
 ## 3. Install and authenticate Claude Code
 
 ### 3.1 What it is
@@ -286,7 +338,8 @@ extension.
 ### 3.2 Install it
 
 Claude Code's own docs recommend the **native installer** — it self-updates in the background, no
-separate runtime required. The exact command depends on your shell
+separate runtime required, the same convenience trade-off as `sdkman`/`jenv` managing a JDK version
+for you instead of a hand-rolled `PATH` edit. The exact command depends on your shell
 ([source: Claude Code — Advanced setup](https://code.claude.com/docs/en/setup), checked 2026-09-03):
 
 ```bash
@@ -335,6 +388,17 @@ switch accounts later, run `/login` inside a session
 
 (Source for all four: Claude Code — Overview, checked 2026-09-03, as cited in 3.1.)
 
+**You are here** — the agent is installed and can prove who it's talking to, but hasn't opened your
+project yet:
+
+```mermaid
+flowchart LR
+    EDITOR["Editor / agent -- installed & authenticated, S3"] --> RULES["Rules -- not read yet"]
+    RULES --> HOOKS["Hooks -- not fired yet"]
+    HOOKS --> GATES["Gates -- nothing to approve yet"]
+    GATES --> REPO["Repo -- hello-java BUILDS + TESTS, S2 done"]
+```
+
 ## 4. Point Claude Code at the project, and run a first task
 
 ### 4.1 Start a session
@@ -359,7 +423,7 @@ nothing to approve, just exploration. This mirrors the official quickstart's own
 step: "Claude Code reads your project files as needed. You don't have to manually add context."
 ([source: Claude Code — Quickstart](https://code.claude.com/docs/en/quickstart), checked 2026-09-03.)
 
-### 4.2 A first real task
+### 4.2 A first real task, and where each guard actually fires
 
 Now ask for a small, concrete change — something with an obvious, checkable outcome, the same way
 you'd scope a first ticket for a new hire:
@@ -389,17 +453,47 @@ Concretely, for this task, that means:
    for the same reason: it changes state (compiles code, executes it) even though nothing here is
    destructive.
 
-If you try this yourself, you'll see a live version of the diff-then-approve loop described above;
-the shape of it (read freely, ask before writing, ask before running commands) is the point to take
-away, more than any single transcript.
+That numbered sequence is the cold open's map made concrete — every "gate" box firing on one real
+request. This repository wires the "hooks" box to two scripts named right there in the map:
+`.claude/settings.json` runs `guard.sh` before every Bash command (a **PreToolUse** hook — it can
+still block the command outright) and `verify.sh` after every edit (a **PostToolUse** hook — it runs
+the fast content-gate checks). Laid out as one sequence, request to landed change:
+
+```mermaid
+sequenceDiagram
+    participant You
+    participant Claude as Claude Code
+    participant Gate as Permission gate -- settings.json
+    participant Hook as Hooks -- guard.sh / verify.sh
+    participant Tree as Working tree / shell
+
+    You->>Claude: "add farewell(name) to Greeter, plus a matching test"
+    Claude->>Tree: read Greeter.java, GreeterTest.java -- no prompt, reads are free
+    Claude->>Gate: propose edit to Greeter.java
+    Gate-->>You: ask -- diff shown, first time this exact edit is seen
+    You->>Gate: Yes / Yes and don't ask again / No
+    Gate->>Tree: write the approved edit
+    Tree->>Hook: PostToolUse fires -- verify.sh runs the fast checks
+    Claude->>Gate: propose a Bash command -- mvn test
+    Gate->>Hook: PreToolUse fires -- guard.sh checks the command first
+    Hook-->>Gate: allow -- not a denied pattern
+    Gate-->>You: ask -- first time this exact command is seen
+    You->>Gate: Yes
+    Gate->>Tree: mvn test executes for real
+```
+
+If you try this yourself, you'll see a live version of the diagram above; the shape of it (read
+freely, ask before writing, hooks fire around every gate, ask before running commands) is the point
+to take away, more than any single transcript.
 
 ### 4.3 The permission model, briefly
 
 Every tool call Claude Code makes — read a file, edit a file, run a shell command — is checked
 against a permission system before it executes, and that check is enforced by Claude Code itself,
-not by the model choosing to be careful: "Permission rules are enforced by Claude Code, not by the
-model. Instructions in your prompt or `CLAUDE.md` shape what Claude tries to do, but they don't
-change what Claude Code allows."
+not by the model choosing to be careful. This is the same guarantee the cold open opened with, now
+seen from the enforcement side rather than the instruction side: "Permission rules are enforced by
+Claude Code, not by the model. Instructions in your prompt or `CLAUDE.md` shape what Claude tries to
+do, but they don't change what Claude Code allows."
 ([source: Claude Code — Configure permissions](https://code.claude.com/docs/en/permissions), checked
 2026-09-03.) Three things worth knowing before your first session:
 
@@ -416,9 +510,24 @@ change what Claude Code allows."
   session in that repository; a file-edit approval, by contrast, lasts only until the current session
   ends (same source).
 
-This is deliberately the *shallow* end of the permission model — enough to understand what you saw in
-4.2 and why. SPEC-SDLC-2 goes deep on authoring permission rules, hooks, and sub-agents deliberately;
-this chapter only needs you to recognise the prompt and know what your options mean.
+**Why we do it this way.** A `deny` rule beating a matching `allow` rule, always, is what turns
+"please don't do this" into "this cannot happen" — the same reason a Java security manager or a
+`SecurityException` thrown deep in a call stack beats a caller that merely didn't ask for the
+dangerous operation. This is deliberately the *shallow* end of the permission model — enough to
+understand what you saw in 4.2 and why. SPEC-SDLC-2 goes deep on authoring permission rules, hooks,
+and sub-agents deliberately; this chapter only needs you to recognise the prompt and know what your
+options mean.
+
+**You are here** — a real edit and a real command have both gone through the full map, guards and
+all:
+
+```mermaid
+flowchart LR
+    EDITOR["Editor / agent -- ran a first task, S4"] --> RULES["Rules -- settings.json evaluated<br/>deny, then ask, then allow"]
+    RULES --> HOOKS["Hooks -- guard.sh + verify.sh<br/>fired for real, S4.2"]
+    HOOKS --> GATES["Gates -- edit + Bash prompts<br/>approved, S4.2"]
+    GATES --> REPO["Repo -- hello-java BUILDS + TESTS, S2 done"]
+```
 
 ## 5. The steering files — a map for what's coming
 
@@ -427,12 +536,13 @@ this chapter's markdown lives in — is a live, working example of both:
 
 - **`CLAUDE.md`** — a persistent charter Claude Code reads at the start of every session. It's
   **instructions**, not enforcement: it shapes what Claude *tries* to do (its role, its rules, its
-  escalation criteria) but grants no capability by itself.
+  escalation criteria) but grants no capability by itself. This is the "rule" from the cold open.
 - **`.claude/`** — a directory of concrete, mostly-enforced configuration: `agents/` (specialised
   sub-agents with their own charter, tools, and model — this chapter was written by one, see the
   banner your session shows), `skills/` (packaged, invoke-by-name procedures), `hooks/`
-  (deterministic automation that runs before/after tool calls), and `settings.json` (the permission
-  rules from Section 4.3, actually enforced by Claude Code).
+  (deterministic automation that runs before/after tool calls — the same `guard.sh`/`verify.sh` you
+  just watched fire in Section 4.2), and `settings.json` (the permission rules from Section 4.3,
+  actually enforced by Claude Code).
 
 The diagram below draws exactly this repository's own `CLAUDE.md` and `.claude/` contents — the same
 files that produced the chapter you're reading:
@@ -449,15 +559,34 @@ research/NOTE-2-package-versions.md, checked 2026-09-02). Regenerate it with:*
 
 *writing `artefacts/steering_file_map.png`.*
 
-The one distinction most newcomers trip over — the diagram's own headline — is that **CLAUDE.md is
-read but not enforced; `settings.json`'s permission rules are enforced.** You could write "never run
-`rm -rf`" in CLAUDE.md, and a well-behaved agent will respect it — but the *guarantee* against it
-running comes from a `deny` rule in `settings.json`, not from the prose. This repository practises
-what it's showing you: its own `CLAUDE.md` (the architect's charter — golden rules, model routing,
-escalation criteria) and `.claude/agents/chapter-writer.md` (the charter for the sub-agent that wrote
-*this chapter*) are both instructions; `.claude/settings.json` wiring `guard.sh` to every Bash call
-and `verify.sh` to every edit is what's actually enforced. SPEC-SDLC-1 (Theory) defines each of these
-primitives properly; this map exists so you can orient once you get there.
+The one distinction most newcomers trip over — the diagram's own headline, and the cold open's whole
+point — is that **`CLAUDE.md` is read but not enforced; `settings.json`'s permission rules are
+enforced.** Redrawn as the enforcement split itself, not just the file tree:
+
+```mermaid
+flowchart TB
+    subgraph INSTR["Instructions -- shapes intent, not a guarantee"]
+        CLAUDEMD["CLAUDE.md<br/>the architect's charter --<br/>golden rules, routing, escalation"]
+    end
+    subgraph ENFORCED[".claude/ -- mostly enforced configuration"]
+        AGENTS["agents/<br/>chapter-writer.md, etc."]
+        SKILLS["skills/<br/>packaged procedures"]
+        HOOKSD["hooks/<br/>guard.sh, verify.sh"]
+        SETTINGS["settings.json<br/>the ACTUAL enforced<br/>permission rules"]
+    end
+    CLAUDEMD -.->|"read, but never enforces anything"| SETTINGS
+    SETTINGS -->|"deny, then ask,<br/>then allow"| RESULT["what Claude Code<br/>actually lets happen"]
+    HOOKSD --> RESULT
+```
+
+You could write "never run `rm -rf`" in `CLAUDE.md`, and a well-behaved agent will respect it — but
+the *guarantee* against it running comes from a `deny` rule in `settings.json`, not from the prose.
+This repository practises what it's showing you: its own `CLAUDE.md` (the architect's charter —
+golden rules, model routing, escalation criteria) and `.claude/agents/chapter-writer.md` (the charter
+for the sub-agent that wrote *this chapter*) are both instructions; `.claude/settings.json` wiring
+`guard.sh` to every Bash call and `verify.sh` to every edit is what's actually enforced. SPEC-SDLC-1
+(Theory) defines each of these primitives properly; this map exists so you can orient once you get
+there.
 
 ## 6. Pitfalls
 
@@ -470,10 +599,10 @@ primitives properly; this map exists so you can orient once you get there.
   treat a `git push --force` confirmation, not a rubber stamp. "Yes, and don't ask again" persists a
   rule for every future matching command in that repository (4.3); make sure that's the rule you
   actually meant to create.
-- **Expecting CLAUDE.md to block something.** Per Section 5, CLAUDE.md is instructions the agent
-  tries to follow, not a boundary Claude Code enforces. If something must never happen — a
-  destructive command, an edit to a secrets file — that belongs in a `deny` rule in `settings.json`
-  (or a `PreToolUse` hook), not a sentence in CLAUDE.md.
+- **Expecting `CLAUDE.md` to block something.** This is the exact mistake the cold open opened with.
+  Per Section 5, `CLAUDE.md` is instructions the agent tries to follow, not a boundary Claude Code
+  enforces. If something must never happen — a destructive command, an edit to a secrets file — that
+  belongs in a `deny` rule in `settings.json` (or a `PreToolUse` hook), not a sentence in `CLAUDE.md`.
 - **Running Claude Code from the wrong directory.** Claude Code's file access is scoped to the
   directory you launched it from (plus anything you explicitly add). Starting it one level up or down
   from the actual project root is a common first-session mix-up — check the working directory Claude
@@ -489,11 +618,23 @@ primitives properly; this map exists so you can orient once you get there.
 - **Section 3** installed and authenticated Claude Code via the official native installer, and
   surveyed its four surfaces — terminal, IDE, desktop, web — all backed by the same engine.
 - **Section 4** pointed a session at the `hello-java` project, ran a first exploratory question and a
-  first real edit, and introduced the permission model just deep enough to recognise a prompt and
-  know what your options mean: reads are free, writes and commands ask, deny beats ask beats allow.
+  first real edit, and watched the cold open's map fire for real: reads free, hooks around every
+  edit and command, gates asking before anything risky — reads are free, writes and commands ask,
+  deny beats ask beats allow.
 - **Section 5** mapped the files that will steer every agent interaction from here on —
   `CLAUDE.md` (instructions) and `.claude/` (mostly-enforced configuration) — using this repository's
-  own files as the live example.
+  own files as the live example, and closed the loop on the cold open: a rule in prose is a request,
+  a rule in `settings.json` is a guarantee.
+
+Back to the map from the cold open — every box is now built, and you watched it govern a real change:
+
+```mermaid
+flowchart LR
+    EDITOR["Editor / agent -- installed,<br/>ran a first task, S3-S4"] --> RULES["Rules -- CLAUDE.md read (S5);<br/>settings.json enforced (S4.3)"]
+    RULES --> HOOKS["Hooks -- guard.sh + verify.sh<br/>fired for real, S4.2"]
+    HOOKS --> GATES["Gates -- deny, then ask,<br/>then allow, watched live, S4"]
+    GATES --> REPO["Repo -- hello-java BUILDS + TESTS,<br/>you are here, ready for SPEC-SDLC-1"]
+```
 
 From here, the curriculum's next stop is **SPEC-SDLC-1 (Theory: Prompts, Rules, Hooks, Gates, Tools,
 Sub-agents, Skills)** — it takes every primitive this chapter only pointed at (CLAUDE.md, hooks,
