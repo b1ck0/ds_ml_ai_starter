@@ -464,9 +464,12 @@ and bug-detection tools instead of a snippet compile; tools & MCP are the typed 
 delegation boundary — a fresh researcher for facts, a fresh implementer for code, and critically, a
 **fresh** reviewer that never shares context with the implementer it's checking.
 
-This is the capstone worked example for the AI-assisted-sdlc subject — the loop described here and
-in [SPEC-SDLC-1](../01-theory/01-theory.md) is the same one that governed the writing of every chapter in
-this book, including the three you've just read. If you came to this book to learn Data Science or
+This is the capstone worked example for scaffolding a *new* project's SDLC — the loop described here
+and in [SPEC-SDLC-1](../01-theory/01-theory.md) is the same one that governed the writing of every
+chapter in this book, including the three you've just read. [**How this repo was built**](02-how-this-repo-was-built.md)
+(SPEC-SDLC-3) is the natural next stop if you want to see that same loop run for real against this
+exact repository, with real commits, a real chapter's full spec-to-merge trail, and an honest account
+of where it needed a human or got something wrong. If you came to this book to learn Data Science or
 Machine Learning rather than SDLC tooling, the **Data Science** subject's own Local Environment
 Setup chapter is the natural next stop; if you're setting up a governed loop on your own Java
 project right now, `code/java-project/` is a complete, ready-to-fork starting point.

@@ -14,9 +14,14 @@ Prompts · hooks · rules · gates · sub-agents · tools · skills.
 Java · Claude Code.
 
 ## Worked Examples
-- Create a new Java project and set up all the SDLC documents so agents follow the SOP: a researcher
-  subagent, a QA subagent, an implementer subagent, and the architect — mirroring this repo's own
-  `.claude/agents/` and `docs/`.
+- **Scaffolding a governed SDLC for a new Java project** — create a new Java project and set up all
+  the SDLC documents so agents follow the SOP: a researcher subagent, a QA subagent, an implementer
+  subagent, and the architect — mirroring this repo's own `.claude/agents/` and `docs/`.
+- **How this repo was built** — turns the camera on the book itself: this repository is a real,
+  non-trivial artefact built by exactly the governed pipeline the theory chapter describes. Traces one
+  real chapter (spec → grounding note → draft → gate → review → merge) through its actual commits, and
+  is honest about where the pipeline needed a human, produced a false alarm, or got a fact wrong before
+  a later stage caught it.
 
 ## Cloud Environment Setup
 CI integration and running agents in a pipeline (cross-reference the team's CI/CD conventions).

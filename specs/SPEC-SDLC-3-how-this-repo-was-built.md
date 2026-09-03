@@ -1,6 +1,9 @@
 # SPEC-SDLC-3: How this repo was built — a governed multi-agent SDLC, dissected
 
-**Status:** approved
+**Status:** in-review (written by Sonnet; self-grounded against this repo's own files, `git log`, and
+two light web checks — the MathJax `\text{}`-escaping error family and GitHub commit-permalink
+resolution, both confirmed live; `check_snippets.py` and `check_markdown_render.py` both pass; pending
+independent fresh-Sonnet review + architect merge)
 **Subject:** AI-assisted-sdlc
 **Section:** Worked Examples
 **Routing:** writer=Sonnet 4.6 · research=Haiku (light) · review=Sonnet (fresh) · architect=Opus 4.8

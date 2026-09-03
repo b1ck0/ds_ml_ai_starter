@@ -151,6 +151,12 @@ Every subject folder is organised under the same five sections:
 - Creating a new Java project + setting up all SDLC documents so the agents follow the SOP:
   researcher subagent, QA subagent, implementer subagent, architect. (This repo's own `.claude/`
   scaffold is a live reference example.)
+- **How this repo was built** (SPEC-SDLC-3) — a self-referential case study: this book was produced
+  by exactly the governed multi-agent pipeline it teaches (Opus scopes/reviews/merges · Sonnet writes
+  one chapter · Haiku grounds · a fresh Sonnet reviews). Walks one real chapter from spec → NOTE →
+  draft → gate → commit, maps every role/gate to a real file, and is honest about where it broke
+  (the `guard.sh` false positive, the render-lint's origin, the rate-limit/concurrency lesson, a
+  grounding conflict on a package version). Every claim is checkable with `git log`.
 
 ---
 
