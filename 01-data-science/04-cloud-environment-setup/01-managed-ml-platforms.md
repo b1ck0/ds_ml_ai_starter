@@ -9,32 +9,65 @@ is fabricated: where you'd normally see a printed result, the text says what the
 behaviour is and cites the source instead of inventing a number. The one piece of code that
 actually runs is the workflow diagram generator in `code/`.
 
+## The demo that couldn't survive contact with a team
+
+Monday: you train a churn model in a notebook. Load the CSV, engineer a few features, fit
+`RandomForestClassifier`, print an AUC you're happy with, `pickle.dump()` it to `models/v3.pkl`.
+The metric looks good — ship it.
+
+Three months later, someone asks you to retrain it on fresher data. You open the same `.ipynb`.
+Half the cells don't run in the order you last ran them. `pip install` pulled a different
+scikit-learn minor version than the one you had back in March. Two global variables from a cell
+you don't remember running are still shaping the output. You get a different AUC than the one you
+originally reported — and you can't explain why, because nothing about that first run was ever
+recorded anywhere outside your own head.
+
+Then compliance asks the question you were dreading: which exact dataset snapshot, which commit,
+which hyperparameters produced the model that's currently deciding who gets a retention offer? The
+honest answer is nobody kept track. There's no equivalent of a Maven build that either reproduces
+byte-for-byte or fails loudly — there's just a `.pkl` file and your memory of a Tuesday three
+months back.
+
+Then Black Friday: traffic spikes 40x, and the `.predict()` call you wired into a Flask endpoint
+one afternoon — no autoscaling, no rollback plan, no on-call runbook, because nobody designed a
+serving layer, they shipped a demo — falls over.
+
+None of this is a Python problem. A Java engineer has already lived through the exact same story
+once, just wearing different clothes: a script that reads a file and prints an answer on your
+laptop is not a service. Nobody ships a Java artifact by SCP-ing a `.jar` to a box and running it
+in a `screen` session — not because it *can't* work, but because it doesn't survive contact with a
+team, an audit, or an incident. Here's the one-sentence version of what fixes it, whether the
+artifact is a `.jar` or a `.pkl`: **a managed ML platform is CI/CD for your model** — a pipeline
+that builds it reproducibly, a registry that remembers what shipped and why, and an endpoint that
+serves it like a real service instead of a demo.
+
+Four stages close that gap, and — as this chapter shows — every major cloud implements the same
+four under different brand names. This is the map the rest of the chapter keeps coming back to:
+
+```mermaid
+flowchart LR
+    NB["Managed notebook<br/>(explore)"] --> PL["Training pipeline<br/>(reproduce)"]
+    PL --> REG["Model registry<br/>(govern)"]
+    REG --> EP["Deployment endpoint<br/>(serve)"]
+```
+
 ## 1. What & why
 
 You've built a model in a notebook (DS-1 through DS-14 in this curriculum): load data, engineer
 features, fit an estimator, check a metric, maybe pickle it to disk. That's the entire lifecycle
-so far — one person, one machine, one file. It works. It also silently assumes things that stop
-being true the moment a second person, a second environment, or a production SLA gets involved.
-
-A Java engineer has already lived through this exact transition once, just in a different domain:
-a script that reads a file and prints an answer on your laptop is not a service. Getting from
-"runs on my machine" to "runs in production, gets deployed by CI, gets rolled back safely, and
-someone other than you can debug it at 3am" is what build tooling, CI/CD, and a deployment
-platform are *for*. Nobody ships a Java service by SCP-ing a `.jar` to a box and running it in a
-`screen` session — not because it *can't* work, but because it doesn't survive contact with a
-team, an audit, or an incident.
-
-The notebook has the identical failure mode, and it shows up in four concrete ways:
+so far — one person, one machine, one file. It works, right up until a second person, a second
+environment, or a production SLA gets involved — which is exactly the wall the story above just
+walked into. Named plainly, that's the same wall in four flavors:
 
 - **No reproducible build.** A notebook's true state is "whatever cells you happened to run, in
   whatever order, with whatever variables are still sitting in memory." Two people opening the
-  same `.ipynb` six months apart can get different results — a `pip install` did something
-  different, a cell got skipped, a global got mutated out of order. There's no equivalent of a
-  Maven build that either reproduces byte-for-byte or fails loudly.
+  same `.ipynb` six months apart can get different results.
 - **No lineage.** Which exact dataset version, code commit, and hyperparameters produced the model
-  file sitting in `models/v3.pkl`? In a notebook, the honest answer is usually "nobody kept track."
-  You'd never ship a Java artifact without knowing which commit and which dependency versions built
-  it — but that's the default state of a notebook-trained model.
+  file sitting in `models/v3.pkl`? **Lineage** is the plain word for that paper trail — the ability
+  to walk backward from a served model to the exact code, data, and parameters that built it. In a
+  notebook, the honest answer is usually "nobody kept track." You'd never ship a Java artifact
+  without knowing which commit and which dependency versions built it — but that's the default
+  state of a notebook-trained model.
 - **No governance.** Who approved this model for production? What's the audit trail if a
   regulator, or your own risk team, asks why the model made a particular prediction on a particular
   date? A `.pkl` file on someone's laptop has no answer.
@@ -47,17 +80,34 @@ A **managed ML platform** is the cloud vendor's answer to exactly this gap: a sy
 lineage, and a governed, autoscaled way to serve it — the MLOps equivalent of what a CI/CD
 pipeline and an application platform (Kubernetes, an app service, whatever your shop uses) already
 give you for ordinary software. LO1 is this section: the advantages are reproducibility, lineage,
-scale, and governance, in that order of "how soon you'll feel the pain of not having it."
+scale, and governance, in that order of "how soon you'll feel the pain of not having it." Redrawn
+as a straight substitution, each pain point maps onto exactly one platform capability:
+
+```mermaid
+flowchart TB
+    subgraph LAPTOP["The laptop notebook (a release built by hand)"]
+        L1["No reproducible build<br/>(whatever cells ran, in whatever order)"]
+        L2["No lineage<br/>(which data + commit + params built model.pkl?)"]
+        L3["No governance<br/>(who approved this for prod?)"]
+        L4["No path to scale<br/>(.predict() inline, no autoscaling)"]
+    end
+    subgraph PLATFORM["The managed platform (CI/CD for models)"]
+        P1["Training pipeline<br/>(versioned, parameterised DAG)"]
+        P2["Model registry<br/>(artifact + lineage back to the run)"]
+        P3["Approval / staging workflow<br/>(audited)"]
+        P4["Deployment endpoint<br/>(autoscaling, rollback)"]
+    end
+    L1 -.->|"fixed by"| P1
+    L2 -.->|"fixed by"| P2
+    L3 -.->|"fixed by"| P3
+    L4 -.->|"fixed by"| P4
+```
 
 ## 2. The universal workflow
 
 Every major managed ML platform — despite branding differently and shipping different consoles —
-implements the **same four stages**, because they're solving the same problem:
-
-```text
-managed notebook  -->  training pipeline  -->  model registry  -->  deployment endpoint
-   (explore)             (reproduce)             (govern)              (serve)
-```
+implements the **same four stages** from the map above, because they're solving the same problem.
+Here's what each one actually is:
 
 1. **Managed notebook** — a hosted, provisioned Jupyter-compatible environment. Same interactive
    loop you already know, but the compute, the identity, and the network boundary are managed by
@@ -94,6 +144,34 @@ LO2: the same four stages, named differently per cloud. All names verified again
 | Model registry | **Model Registry** (`aiplatform.Model`) | **Model Registry** | **Model Registry** (`ModelPackage`) |
 | Deployment endpoint | **Endpoints** (`Model.deploy()`) | **Online Endpoints** / **Batch Endpoints** [source: Azure ML endpoints concept](https://learn.microsoft.com/en-us/azure/machine-learning/concept-endpoints) (checked 2026-09-02) | **SageMaker Endpoints** |
 
+The table reads left to right, one stage at a time; drawn the other way — one cloud at a time,
+same four stages stacked — the "same shape, different labels" pattern is even easier to spot:
+
+```mermaid
+flowchart TB
+    subgraph S1["Managed notebook"]
+        V1["Vertex AI: Workbench"]
+        A1["Azure ML: Compute Instances"]
+        SM1["SageMaker: Studio"]
+    end
+    subgraph S2["Training pipeline"]
+        V2["Vertex AI: Pipelines"]
+        A2["Azure ML: Pipelines / ML Jobs"]
+        SM2["SageMaker: Pipelines"]
+    end
+    subgraph S3["Model registry"]
+        V3["Vertex AI: Model Registry"]
+        A3["Azure ML: Model Registry"]
+        SM3["SageMaker: Model Registry (ModelPackage)"]
+    end
+    subgraph S4["Deployment endpoint"]
+        V4["Vertex AI: Endpoints"]
+        A4["Azure ML: Online / Batch Endpoints"]
+        SM4["SageMaker: Endpoints"]
+    end
+    S1 --> S2 --> S3 --> S4
+```
+
 **A branding note, checked and worth stating plainly:** as of April 2026, Google Cloud
 [renamed Vertex AI to **Gemini Enterprise Agent Platform**](https://cloud.google.com/blog/products/ai-machine-learning/introducing-gemini-enterprise-agent-platform)
 (announced at Google Cloud Next '26, 2026-04-22; the product page is now titled
@@ -104,7 +182,8 @@ their names and behaviour, and the `google-cloud-aiplatform` Python package (Sec
 unchanged. This chapter keeps using "Vertex AI" throughout because that's still the name of the ML
 platform capability described here and the name the SDK, its docs, and its PyPI package use; treat
 "Gemini Enterprise Agent Platform" as the current umbrella brand you'll see in the console and
-marketing material, not a different product.
+marketing material, not a different product. It's also a small worked example of the last pitfall
+in §6: service *names* drift, the four *stages* don't.
 
 Two things the table can't show but matter in practice:
 
@@ -124,7 +203,9 @@ Two things the table can't show but matter in practice:
 ## 4. A concrete pipeline + deploy sketch (Vertex AI)
 
 LO3. This is the **reference** SDK walkthrough the spec asks for — real, current API surface from
-`google-cloud-aiplatform`, not executed here. Every name below is verified in
+`google-cloud-aiplatform`, not executed here. It walks the middle three stages of the map from the
+cold open — pipeline → registry → endpoint — end to end in one cloud, so the four-stage flow stops
+being an abstraction and becomes five concrete method calls. Every name below is verified in
 [NOTE-18](../../research/NOTE-18-managed-platforms.md): the package is pinned at
 `google-cloud-aiplatform==2.1.0` (released 2026-09-01, requires Python >=3.10, verified directly
 against [PyPI](https://pypi.org/project/google-cloud-aiplatform/), checked 2026-09-02), and the
@@ -278,7 +359,7 @@ LO4. A managed platform is not a strictly-better default; it's a trade you make 
 ## 7. Recap & what's next
 
 - A notebook has no reproducible build, no lineage, no governance, and no path to scale — the same
-  gap CI/CD and an application platform close for ordinary software (Section 1).
+  gap CI/CD and an application platform close for ordinary software (cold open, Section 1).
 - Every managed ML platform implements the same four stages — managed notebook, training pipeline,
   model registry, deployment endpoint — under different service names
   ([NOTE-18](../../research/NOTE-18-managed-platforms.md), Sections 2–3, Figure 1).
@@ -309,3 +390,13 @@ both fetched directly (not taken from NOTE-18's characterisation alone) — see 
 the fetch results. NOTE-18's claim stands and is stated in the chapter with an authoritative dated
 citation per the style guide, framed as "evolution/rebrand, same underlying services," matching
 Google's own language, rather than "Vertex AI no longer exists."
+
+**Restyle pass (2026-09-03):** applied the house storytelling/visual style — added the cold open
+("The demo that couldn't survive contact with a team"), the recurring notebook→pipeline→registry→
+endpoint "you are here" map (shown at the cold open and again in Section 2), the laptop-vs-platform
+contrast diagram in Section 1, and the cross-cloud service-equivalents diagram in Section 3
+alongside the existing mapping table. No technical claim, version, service name, or citation was
+added or changed; the ```python reference SDK blocks, the ```text pip-pin block, and the mapping
+table are byte-identical to the prior version. `code/platform_workflow_diagram.py` and every
+artefact under `artefacts/` are untouched. All prior grounding citations (NOTE-18, PyPI, the three
+vendor doc pages, the two Google Cloud rebrand pages) are preserved verbatim.
