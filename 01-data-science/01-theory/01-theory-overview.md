@@ -1,25 +1,103 @@
-# Data Science Theory — the concepts behind the code
+# Data Science Theory — the map before the code
 
 *Data Science · Theory · SPEC-DS-14*
 
+## One sentence, then a 140-year-old graph
+
+Here's the whole subject, reduced to one line you could say at a dinner table without losing
+anyone: **data science and machine learning are, underneath every buzzword, finding the numbers
+in a formula that best describe the data you have.** That's it. Everything else in this chapter —
+every acronym, every diagram, every Greek letter — is either a way to get better data to feed that
+formula, a way to fit it, or a way to check whether you can trust the fit.
+
+That idea is older than computers. In 1886, the English polymath Francis Galton was measuring the
+heights of parents and their grown children and noticed something odd: very tall parents tended to
+have children who were tall, but usually *not as tall as they were* — and very short parents had
+children who were short, but usually *not as short*. Each generation drifted back toward the
+population's average height. Galton called the effect "regression" — the children's heights
+*regressed* toward the mean — and the name stuck to the entire family of techniques for fitting a
+line through data, right up through the `LinearRegression` you'll `import` a few chapters from now
+([source: Wikipedia, "Regression toward the
+mean"](https://en.wikipedia.org/wiki/Regression_toward_the_mean), checked 2026-09-03 — citing
+Galton's 1886 paper *Regression towards mediocrity in hereditary stature*, based on measurements of
+928 adult children and their parents). A 19th-century biologist trying to explain heredity is where
+half the vocabulary in this chapter comes from.
+
 You wouldn't start reading a new codebase file-by-file with no architecture diagram — you'd want
-the map first: what are the major components, what talks to what, which names you'll keep
-bumping into. This chapter is that map for Data Science. It defines, in one place, every concept
-the curriculum's worked-example chapters put into practice, each with a plain-language
-explanation, a Java-shaped analogy where one genuinely helps, and a **forward link** to the
-chapter that shows it running on real code and real data.
+the map first: what are the major components, what talks to what, which names you'll keep bumping
+into. This chapter is that map for data science. It defines, in one place, every concept the
+curriculum's worked-example chapters put into practice: a plain-language intuition first, a
+one-line "why it matters" second, a Java-shaped analogy where one genuinely helps, and a **forward
+link** to the chapter that runs it on real code and real data.
 
 **How to use this chapter:** skim it once, end to end, before you touch any worked example. Don't
 try to memorize it. When a term resurfaces two chapters from now, come back here for the
 one-paragraph refresher, then follow the link to see it in action. This chapter intentionally
-stays light on derivations and code — two exceptions in Section 5 get a real script and real
+stays light on derivations and code — one exception in Section 5 gets a real script and real
 plots, because "bias–variance trade-off" and "overfitting" are much easier to *see* than to be
 told about.
 
+## The spine every chapter hangs on
+
+Every worked-example chapter in this curriculum — wine, taxis, Titanic, forecasts, all of it —
+walks the same seven-step loop. This is the map to keep coming back to; every section below will
+re-show it with the piece that section covers marked:
+
+```mermaid
+flowchart LR
+    BU["Business<br/>Understanding"] --> DC["Data<br/>Collection"]
+    DC --> CLEAN["Data<br/>Cleaning"]
+    CLEAN --> EDA["EDA"]
+    EDA --> FE["Feature<br/>Engineering"]
+    FE --> MT["Model<br/>Training"]
+    MT --> ME["Model<br/>Evaluation"]
+    ME -.->|"iterate: back to features<br/>or a different model"| FE
+```
+
+**Business understanding** — what question are you actually answering, and what does "good enough"
+look like. **Data collection** — get the historical `(X, y)` pairs. **Cleaning** — throw out or fix
+the rows that would poison the fit. **EDA** (exploratory data analysis) — look at the data before
+you model it, the way you'd read logs before debugging. **Feature engineering** — turn raw columns
+into ones a model can actually use. **Model training** — fit the formula. **Model evaluation** —
+find out, honestly, whether it works. Then, usually, you loop back and try again with a better
+feature or a different model family. This chapter's six numbered sections below map onto that same
+loop — Section 1 sets up the vocabulary that spans every box, Sections 2–6 walk the boxes roughly
+left to right.
+
+And here's the same loop compressed into one more picture — not the *process* this time, but how
+the *ideas* in this chapter relate to each other, which is the shape the rest of the chapter
+follows:
+
+```mermaid
+flowchart LR
+    subgraph PREP["get X and y ready (Section 3)"]
+        IMP["imputation"] --> FE2["feature<br/>engineering"]
+        FE2 --> ENC["encoding"]
+        ENC --> SCALE["scaling"]
+        SCALE --> COL["collinearity<br/>check"]
+    end
+    PREP --> MODELS["fit f<br/>(Section 4):<br/>linear models, trees,<br/>ensembles"]
+    MODELS --> TENSION{"the central tension<br/>(Section 5)"}
+    TENSION -->|"f too simple"| UNDER["high bias<br/>underfitting"]
+    TENSION -->|"f too flexible"| OVER["high variance<br/>overfitting"]
+    UNDER --> FIX1["fix: more capacity,<br/>better features"]
+    OVER --> FIX2["fix: regularization,<br/>fewer features, more data"]
+```
+
 ## 1. The shape of a supervised-learning problem
 
+```mermaid
+flowchart LR
+    BU["Business<br/>Understanding<br/>◀ HERE"] --> DC["Data<br/>Collection<br/>◀ HERE"]
+    DC --> CLEAN["Data<br/>Cleaning"]
+    CLEAN --> EDA["EDA"]
+    EDA --> FE["Feature<br/>Engineering"]
+    FE --> MT["Model<br/>Training"]
+    MT --> ME["Model<br/>Evaluation"]
+```
+
 Every chapter from here on is some variation of the same setup, so it's worth naming precisely
-once:
+once — this is the vocabulary that spans the entire map above, not just its first two boxes:
 
 - **`X`** — the **features** (also called predictors, independent variables, or the *design
   matrix*). Think of `X` as a table: one row per example (a passenger, a taxi trip, a patient),
@@ -42,6 +120,14 @@ once:
   during training? A model that only reproduces its training data is as useless as a service that
   only passes the unit tests it was written against and falls over on real traffic.
 
+```mermaid
+flowchart LR
+    HIST["historical (X, y)<br/>rows you already have,<br/>with known answers"] -->|"train"| F["fitted function f"]
+    F -->|"serve"| NEWX["new X<br/>(no y yet)"]
+    NEWX --> PRED["f(X_new) =<br/>the prediction"]
+    F -.->|"does it also work<br/>on data it never saw?"| GEN["generalisation --<br/>the property that matters"]
+```
+
 **Why it matters:** every other concept in this chapter is either a way to prepare `X` and `y`
 better, a way to fit `f`, or a way to honestly measure whether `f` generalises. Losing sight of
 that shape is the fastest way to get lost in a worked example's code.
@@ -52,26 +138,48 @@ discipline: how to measure it honestly, and the ways that discipline breaks.
 
 ## 2. Statistics foundations
 
-- **Hypothesis testing** is the formal way to ask "is this difference I'm seeing real, or could it
-  just be noise?" — the same instinct as not trusting a single flaky-looking test failure until
-  you've re-run it enough times to rule out randomness. You state a **null hypothesis** (`H0`,
-  usually "there is no real difference/effect") and an **alternative** (`H1`, "there is"), then
-  compute how surprising your observed data would be *if `H0` were actually true*.
+```mermaid
+flowchart LR
+    BU["Business<br/>Understanding"] --> DC["Data<br/>Collection"]
+    DC --> CLEAN["Data<br/>Cleaning"]
+    CLEAN --> EDA["EDA<br/>◀ HERE"]
+    EDA --> FE["Feature<br/>Engineering"]
+    FE --> MT["Model<br/>Training"]
+    MT --> ME["Model<br/>Evaluation"]
+```
+
+Before you ever fit a model, someone always asks a version of "is this real, or am I imagining a
+pattern in noise?" — the same instinct as not trusting a single flaky-looking test failure until
+you've re-run it enough times to rule out randomness. That instinct has a formal name and a small
+toolkit:
+
+```mermaid
+flowchart TD
+    Q["question: is this difference real,<br/>or could it just be noise?"] --> H0["state H0: 'no real difference'<br/>and H1: 'there is a difference'"]
+    H0 --> COMPUTE["compute how surprising the<br/>observed data would be, IF H0 were true"]
+    COMPUTE --> P["that probability is the p-value"]
+    P -->|"small (below 0.05, by convention)"| REJECT["evidence against H0"]
+    P -->|"not small"| KEEP["no evidence against H0"]
+    REJECT --> EFFECT["still ask: effect size --<br/>is the difference big enough to matter?"]
+```
+
+- **Hypothesis testing** — state a **null hypothesis** (`H0`, usually "there is no real
+  difference/effect") and an **alternative** (`H1`, "there is"), then compute how surprising your
+  observed data would be *if `H0` were actually true*. *Why it matters:* it's the disciplined
+  version of "does this feature actually separate the classes" or "does this dataset actually have
+  a skew worth handling," instead of eyeballing a chart and guessing.
 - **p-value** — the probability of seeing data at least this extreme *if `H0` were true*. A small
-  p-value (conventionally < 0.05, though that threshold is a convention, not a law of nature) is
-  evidence against `H0`. **Common misread, worth fixing now:** the p-value is *not* "the
+  p-value (conventionally below 0.05, though that threshold is a convention, not a law of nature)
+  is evidence against `H0`. **Common misread, worth fixing now:** the p-value is *not* "the
   probability `H0` is true" — it's a statement about the data, conditioned on `H0`, not a
-  statement about `H0` itself.
+  statement about `H0` itself. *Why it matters:* getting this backwards is the single most common
+  statistics mistake in industry write-ups, and it directly overstates how sure you should be.
 - **Effect size** — *how big* the difference actually is, independent of sample size. A p-value
   answers "is this real?"; effect size answers "does it matter?" With enough data, even a
   practically meaningless difference can produce a tiny p-value — statistical significance is not
   the same thing as practical significance, the same way a benchmark showing a statistically
-  significant 0.001ms latency improvement doesn't mean you should ship it.
-
-**Why it matters:** before you ever fit a model, you'll often want to know whether two groups
-genuinely differ (does this feature actually separate the classes, does this dataset actually have
-a skew worth handling) — the same discipline you'd apply before shipping a change off the back of
-an A/B test.
+  significant 0.001ms latency improvement doesn't mean you should ship it. *Why it matters:* a
+  p-value alone can talk you into shipping a change that isn't worth the code-review time.
 
 **Forward link:** [Hypothesis Testing &
 EDA](../03-worked-examples/01-hypothesis-testing-and-eda.md) runs a real t-test and chi-square test,
@@ -79,19 +187,45 @@ with p-values and effect sizes computed on an actual dataset.
 
 ## 3. Data preparation
 
+```mermaid
+flowchart LR
+    BU["Business<br/>Understanding"] --> DC["Data<br/>Collection"]
+    DC --> CLEAN["Data<br/>Cleaning<br/>◀ HERE"]
+    CLEAN --> EDA["EDA"]
+    EDA --> FE["Feature<br/>Engineering<br/>◀ HERE"]
+    FE --> MT["Model<br/>Training"]
+    MT --> ME["Model<br/>Evaluation"]
+```
+
+Getting `X` into a shape a model can actually learn from is most of the real work in a data
+science project — the pipeline below is the order these five ideas usually get applied in:
+
+```mermaid
+flowchart LR
+    RAW["raw X<br/>(gaps, mixed types,<br/>redundant columns)"] --> IMPUTE["imputation<br/>fill the gaps"]
+    IMPUTE --> FE3["feature engineering<br/>derive richer columns"]
+    FE3 --> ENC2["encoding<br/>categories -> numbers"]
+    ENC2 --> SCALE2["scaling<br/>comparable numeric ranges"]
+    SCALE2 --> COLIN["collinearity check<br/>drop redundant twins"]
+    COLIN --> CLEANX["model-ready X"]
+```
+
 - **Imputation** — filling in missing values. Real data has holes: a sensor didn't report a
   reading, a form field was left blank. Unlike a Java `Optional<T>` that lets downstream code
   gracefully branch on absence, most ML estimators either throw on a `NaN` or silently produce
   garbage. Strategies range from simple (fill with the column mean/median/most-frequent value) to
   smarter (K-nearest-neighbours imputation, model-based imputation) to "don't just fill it, also
   *flag* it" (an indicator column recording *that* a value was missing — sometimes the missingness
-  itself is signal).
+  itself is signal). *Why it matters:* an estimator that throws on the first `NaN` takes your whole
+  pipeline down with it — imputation is the difference between a pipeline that runs and one that
+  doesn't.
   **Forward link:** [Imputation](../03-worked-examples/02-imputation.md).
 - **Feature engineering** — deriving new columns from raw ones so the pattern is easier for a
   model to find. Think of it as a service layer that transforms a raw request DTO into a richer
   domain object before your business logic runs: raw GPS coordinates alone tell a linear model
   little, but engineering them into a distance and a congestion-zone bucket hands the model
-  signal it can actually use.
+  signal it can actually use. *Why it matters:* it's usually the single highest-leverage step in
+  the whole pipeline — a better feature can beat a fancier model outright.
   **Forward link:** [Regression — NYC Taxi Fare
   Prediction](../03-worked-examples/05-regression-nyc-taxi.md).
 - **Encoding** — turning categorical columns into numbers a model can consume. **One-hot
@@ -99,7 +233,9 @@ with p-values and effect sizes computed on an actual dataset.
   categories like a payment method, at the cost of extra columns. **Ordinal encoding** maps each
   category to a single integer that preserves order — compact, and correct for a truly *ordered*
   category (`low` < `medium` < `high`), but silently invents a false ordering if you apply it to a
-  nominal one (there's no meaningful sense in which `red < green < blue`).
+  nominal one (there's no meaningful sense in which `red < green < blue`). *Why it matters:*
+  picking the wrong one doesn't crash anything — it just quietly teaches the model a relationship
+  that isn't real.
   **Forward link:** [Regression — NYC Taxi Fare
   Prediction](../03-worked-examples/05-regression-nyc-taxi.md).
 - **Feature scaling** — putting numeric columns on comparable ranges. `StandardScaler`
@@ -109,7 +245,8 @@ with p-values and effect sizes computed on an actual dataset.
   will dominate one measured in single digits purely by coincidence of units. Tree-based models
   (decision trees, Random Forest, gradient boosting) are scale-**invariant**: they split on a
   per-feature threshold, and any monotonic rescaling of a column leaves the resulting tree
-  unchanged.
+  unchanged. *Why it matters:* skip it where it's needed and a column's *units*, not its
+  *signal*, end up deciding how much weight it gets.
   **Forward link:** [Regression — NYC Taxi Fare
   Prediction](../03-worked-examples/05-regression-nyc-taxi.md).
 - **Collinearity** — when two or more features carry almost the same information (highly
@@ -119,15 +256,48 @@ with p-values and effect sizes computed on an actual dataset.
   makes a linear model's coefficients unstable and hard to interpret (small changes in the data
   can flip which of two correlated features "gets credit" for an effect), and it undermines clean
   feature selection. Diagnosed with a correlation heatmap (pairwise) and **VIF** (Variance
-  Inflation Factor, which catches multi-feature collinearity a pairwise heatmap can miss).
+  Inflation Factor, which catches multi-feature collinearity a pairwise heatmap can miss). *Why it
+  matters:* it's the reason "which feature mattered" can flip between two runs of the exact same
+  model on the exact same data, just from a random seed change.
   **Forward link:** [Collinearity](../03-worked-examples/03-collinearity.md).
 
 ## 4. Models — regression, classification, and ensembles
 
+```mermaid
+flowchart LR
+    BU["Business<br/>Understanding"] --> DC["Data<br/>Collection"]
+    DC --> CLEAN["Data<br/>Cleaning"]
+    CLEAN --> EDA["EDA"]
+    EDA --> FE["Feature<br/>Engineering"]
+    FE --> MT["Model<br/>Training<br/>◀ HERE"]
+    MT --> ME["Model<br/>Evaluation"]
+```
+
+Two questions decide which model family you reach for: what shape is `y`, and how flexible does
+`f` need to be?
+
+```mermaid
+flowchart TD
+    Y{"what shape is y?"}
+    Y -->|"a number"| REG["regression"]
+    Y -->|"a category"| CLASS["classification"]
+    CLASS --> BIN["binary<br/>(2 classes, 1 label each)"]
+    CLASS --> MULTI["multi-class<br/>(3+ classes, 1 label each)"]
+    CLASS --> MLABEL["multi-label<br/>(0+ labels at once,<br/>not mutually exclusive)"]
+    REG --> FAM{"how flexible does<br/>f need to be?"}
+    FAM --> LIN["linear models<br/>one straight-line formula"]
+    FAM --> TREE["trees<br/>if/else splits"]
+    FAM --> ENS["ensembles<br/>many trees, combined"]
+    ENS --> BAG["bagging<br/>parallel -- reduces variance"]
+    ENS --> BOOST["boosting<br/>sequential -- reduces bias"]
+```
+
 - **Regression vs. classification** — same supervised-learning machinery, different shape of
   `y`. **Regression** predicts a continuous number (a fare in dollars, a temperature).
   **Classification** predicts a discrete category. Different `y` types need different metrics —
-  RMSE doesn't make sense for a category, and accuracy doesn't make sense for a price.
+  RMSE doesn't make sense for a category, and accuracy doesn't make sense for a price. *Why it
+  matters:* picking a regression metric for a classifier (or vice versa) produces a number that
+  compiles fine and means nothing.
   - **Binary classification** — exactly two mutually exclusive classes (e.g. survived / did not).
     **Forward link:** [Classification — Titanic](../03-worked-examples/06-classification-titanic.md).
   - **Multi-class classification** — more than two mutually exclusive classes; each example gets
@@ -142,12 +312,15 @@ with p-values and effect sizes computed on an actual dataset.
   historical — despite "Regression," it's a classifier). Fast to fit, and the coefficients are
   directly interpretable ("a one-unit increase in this feature moves the prediction by this
   much") — but they only capture linear relationships unless you engineer non-linear features
-  in first.
+  in first. *Why it matters:* it's usually the cheapest model to try first, and when the truth
+  really is close to linear, nothing else beats it (a real example of exactly this shows up in
+  the taxi chapter linked below).
 - **Trees** — split the feature space with a sequence of `if/else` decisions on individual
   features, exactly like a chain of if-statements. Trees capture non-linear relationships and
   feature interactions natively, need no scaling, and are easy to reason about one split at a
   time — but a single tree overfits easily (Section 5), which is why in practice you rarely use
-  just one.
+  just one. *Why it matters:* it's the model family that needs the least data preparation, which
+  makes it a good first non-linear baseline.
 - **Ensembles — bagging vs. boosting.** An ensemble combines many models into one prediction.
   The two dominant strategies solve *different* halves of the error budget (Section 5 defines
   bias and variance precisely; the short version here is enough to place them on the map):
@@ -166,7 +339,9 @@ with p-values and effect sizes computed on an actual dataset.
   checked 2026-09-02.)* Boosting is often the stronger performer on tabular data precisely because
   it directly attacks bias, but it's sequential (harder to parallelise), more sensitive to
   hyperparameters, and can overfit if left unconstrained; bagging is cheaper, easier to
-  parallelise, and more robust out of the box, at the cost of not doing much for bias.
+  parallelise, and more robust out of the box, at the cost of not doing much for bias. *Why it
+  matters:* "which ensemble should I reach for" has a real, data-dependent answer, and the taxi
+  chapter below shows the two neck-and-neck on real numbers rather than asserting a winner.
   **Forward link:** [Regression — NYC Taxi Fare
   Prediction](../03-worked-examples/05-regression-nyc-taxi.md) compares a Random Forest against
   `HistGradientBoostingRegressor` head-to-head and explains *why* boosting tends to win there;
@@ -175,11 +350,26 @@ with p-values and effect sizes computed on an actual dataset.
 
 ## 5. The central tension — overfitting, bias–variance, and regularization
 
+```mermaid
+flowchart LR
+    BU["Business<br/>Understanding"] --> DC["Data<br/>Collection"]
+    DC --> CLEAN["Data<br/>Cleaning"]
+    CLEAN --> EDA["EDA"]
+    EDA --> FE["Feature<br/>Engineering"]
+    FE --> MT["Model<br/>Training<br/>◀ HERE"]
+    MT --> ME["Model<br/>Evaluation<br/>◀ HERE"]
+    ME -.->|"this section is the loop"| FE
+```
+
 Every model-fitting decision above is ultimately in service of one trade-off. This section is the
 one place in the chapter with real code and real plots, because this idea is much easier to *see*
 than to be told about.
 
-### 5.1 Overfitting and underfitting
+### 5.1 Overfitting and underfitting — watch it fail first
+
+Picture the naive move: pick the most flexible model you can and let it fit the training data as
+closely as possible. Surely more flexibility can only help? Run that experiment for real, on a
+1-D curve with a *known* answer, and watch it go wrong.
 
 **Overfitting** is what happens when a model memorises the noise and idiosyncrasies of its
 *specific* training set instead of learning the pattern that generalises — training error keeps
@@ -264,12 +454,18 @@ Formally, a model's expected prediction error decomposes into three parts
 ([research/NOTE-14-ds-theory-definitions.md](../../research/NOTE-14-ds-theory-definitions.md),
 checked 2026-09-02):
 
-```text
-E[error] = Bias² + Variance + Irreducible error
+$$E[\text{error}] = \text{Bias}^2 + \text{Variance} + \text{Irreducible error}$$
+
+```mermaid
+flowchart TD
+    ERR["expected prediction error"] --> BIAS["Bias^2 --<br/>a systematic mistake,<br/>the same regardless of<br/>which training sample it saw<br/>(high = underfitting)"]
+    ERR --> VAR["Variance --<br/>sensitivity to exactly<br/>which training sample it saw<br/>(high = overfitting)"]
+    ERR --> IRR["irreducible error --<br/>noise inherent to the problem<br/>(no model removes this)"]
 ```
 
-- **Bias** — error from a model too simple to represent the true relationship: it makes the same
-  kind of systematic mistake regardless of which training sample it saw. High bias = underfitting.
+- **Bias** — "the model's average systematic miss." Error from a model too simple to
+  represent the true relationship: it makes the same kind of systematic mistake regardless of
+  which training sample it saw. High bias = underfitting.
 - **Variance** — error from a model too sensitive to exactly which training sample it happened to
   see: retrain it on a slightly different sample and its predictions swing. High variance =
   overfitting.
@@ -341,17 +537,24 @@ shrinking the model's effective capacity without changing which features it's al
 checked 2026-09-02):
 
 - **L2 regularization (Ridge)** adds a penalty proportional to the *sum of squared* coefficients:
-  `λ · Σ wᵢ²`. This shrinks every coefficient toward zero **proportionally**, but rarely all the
-  way to exactly zero. Good default when you believe most features carry some real signal, or when
-  features are collinear (Section 3) — it spreads the "credit" across correlated features instead
-  of arbitrarily picking one.
+
+  $$\lambda \sum_i w_i^2$$
+
+  This shrinks every coefficient toward zero **proportionally**, but rarely all the way to exactly
+  zero. Good default when you believe most features carry some real signal, or when features are
+  collinear (Section 3) — it spreads the "credit" across correlated features instead of
+  arbitrarily picking one.
 - **L1 regularization (Lasso)** adds a penalty proportional to the *sum of absolute* coefficients:
-  `λ · Σ |wᵢ|`. Because that penalty has a sharp "corner" at zero (piecewise-linear, not smooth,
-  unlike L2's smooth bowl), it can drive coefficients to **exactly zero** once `λ` is large enough
-  — L1 doesn't just shrink, it performs implicit feature selection.
-- **`λ`** (often called `alpha` in scikit-learn) controls the strength of either penalty: `λ = 0`
-  recovers plain, unregularized linear regression; as `λ → ∞`, every coefficient is pushed to
-  zero. The right value is data-dependent and is tuned via cross-validation, not guessed.
+
+  $$\lambda \sum_i |w_i|$$
+
+  Because that penalty has a sharp "corner" at zero (piecewise-linear, not smooth,
+  unlike L2's smooth bowl), it can drive coefficients to **exactly zero** once $\lambda$ is large
+  enough — L1 doesn't just shrink, it performs implicit feature selection.
+- **$\lambda$** (often called `alpha` in scikit-learn, "how hard to squeeze") controls the strength
+  of either penalty: $\lambda = 0$ recovers plain, unregularized linear regression; as
+  $\lambda \to \infty$, every coefficient is pushed to zero. The right value is data-dependent and
+  is tuned via cross-validation, not guessed.
 
 **Why fewer features help:** fewer non-zero coefficients means lower model capacity, which means
 fewer ways to fit noise — directly trading a little bias for a lot less variance, the same
@@ -366,6 +569,19 @@ Prediction](../03-worked-examples/05-regression-nyc-taxi.md) fits Ridge/Lasso al
 `LinearRegression` on real data.
 
 ## 6. Beyond the basics
+
+```mermaid
+flowchart LR
+    BU["Business<br/>Understanding"] --> DC["Data<br/>Collection<br/>◀ HERE"]
+    DC --> CLEAN["Data<br/>Cleaning"]
+    CLEAN --> EDA["EDA"]
+    EDA --> FE["Feature<br/>Engineering<br/>◀ HERE"]
+    FE --> MT["Model<br/>Training<br/>◀ HERE"]
+    MT --> ME["Model<br/>Evaluation"]
+```
+
+Four extensions that don't fit neatly into one box on the spine above — each solves a real problem
+the earlier sections quietly assumed away:
 
 - **Class imbalance** — one class vastly outnumbers another (fraud detection: legitimate
   transactions might outnumber fraud 999-to-1). **Why it matters:** accuracy becomes actively
@@ -424,7 +640,18 @@ Prediction](../03-worked-examples/05-regression-nyc-taxi.md) fits Ridge/Lasso al
 
 ## 8. Recap & what's next
 
-The map, compressed to one pass:
+The map, compressed to one pass — every box on the spine, checked off:
+
+```mermaid
+flowchart LR
+    BU["Business<br/>Understanding<br/>Section 1"] --> DC["Data<br/>Collection<br/>Section 1, 6"]
+    DC --> CLEAN["Data<br/>Cleaning<br/>Section 3"]
+    CLEAN --> EDA["EDA<br/>Section 2"]
+    EDA --> FE["Feature<br/>Engineering<br/>Section 3, 6"]
+    FE --> MT["Model<br/>Training<br/>Section 4, 6"]
+    MT --> ME["Model<br/>Evaluation<br/>Section 5"]
+    ME -.->|"iterate"| FE
+```
 
 - **Section 1** named the pieces every chapter shares: `X`, `y`, train vs. serve, and the one
   property that actually matters — generalisation.
@@ -461,4 +688,8 @@ note, its signature was instead verified directly against the installed interpre
 `inspect.signature` and cross-checked against the official scikit-learn docs (both cited inline in
 Section 5.1). All regularization, bias–variance, and bagging-vs-boosting definitions trace to
 [research/NOTE-14-ds-theory-definitions.md](../../research/NOTE-14-ds-theory-definitions.md)
-(checked 2026-09-02), per this chapter's spec.
+(checked 2026-09-02), per this chapter's spec. The Galton "regression" origin story in the cold
+open is a new claim for this restyle, grounded inline against [Wikipedia, "Regression toward the
+mean"](https://en.wikipedia.org/wiki/Regression_toward_the_mean) (checked 2026-09-03) rather than a
+`research/NOTE-*.md`, following the same house-style precedent as the Ashenfelter wine citation in
+[regression-nyc-taxi.md](../03-worked-examples/05-regression-nyc-taxi.md)'s cold open.
