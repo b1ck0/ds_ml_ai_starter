@@ -2,16 +2,60 @@
 
 *Machine Learning · Worked Examples · Computer Vision · SPEC-ML-7*
 
+## A box that's almost right — hit or miss?
+
+The previous chapter's Faster R-CNN drew a box around a person at `(128, 180, 319, 572)`, 99.9%
+confident, on a real photo
+([SPEC-ML-5, Section 4](02-object-detection-coco.md)). Suppose you'd hand-labelled that same photo
+yourself, and your box for that person came out slightly different — a few pixels off on each edge,
+because you and the model don't draw rectangles identically even when you both clearly see the same
+person. **Is that prediction a hit, or a miss?**
+
+Plain accuracy can't answer this. Accuracy is built for a world where an answer is either exactly
+right or exactly wrong — MNIST's `predicted == label` either matches or it doesn't, nothing in
+between. Two rectangles are almost never pixel-identical, even when a detector "basically" found the
+right object in the right place. You need a number that says *how much* two shapes agree, not just
+*whether* they match exactly.
+
+Here's a small, concrete pair to make that number real. Ground truth: a `40×40` box at
+`(10, 10, 50, 50)`. Prediction: a `40×40` box at `(30, 30, 70, 70)` — same size, offset by 20 pixels
+in both directions.
+
+```mermaid
+flowchart LR
+    A["Box A — ground truth<br/>(10, 10, 50, 50)"] --> AND["A ∩ B<br/>the overlap area"]
+    B["Box B — prediction<br/>(30, 30, 70, 70)"] --> AND
+    A --> OR["A ∪ B<br/>the combined area<br/>(overlap counted once)"]
+    B --> OR
+    AND --> IOU["IoU = area(A ∩ B) / area(A ∪ B)<br/>0 = no overlap at all, 1 = identical shapes"]
+    OR --> IOU
+```
+
+That ratio — overlap area divided by combined area — is called **Intersection over Union (IoU)**.
+One plain sentence for it: **IoU is what fraction of the space two shapes take up together is space
+they actually share.** For the two boxes above it comes out to `0.1429` — Section 2 does the
+arithmetic by hand and confirms it in code. Pick a cutoff on that number (a **threshold**, `τ`) and
+you can finally say "hit" or "miss" precisely, the same way a classifier turns a probability into a
+yes/no. Everything else in this chapter is that one idea, applied repeatedly:
+
+```mermaid
+flowchart LR
+    S1["Step 1<br/>IoU: overlap / union"] --> S2["Step 2<br/>pick an IoU threshold τ"]
+    S2 --> S3["Step 3<br/>threshold turns each<br/>prediction into TP / FP / FN"]
+    S3 --> S4["Step 4<br/>rank by score →<br/>per-class PR curve"]
+    S4 --> S5["Step 5<br/>AP: area under<br/>that curve"]
+    S5 --> S6["Step 6<br/>mAP: mean AP<br/>across classes"]
+    S6 --> S7["Step 7<br/>COCO mAP@[.5:.95]:<br/>mean across 10 thresholds too"]
+    S3 -.->|"recall side of the same idea"| MAR["mAR"]
+```
+
 SPEC-DS-6 gave you `precision = TP/(TP+FP)` and `recall = TP/(TP+FN)` for a classifier that answers a
 plain yes/no. A detector answers a harder question: *"is there a dog, and where?"* — a class **and**
 a box (or a pixel mask). Precision and recall still apply, but first you need a way to say whether a
-predicted box "counts" as correct at all. A box that's off by one pixel should count; a box drawn in
-the wrong corner of the image should not. **Intersection over Union (IoU)** is that yardstick, and
-everything else in this chapter — TP/FP/FN, the PR curve, AP, mAP, COCO's mAP@[.5:.95], mAR — is built
-directly on top of it, the same way SPEC-DS-6's metrics were built on top of a confusion matrix. This
-chapter derives every one of those metrics by hand on a small, fully worked detection set, then
-reproduces the same numbers with `torchmetrics`, so you can see library output is not magic — it's the
-same arithmetic, just faster.
+predicted box "counts" as correct at all — that's exactly what Step 1 and Step 2 above just did. This
+chapter derives every metric in that diagram by hand, on a small, fully worked detection set, then
+reproduces the same numbers with `torchmetrics`, so you can see library output is not magic — it's
+the same arithmetic, just faster.
 
 ## Environment
 
@@ -41,7 +85,8 @@ containsCat(Image img)`. Detection is `List<Detection> findCats(Image img)` wher
 carries a bounding box, a class, and a confidence score. The moment your method returns a *list* of
 scored, located things instead of one boolean, "did we get it right?" stops being a single
 true/false comparison — you have to decide, for every predicted box, *which* real object (if any) it
-was supposed to be, and *how close is close enough*.
+was supposed to be, and *how close is close enough*. The cold open above is that question asked once,
+concretely; the rest of this chapter is that question answered systematically, at scale.
 
 Three problems classification's confusion matrix doesn't have to solve, that a detector's metrics
 must:
@@ -59,7 +104,7 @@ must:
   threshold), averages that curve's area across several IoU thresholds too. That double-averaging is
   exactly what "mAP@[.5:.95]" means, and by the end of Section 4 you'll have computed it by hand.
 
-## 2. IoU by hand — boxes and masks
+## 2. Step 1 — IoU by hand: boxes and masks
 
 **IoU(A, B) = area(A ∩ B) / area(A ∪ B)**, a value in `[0, 1]`: `0` means the two shapes don't overlap
 at all, `1` means they're identical
@@ -99,8 +144,8 @@ an axis, the clamped edges cross (`inter_x2 < inter_x1`), which would otherwise 
 width — clamping to zero turns "no overlap" into an intersection area of exactly 0, not a nonsense
 negative area.
 
-Run on two overlapping 40×40 boxes offset by 20 pixels in each direction, `(10, 10, 50, 50)` (ground
-truth) against `(30, 30, 70, 70)` (prediction), the actual output is:
+Run on the two boxes from the cold open — `(10, 10, 50, 50)` (ground truth) against
+`(30, 30, 70, 70)` (prediction) — the actual output is:
 
 ```text
 [iou] box example IoU = 0.1429  (boxes (10, 10, 50, 50) vs (30, 30, 70, 70))
@@ -108,7 +153,9 @@ truth) against `(30, 30, 70, 70)` (prediction), the actual output is:
 
 By hand: each box has area `40*40 = 1600`. The overlap region is `x∈[30,50], y∈[30,50]` — a `20×20`
 square, area `400`. Union = `1600 + 1600 - 400 = 2800`. `IoU = 400/2800 = 0.1429` — matches the printed
-value exactly.
+value exactly, and matches the diagram in the cold open: `0.1429` is nowhere near `1` (identical
+shapes), so if `τ = 0.5` this prediction is going to be ruled a miss — Section 3 makes that call
+precise.
 
 ### Masks
 
@@ -156,10 +203,19 @@ a pixel grid coloured by which set(s) each pixel belongs to:
 
 *(artefacts/iou_illustration.png)*
 
-## 3. From IoU to TP/FP/FN
+## 3. Steps 2–3 — pick a threshold, turn IoU into TP/FP/FN
 
-A single IoU number doesn't classify anything by itself — you also need an **IoU threshold**. Pick
-`τ = 0.5` (the historically common default; Section 6 shows why the choice matters) and the rule is:
+A single IoU number doesn't classify anything by itself — you also need an **IoU threshold**, `τ`
+("tau" — the cutoff that decides how much overlap counts as "close enough"). Pick `τ = 0.5` (the
+historically common default; Section 6 shows why the choice matters) and the rule is:
+
+```mermaid
+flowchart TD
+    P["prediction, processed in<br/>score order — highest first"] --> M{"is there an unclaimed<br/>ground-truth box, same class,<br/>same image, with IoU ≥ τ?"}
+    M -->|"yes — claim its<br/>best-IoU match"| TP["True Positive (TP)"]
+    M -->|"no"| FP["False Positive (FP)"]
+    G["any ground-truth box still<br/>unclaimed once every<br/>prediction has been processed"] --> FN["False Negative (FN)"]
+```
 
 - A prediction is a **True Positive (TP)** if it can be matched to a ground-truth box of the *same
   class*, in the *same image*, with `IoU ≥ τ`.
@@ -171,7 +227,10 @@ classification never has: matching is **greedy and one-to-one**. Process detecti
 first; each ground-truth box can be claimed by only the first (highest-scoring) prediction that
 reaches it above the threshold — a second prediction on the same object, even with high IoU, is a FP,
 not a second TP (otherwise a model could inflate its score by emitting ten near-duplicate boxes per
-object).
+object). Why this rule and not "any prediction above τ counts"? Because without one-to-one claiming, a
+detector could game the metric for free — ten overlapping boxes on the same real dog would register as
+ten true positives instead of one, the same way ten duplicate `assert` calls on the same fact
+shouldn't count as ten separate tests passing.
 
 ### A small, hand-checkable detection set
 
@@ -251,10 +310,19 @@ ground-truth boxes get matched, `num_gt=3` reached exactly. `P1` (0.55, IoU ≈0
 0.0 against `G3`) is a FP, and `G3` is never matched — one dog false negative, out of 2 dog ground
 truths.
 
-## 4. PR curve → AP → mAP → mAR
+## 4. Steps 4–7 — PR curve → AP → mAP → COCO mAP@[.5:.95] → mAR
 
 This is where SPEC-DS-6's `precision = TP/(TP+FP)` and `recall = TP/(TP+FN)` come back, computed
 **cumulatively** as you walk the sorted detections rank by rank instead of once at a fixed threshold:
+
+```mermaid
+flowchart LR
+    RANK["detections, ranked by<br/>score — highest first"] --> CUM["cumulative TP/FP counts<br/>at each rank"]
+    CUM --> CURVE["precision & recall<br/>at each rank"]
+    CURVE --> PR["per-class PR curve"]
+    PR --> AP["Step 5: AP —<br/>101-point interpolated<br/>area under the curve"]
+    AP --> MAP["Step 6: mAP —<br/>mean AP across classes"]
+```
 
 ```python
 def precision_recall_curve(is_tp, num_gt: int):
@@ -274,15 +342,15 @@ recall `1/3 = 0.33`. After rank 2, `TP=2` → precision `1.00`, recall `2/3 = 0.
 not detection count). For `dog` (`is_tp=[T, F]`, `num_gt=2`): precision `1.00`/recall `0.50`, then
 precision `0.50`/recall `0.50`.
 
-### AP — the area under that curve, COCO's way
+### Step 5 — AP: the area under that curve, COCO's way
 
-**Average Precision (AP)** is the area under the precision-recall curve for one class at one IoU
-threshold. Plotting raw `(recall, precision)` points gives a jagged, sawtooth curve — precision
-drops sharply every time a FP appears, then would jump back up on the next TP. COCO (and, before it,
-Pascal VOC) smooths this with **interpolation**: at 101 equally-spaced recall points
-`[0.00, 0.01, ..., 1.00]`, the "interpolated precision" at recall level `r` is defined as the *maximum*
-precision observed at any recall `≥ r` — the precision-recall curve's upper envelope. AP is the mean
-of those 101 interpolated values
+**Average Precision (AP)** is one number summarizing an entire precision-recall curve for one class
+at one IoU threshold — literally the area under it. Plotting raw `(recall, precision)` points gives a
+jagged, sawtooth curve — precision drops sharply every time a FP appears, then would jump back up on
+the next TP. COCO (and, before it, Pascal VOC) smooths this with **interpolation**: at 101 equally-
+spaced recall points `[0.00, 0.01, ..., 1.00]`, the "interpolated precision" at recall level `r` is
+defined as the *maximum* precision observed at any recall `≥ r` — the precision-recall curve's upper
+envelope. AP is the mean of those 101 interpolated values
 ([source: NOTE-ML-6-cv-metrics](../../../research/NOTE-ML-6-cv-metrics.md), item 3 — COCO's 101-point
 interpolation, as opposed to Pascal VOC's older 11-point version):
 
@@ -323,14 +391,29 @@ FP only shows up *after* every ground truth is already matched); `dog`'s curve d
 the moment its one FP appears, and recall never exceeds 0.5 because one ground-truth dog is never
 found.
 
+### Step 6 — mAP: the mean of those APs across classes
+
 **mAP@0.50** is just the mean of the per-class APs at that one threshold: `mAP@0.50 = (1.0000 +
 0.5050) / 2 = 0.7525`.
 
-### COCO mAP@[.5:.95] — the same computation, ten times
+### Step 7 — COCO mAP@[.5:.95]: the same computation, ten times
 
 COCO's headline metric doesn't fix the IoU threshold at 0.5. It repeats the *entire* AP computation
 above at **ten** IoU thresholds — `[0.50, 0.55, 0.60, ..., 0.95]`, step `0.05` — then averages AP
-across both classes *and* thresholds
+across both classes *and* thresholds — a double average, both axes of it visible at once:
+
+```mermaid
+flowchart TD
+    T1["τ = 0.50"] --> AP1["AP per class"]
+    T2["τ = 0.55, 0.60 ..."] --> AP2["AP per class"]
+    T3["τ = 0.95"] --> AP3["AP per class"]
+    AP1 --> AVGCLS["average across the 2 classes<br/>-> one AP number per threshold"]
+    AP2 --> AVGCLS
+    AP3 --> AVGCLS
+    AVGCLS --> AVGTHR["average across<br/>the 10 thresholds"]
+    AVGTHR --> RESULT["mAP@[.5:.95]"]
+```
+
 ([source: NOTE-ML-6-cv-metrics](../../../research/NOTE-ML-6-cv-metrics.md), item 4). This is where
 `P5` (cat, IoU ≈0.636) earns its place in the example — it's a TP for the lower thresholds and flips
 to a FP once the threshold passes its IoU:
@@ -531,7 +614,8 @@ scored, located predictions into TP/FP/FN exactly the way SPEC-DS-6 built a conf
 now "correct" requires *both* the right class *and* an overlapping-enough box. From there: a
 per-class PR curve, AP as the 101-point-interpolated area under it, mAP as the per-class mean, COCO's
 `mAP@[.5:.95]` as that same computation repeated across ten IoU thresholds, and mAR as its
-recall-side counterpart. Every number was checked twice — once by hand, once by `torchmetrics` — and
+recall-side counterpart — the seven-step map from the cold open, walked start to finish, on numbers
+you can check by hand. Every number was checked twice — once by hand, once by `torchmetrics` — and
 they agreed exactly. SPEC-ML-5's pretrained detector produces exactly the kind of scored-box output
 this chapter's metrics consume; the next computer-vision chapters put these metrics to work judging
 real models on real images instead of a six-prediction toy set.
