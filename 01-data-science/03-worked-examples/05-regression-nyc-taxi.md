@@ -2,20 +2,101 @@
 
 *Data Science · Worked Examples · SPEC-DS-5*
 
+## The wine that predicted its own price
+
+In 1990, Orley Ashenfelter — an economics professor at Princeton, not a winemaker or a critic —
+published an equation that priced a vintage of Bordeaux wine years before anyone had tasted it,
+using nothing but that year's weather. Wine critics were furious. He turned out to be right often
+enough that the method stuck, and the dataset is still the first example a lot of statistics
+courses reach for when they teach regression
+([source: Ashenfelter, "Predicting the Quality and Prices of Bordeaux Wine," Journal of Wine
+Economics](https://www.cambridge.org/core/journals/journal-of-wine-economics/article/abs/predicting-the-quality-and-prices-of-bordeaux-wine/70B83BCA20969B6D4DA2A37132D1347F),
+checked 2026-09-03 — the coefficients below follow the classic single-predictor teaching rendition
+of this dataset; other published re-fits of the same 1952–1978 vintages land in the same
+neighbourhood, roughly 0.63–0.64 per degree).
+
+Walk through what he actually did, step by step — it's the whole chapter in miniature.
+
+**Step 1 — make a dataset.** One row per vintage year. The **label** (what you're trying to
+predict) is `Price` — the log of that vintage's average auction price, relative to the famous 1961
+vintage. The **features** (what you know ahead of time) are things you could read off a weather
+station: `Year`, `WinterRain` (mm), `AGST` — Average Growing Season Temperature, in °C —
+`HarvestRain` (mm), `Age` (years the wine spent in cask), and `FrancePop` (France's population that
+year, a proxy for demand).
+
+**Step 2 — pick a formula shape.** Start with the simplest possible one: a straight line through a
+single feature, `AGST`.
+
+**Step 3 — fit the line.** Ashenfelter's fitted line for `Price` on `AGST` alone:
+
+$$price = 0.642 \cdot AGST - 3.547$$
+
+**Step 4 — verify it on a real number.** 1990's AGST was about 17°C. Plug it in:
+
+$$0.642 \times 17 - 3.547 = 7.37$$
+
+That's the model's predicted (log) price for a vintage nobody had tasted yet, computed entirely
+from weather-station numbers.
+
+Here's the one-sentence version of machine learning you can repeat at dinner: **it's finding the
+parameters in a formula that best describe the data you already have.** `0.642` and `-3.547` are
+the two parameters; "best describe" means some optimizer picked them to minimize error across every
+vintage on record — what "error" means precisely, and how it's minimized, is §3 and §4 of this
+chapter.
+
+**Step 5 — generalise to more features.** One feature (temperature alone) leaves a lot on the
+table — it ignores rain, cask age, demand. Nothing stops you from using all six at once:
+
+$$price = a_1 \cdot Year + a_2 \cdot WinterRain + a_3 \cdot AGST + a_4 \cdot HarvestRain + a_5 \cdot Age + a_6 \cdot FrancePop + b$$
+
+Same idea, more knobs: instead of learning 2 numbers you're learning 7 (six `a`'s and one `b`).
+More features usually means a better fit — right up until it means overfitting, which shows up
+later in this chapter too (§5, §9).
+
+**Step 6 — but how good is the model, really?** `7.37` is *a* prediction. Whether it's a *good*
+prediction depends on how far predictions like it typically land from the truth — which is exactly
+what regression metrics (MSE, RMSE, MAE, R²) are built to answer.
+
+```mermaid
+flowchart LR
+    A["Step 1<br/>make a dataset<br/>(label + features)"] --> B["Step 2<br/>pick a formula shape"]
+    B --> C["Step 3<br/>fit the parameters"]
+    C --> D["Step 4<br/>verify on a real number"]
+    D --> E["Step 5<br/>generalise: more features"]
+    E --> F["Step 6<br/>grade it: how good?"]
+    F -.->|"this chapter runs the same loop on taxi fares"| A
+```
+
+This chapter does exactly what Ashenfelter did — a label, some features, a fitted formula, a way to
+grade it — but on NYC taxi fares instead of wine, with more features, three model families instead
+of one straight line, and the full toolkit for finding out whether the fitted model can be trusted.
+
+## 1. What & why
+
 You've written a pricing function before, even if nobody called it that. A shipping-cost
 calculator, a cloud-billing estimator, a SaaS seat-price quote — all of them take some inputs
 (weight, region, usage, seat count) and return a dollar figure, usually `base + rate * quantity`,
 sometimes with a few `if` branches for surcharges. **Regression is what you do when you don't get
-to hand-write that formula — you have to learn its coefficients from examples.**
+to hand-write that formula — you have to learn its coefficients from examples,** the same way
+Ashenfelter learned `0.642` and `-3.547` instead of guessing them.
 
 This chapter learns a pricing function for NYC taxi fares from trip data: pickup/dropoff
 coordinates, passenger count, payment method, traffic conditions — predict the fare. Along the
 way it covers the five standard regression metrics, three model families (linear, bagged trees,
 boosted trees) and why the second usually beats the first, engineering real features out of raw
 GPS coordinates, why some models need scaled/encoded inputs and others don't, and how to tell
-whether a fitted model is trustworthy or quietly biased.
+whether a fitted model is trustworthy or quietly biased. Here's where that lands on the standard
+data science process — this chapter lives almost entirely in the last three boxes:
 
-## 1. What & why
+```mermaid
+flowchart LR
+    BU["Business<br/>Understanding<br/>(this section)"] --> DC["Data<br/>Collection<br/>(§2, synthesised)"]
+    DC --> CLEAN["Data<br/>Cleaning<br/>(§2.4)"]
+    CLEAN --> EDA["EDA<br/>(light, §2)"]
+    EDA --> FE["Feature<br/>Engineering<br/>◀ this chapter, §6"]
+    FE --> MT["Model<br/>Training<br/>◀ this chapter, §4-5"]
+    MT --> ME["Model<br/>Evaluation<br/>◀ this chapter, §3, §8"]
+```
 
 A Java engineer's classifier intuition ("which bucket does this go in?") doesn't transfer
 directly here. **Regression predicts a number, not a category** — not "is this fare high or low"
@@ -33,6 +114,14 @@ perfectly linear (short hops cost more per km than long ones; surge pricing kick
 traffic). Regression fits that function from historical trips instead of you guessing it.
 
 ## 2. The data
+
+```mermaid
+flowchart LR
+    GEN["generate 6000 synthetic trips<br/>(random NYC coords, haversine distance,<br/>rate-kink + surge + surcharge fare rules)"] --> DIRTY["inject 4 kinds of dirty rows<br/>(bad GPS, bad fare sign,<br/>bad passenger count, billing glitch)"]
+    DIRTY --> RAW["nyc_taxi_synthetic_raw.csv<br/>6000 rows, seed 42"]
+    RAW --> CLEAN["clean_trips()<br/>4 domain sanity checks"]
+    CLEAN --> CLEANED["5868 clean rows<br/>-> train/test split"]
+```
 
 ### 2.1 Why synthetic data
 
@@ -203,10 +292,10 @@ training.
 
 | Metric | Formula | Units | Reads like |
 |---|---|---|---|
-| **MSE** (mean squared error) | mean((y − ŷ)²) | dollars² | the raw training loss for linear regression — squared, so large errors dominate |
-| **RMSE** (root MSE) | sqrt(MSE) | dollars | "typical" error size, in the same units as the target — the one to quote to a stakeholder |
-| **MAE** (mean absolute error) | mean(\|y − ŷ\|) | dollars | typical error size, but linear — one $50 miss counts the same as five $10 misses |
-| **R²** (coefficient of determination) | 1 − SS_res / SS_tot | unitless, ≤1 | fraction of the target's variance your model explains; 1.0 = perfect, 0.0 = no better than predicting the mean |
+| **MSE** (mean squared error) | $\displaystyle \mathrm{MSE} = \frac{1}{n}\sum_{i=1}^{n} (y_i - \hat{y}_i)^2$ | dollars² | the raw training loss for linear regression — squared, so large errors dominate |
+| **RMSE** (root MSE) | $\displaystyle \mathrm{RMSE} = \sqrt{\mathrm{MSE}}$ | dollars | "typical" error size, in the same units as the target — the one to quote to a stakeholder |
+| **MAE** (mean absolute error) | $\displaystyle \mathrm{MAE} = \frac{1}{n}\sum_{i=1}^{n} \lvert y_i - \hat{y}_i \rvert$ | dollars | typical error size, but linear — one $50 miss counts the same as five $10 misses |
+| **R²** (coefficient of determination) | $\displaystyle R^2 = 1 - \frac{SS_{\text{res}}}{SS_{\text{tot}}} = 1 - \frac{\sum_i (y_i - \hat{y}_i)^2}{\sum_i (y_i - \bar{y})^2}$ | unitless, ≤1 | fraction of the target's variance your model explains; 1.0 = perfect, 0.0 = no better than predicting the mean |
 
 **sklearn 1.9.0 changed how you compute RMSE.** The old pattern —
 `mean_squared_error(y_true, y_pred, squared=False)` — no longer works: the `squared` parameter was
@@ -259,7 +348,19 @@ you'd want in a design doc before picking one:
 
 All three are trained on the **same holdout split** (`train_test_split(clean, test_size=0.2,
 random_state=42)` → 4694 train / 1174 test rows) across three progressively richer feature sets,
-so every comparison below is apples-to-apples:
+so every comparison below is apples-to-apples. `LinearRegression` gets its numeric features
+scaled and its categoricals encoded through a `ColumnTransformer`; the tree models skip the scaler
+entirely (§7.1 shows why that's not a mistake):
+
+```mermaid
+flowchart LR
+    NUM["numeric columns<br/>distance_km, duration_min, ..."] -->|"LinearRegression only"| SC["StandardScaler"]
+    NUM -->|"tree models: passthrough"| CT["ColumnTransformer"]
+    SC --> CT
+    CAT["categorical columns<br/>payment_type, traffic_level,<br/>pickup_sector"] --> OH["OneHotEncoder / OrdinalEncoder"]
+    OH --> CT
+    CT --> MODEL["model.fit(X_train, y_train)"]
+```
 
 ```python
 model_specs = {
@@ -316,12 +417,41 @@ bagging is a **variance-reduction** technique. It doesn't make any single tree m
 makes the *ensemble* more stable than any one tree would be. This is the same idea as retrying a
 flaky network call three times and taking the median latency instead of trusting one sample.
 
+```mermaid
+flowchart TB
+    D["training data<br/>4694 rows"] --> B1["bootstrap sample 1"]
+    D --> B2["bootstrap sample 2"]
+    D --> B3["bootstrap sample 200"]
+    B1 --> T1["tree 1<br/>(independent)"]
+    B2 --> T2["tree 2<br/>(independent)"]
+    B3 --> T3["tree 200<br/>(independent)"]
+    T1 --> AVG["average all predictions"]
+    T2 --> AVG
+    T3 --> AVG
+    AVG --> OUT["RandomForest prediction<br/>(variance reduced)"]
+```
+
 **Boosting** (`HistGradientBoostingRegressor`) trains trees *sequentially*: fit a small tree, look
 at what it got wrong (the residuals), fit the next tree specifically to correct those residuals,
 add it to the ensemble with a small weight (`learning_rate`), repeat. Each round is explicitly
 chasing down the previous round's mistakes — boosting is a **bias-reduction** technique. This is
 closer to iterative code review: round 1 catches the big bugs, round 2 catches what round 1
 missed, and so on, each pass adding less than the last.
+
+```mermaid
+flowchart LR
+    D["training data"] --> T1["tree 1<br/>fits fare_amount"]
+    T1 --> R1["residual 1<br/>(what tree 1 got wrong)"]
+    R1 --> T2["tree 2<br/>fits residual 1"]
+    T2 --> R2["residual 2"]
+    R2 --> T3["tree 3<br/>fits residual 2"]
+    T3 --> DOTS["... up to max_iter=300 trees"]
+    DOTS --> SUM["weighted sum<br/>(learning_rate x each tree)"]
+    SUM --> OUT["HistGradientBoosting prediction<br/>(bias reduced)"]
+```
+
+Parallel-and-average versus sequential-and-correct is the whole distinction: bagging's trees never
+see each other's mistakes, boosting's trees do nothing but chase the previous round's mistakes.
 
 Because boosting directly targets error instead of just averaging away noise, **it usually edges
 out bagging when it's tuned properly** — but "tuned properly" is doing real work in that sentence.
@@ -351,10 +481,30 @@ that tuning instead of hand-picking it.
 
 Raw pickup/dropoff coordinates are four numbers that don't mean anything to a linear model on
 their own — `LinearRegression` can't discover "the distance between these two points" without
-being handed that computation directly. §4 already showed the headline number:
-`raw_coords -> plus_distance` cut `LinearRegression`'s RMSE from **4.789 to 1.657** — nearly a 3x
-improvement — just from computing one haversine distance feature. That's the lift from turning
-"four opaque coordinates" into "one number that means something."
+being handed that computation directly.
+
+```mermaid
+flowchart LR
+    RAW["pickup_lat, pickup_lon<br/>dropoff_lat, dropoff_lon<br/>(4 raw numbers)"] --> HAV["haversine_km()"]
+    RAW --> GRID["grid-sector bucketing<br/>(6x6 over NYC bbox)"]
+    HAV --> DIST["distance_km<br/>(1 new numeric feature)"]
+    GRID --> SECTOR["pickup_sector, e.g. R3C3<br/>(1 new categorical feature)"]
+    DIST --> MODEL["model input"]
+    SECTOR --> MODEL
+```
+
+§4 already showed the headline number: `raw_coords -> plus_distance` cut `LinearRegression`'s RMSE
+from **4.789 to 1.657** — nearly a 3x improvement — just from computing one haversine distance
+feature. That's the lift from turning "four opaque coordinates" into "one number that means
+something," and it's the clearest example this chapter has of the error-driven journey feature
+engineering actually is: you don't redesign the model, you hand it a feature it couldn't compute
+for itself.
+
+```mermaid
+flowchart LR
+    A["raw_coords<br/>LinearRegression RMSE 4.789"] -->|"add haversine distance_km"| B["plus_distance<br/>RMSE 1.657  (-65%)"]
+    B -->|"add pickup_sector bucket"| C["plus_sector<br/>RMSE 1.630 aggregate<br/>RMSE 2.250 in congestion zone (-27% there)"]
+```
 
 ### 6.1 The second feature: grid-sector bucketing
 
@@ -462,6 +612,14 @@ Three genuinely different stories in one table:
 linear models if you want to read the coefficients as importances or you're using a regularized
 variant, don't bother for trees.
 
+```mermaid
+flowchart TD
+    Q{"does the model compare raw<br/>feature magnitudes or distances?"}
+    Q -->|"yes: KNN, SVM (RBF), k-means"| YES["scaling changes the prediction<br/>-> scale it, this is a correctness fix"]
+    Q -->|"linear model, want readable coefficients"| MAYBE["predictions unchanged either way<br/>-> scale anyway, for interpretability"]
+    Q -->|"no: decision trees, RandomForest,<br/>HistGradientBoosting"| NO["splits on a threshold, not a distance<br/>-> scaling is a no-op"]
+```
+
 ### 7.2 Encoding: one-hot vs ordinal, and which is a mistake
 
 `traffic_level` (low/medium/high) has a real order — "high" traffic genuinely means *more* of the
@@ -519,6 +677,19 @@ uses `LinearRegression`, where the constraint is structural, not just a matter o
 structure you'd be embarrassed to explain to a customer.** Four checks, all standard sklearn
 output on the `plus_sector` feature stage's best model (`LinearRegression`, RMSE 1.630 on the
 1174-row holdout):
+
+```mermaid
+flowchart TD
+    START["fitted model, holdout predictions"] --> Q1{"residuals ~ normal,<br/>centered on 0?"}
+    Q1 -->|"no: skewed / multi-modal"| BAD1["systematically off<br/>for some subset of trips"]
+    Q1 -->|yes| Q2{"residual spread constant<br/>across the fitted range?<br/>(homoscedastic)"}
+    Q2 -->|"no: funnel shape"| BAD2["unreliable on cheap<br/>or expensive trips"]
+    Q2 -->|yes| Q3{"predicted vs actual<br/>hugs the 45-degree line?"}
+    Q3 -->|"no: curves away"| BAD3["biased at some fare level"]
+    Q3 -->|yes| Q4{"feature importances<br/>match domain expectations?"}
+    Q4 -->|no| BAD4["may have learned a<br/>spurious correlation"]
+    Q4 -->|yes| OK["passes the fairness checks<br/>-> safe to ship"]
+```
 
 **Residuals should be roughly normal, centered on zero.**
 
@@ -607,6 +778,14 @@ random search over a parameter grid
 ([source: NOTE-5-sklearn-core-apis](../../research/NOTE-5-sklearn-core-apis.md)) — this chapter
 uses it once, lightly, to show the API rather than as a deep tuning exercise:
 
+```mermaid
+flowchart LR
+    GRID["param_distributions<br/>3x3x3x3 grid"] --> SAMPLE["sample n_iter=6<br/>random combinations"]
+    SAMPLE --> CV["cv=3 cross-validation<br/>per candidate"]
+    CV --> BEST["pick the best<br/>mean CV RMSE"]
+    BEST --> HOLD["evaluate once,<br/>on the untouched holdout"]
+```
+
 ```python
 param_distributions = {
     "model__max_iter": [100, 200, 300],
@@ -647,6 +826,18 @@ fare* observed in that sector ("target encoding"). Done correctly, you compute t
 from the training split**. Done carelessly — computing it from train+test combined, because it's
 one line less code — the target values of the rows you're about to "evaluate" leak into their own
 feature:
+
+```mermaid
+flowchart TD
+    subgraph WRONG["leaky (wrong)"]
+        FULL["train + test, concatenated"] --> LEAKMAP["groupby(sector).mean(fare)"]
+        LEAKMAP --> LEAKTEST["applied to test rows --<br/>each row's own fare<br/>informed its own feature"]
+    end
+    subgraph RIGHT["proper (correct)"]
+        TRAINONLY["train split only"] --> PROPERMAP["groupby(sector).mean(fare)"]
+        PROPERMAP --> PROPERTEST["applied to test rows --<br/>test fares never seen<br/>by the encoding"]
+    end
+```
 
 ```python
 full = pd.concat([train_df, test_df], axis=0)
