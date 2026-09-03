@@ -548,6 +548,237 @@ placeholders, leaves `80`.
   the fixed statistics it was trained with — different (worse, and run-dependent) boxes and scores
   from the exact same input.
 
+## Fine-tuning a detector on your own data
+
+Section 3's `categories` list has 91 entries, 80 of them real COCO classes — person, car, dog, wine
+glass, teddy bear. Point Section 4's exact pretrained Faster R-CNN at a photograph of, say, a
+specific Soviet-era Lenin statue in a city square, and the best it can do is call the whole thing
+`person` or guess nothing at all — `lenin_statue` was never one of the 80 things it learned to name.
+**A pretrained-on-COCO detector is not pretrained on *your* problem.** Every chapter so far in this
+book has dodged that gap by only ever asking a model about the classes it already knows. This section
+is honest about what closes it: you don't train a detector from nothing — you *adapt* the one you
+already have, on labelled examples of your own classes.
+
+```mermaid
+flowchart LR
+    A["collect + label<br/>bounding boxes on YOUR images"] --> B["convert to the trainer's<br/>expected format"]
+    B --> C["start from COCO-pretrained<br/>weights (transfer learning)"]
+    C --> D["train on YOUR classes"]
+    D --> E["evaluate: mAP / mAR<br/>(see ML-7)"]
+    E --> F["track the run<br/>(MLflow)"]
+    F --> G["export a servable model"]
+```
+
+**This chapter does not run this pipeline.** Real fine-tuning needs two things this repo's CPU-only
+`.venv-ml` deliberately doesn't have: a labelled dataset of your own classes, and — for anything past
+a toy example — a GPU. Training even a small detector head on a CPU is realistically hours-to-days
+instead of minutes; SPEC-ML-5 scoped this out explicitly as "conceptual only" for exactly that reason.
+What follows is the real workflow, grounded in a real project the owner built and ran end to end, not
+a hypothetical.
+
+### The case study: teaching a detector to recognise one specific statue
+
+The concrete example behind this section is a real take-home project: fine-tuning an
+**EfficientDet-B0** detector — one of the same TF2 Detection Model Zoo checkpoints referenced below —
+to recognise Lenin statues in photographs, with just **two classes**: `lenin` and `other` (everything
+that isn't a Lenin statue). Nothing in COCO's 80 classes comes close to that label, which is exactly
+the gap this section is about closing. The project used the
+[TensorFlow Object Detection API](https://github.com/tensorflow/models/tree/master/research/object_detection)
+rather than torchvision, trained on a GPU (CUDA 11.2, cuDNN 8.1.0), and tracked every run with MLflow.
+Worth knowing if you'd reach for it today: the repository itself now states it "is no longer being
+maintained to be compatible with new versions of external dependencies" and points newcomers at
+actively maintained alternatives instead (checked 2026-09-03) — it still works exactly as described
+below, and every claim in this section reflects how the case study actually ran it, but a new project
+starting from zero should weigh that against a torchvision-based path.
+Its best run — `efficientdet-b0`, roughly **20,000 training steps** — is the one referenced by name
+throughout this section.
+
+### Step 1 — label, and check the labels before you trust them
+
+Every training example needs a human-drawn box and a class name per object — unlike the classifier
+and pretrained-detector chapters, where labels arrived for free with the dataset. This is the
+expensive part: there is no shortcut around a person (or several) drawing rectangles.
+
+**Why check label quality before spending any compute on training.** The case study's pipeline
+renders the ground-truth boxes back onto a sample of 20 labelled images and inspects them by eye,
+*before* training starts — a `02-quality-check/label_quality` folder purely for that purpose. The
+same trick reappears after training, rendering *predicted* boxes for a visual sanity check
+(`02-quality-check/prediction_quality`). The reason mirrors this chapter's own Section 7 pitfall
+exactly: a labelling mistake — a swapped x/y, a box drawn one pixel off, a mislabelled class — doesn't
+crash anything. The trainer runs to completion and silently learns the wrong thing; you only find out
+hours later, from a bad mAP number, when the actual bug was a picture you could have caught by
+looking at it for ten seconds.
+
+### Step 2 — convert to the trainer's expected format
+
+Every detector-training framework defines its own wire format for "one image plus its boxes and
+labels," and your labelled data has to be converted into that shape once, up front:
+
+- **TensorFlow Object Detection API** (the case study's choice) expects
+  [**TFRecord**](https://www.tensorflow.org/tutorials/load_data/tfrecord) files — "a simple format
+  for storing a sequence of binary records" built on protobuf-serialized `tf.train.Example` messages
+  (checked 2026-09-03) — one record per image, each carrying the encoded image bytes plus its boxes
+  and class IDs. The case study's `01-processed-data` step resizes every image to a fixed size, splits
+  **90% train / 10% validation**, and writes both splits out as TFRecord shards before training ever
+  starts.
+- **torchvision** takes the opposite approach for a custom dataset: no fixed binary container, just a
+  Python class implementing `__getitem__` that returns an image tensor plus a dict of `boxes`/`labels`
+  — or, if your labels are already in COCO's own JSON annotation format, torchvision ships
+  [`torchvision.datasets.CocoDetection(root, annFile)`](https://docs.pytorch.org/vision/stable/generated/torchvision.datasets.CocoDetection.html)
+  to read that directly (checked 2026-09-03).
+
+**Java framing.** This conversion step is the same kind of boundary as a Protobuf `.proto` contract
+for a gRPC service, or a JSON DTO for a REST endpoint: the trainer defines the exact shape it will
+accept, and your job is to get your data into that shape once — not reinvent it, and not skip it and
+hope a dict "close enough" to the expected keys will work.
+
+### Step 3 — start from pretrained weights, not from nothing
+
+This is the step that makes "fine-tuning" different from "training a detector from scratch," and the
+reason it's realistic to do at all on a modest dataset. Section 2's pretrained Faster R-CNN already
+learned to recognise edges, textures, and object-shaped regions from being trained on all of COCO —
+none of that general-purpose visual knowledge is specific to COCO's 80 class *names*. Fine-tuning
+keeps that backbone and retrains only the last layer that maps features to *your* classes:
+
+```mermaid
+flowchart TB
+    subgraph FROZEN["reused as-is (or lightly retrained)"]
+        BB["backbone<br/>edge/texture/shape features<br/>learned from ALL of COCO"]
+    end
+    subgraph SWAPPED["replaced and retrained on YOUR labels"]
+        HEAD["prediction head<br/>maps features -> YOUR classes"]
+    end
+    BB --> HEAD
+```
+
+**Why start from pretrained weights instead of from nothing?** The same reason Section 2 argued for a
+pretrained model at all: those low-level filters are general-purpose, and re-learning them from
+scratch on a two-class, few-thousand-image dataset would need vastly more labelled data and compute
+than most projects have. This is **transfer learning** in the same sense the NLP chapters use the
+term for language models — reuse the general representation, retrain only the task-specific top.
+
+**Java framing.** Transfer learning here is exactly *extending a base class and overriding one
+method*. The backbone is the base class's inherited behaviour — you don't rewrite it, you inherit it
+as-is. The prediction head is the one method you override with your own implementation, because the
+base class's version returns the wrong type for your problem (COCO's 80 classes, not yours).
+
+torchvision's own finetuning tutorial gives the real API for exactly this swap on Faster R-CNN —
+replace `model.roi_heads.box_predictor`, the object that maps pooled features to class scores and box
+offsets, with a fresh one sized for your class count
+([source: TorchVision Object Detection Finetuning Tutorial](https://docs.pytorch.org/tutorials/intermediate/torchvision_tutorial.html),
+checked 2026-09-03 — the tutorial's own words: this pattern is for "when we want to start from a model
+pre-trained on COCO and want to finetune it for your particular classes"):
+
+```python
+import torchvision
+from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
+
+# load a model pre-trained on COCO — the exact weights Section 3 loaded
+model = torchvision.models.detection.fasterrcnn_resnet50_fpn(weights="DEFAULT")
+
+# num_classes = your real classes + 1 for background (Section 3's index-0 reserved class)
+num_classes = 3  # e.g. "lenin", "other", + background
+
+# get the input feature size the existing head expects, then swap the head for one
+# sized for num_classes instead of COCO's 91
+in_features = model.roi_heads.box_predictor.cls_score.in_features
+model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
+```
+
+The TF Object Detection API takes the same idea through configuration instead of code: its
+`pipeline.config` points `fine_tune_checkpoint` at a checkpoint downloaded from the
+[TF2 Detection Model Zoo](https://github.com/tensorflow/models/blob/master/research/object_detection/g3doc/tf2_detection_zoo.md)
+— the case study used `efficientdet_d0_coco17_tpu-32`, whose own zoo entry lists **39 ms** inference
+speed and **33.6 COCO mAP** as its pretrained baseline (checked 2026-09-03) — and sets
+`num_classes: 2` for `lenin`/`other` in place of COCO's 80.
+
+### Step 4 — train
+
+```python-pseudocode
+# ILLUSTRATIVE ONLY — sketches the shape of a torchvision fine-tune loop.
+# Needs a real labelled Dataset (Step 2) and a GPU to run in any reasonable time;
+# not executed in this chapter, per SPEC-ML-5's explicit scope.
+
+import torch
+from torch.utils.data import DataLoader
+
+train_dataset = MyLabelledDetectionDataset(images_dir="...", annotations="...")  # Step 2's format
+train_loader = DataLoader(train_dataset, batch_size=4, shuffle=True, collate_fn=lambda b: tuple(zip(*b)))
+
+optimizer = torch.optim.SGD(model.parameters(), lr=0.005, momentum=0.9, weight_decay=0.0005)
+model.train()
+
+for epoch in range(num_epochs):
+    for images, targets in train_loader:
+        loss_dict = model(images, targets)          # detection models return a dict of losses in train mode
+        loss = sum(loss_dict.values())
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+```
+
+The TF Object Detection API runs the equivalent loop from the command line, driven entirely by
+`pipeline.config` — the command the case study actually ran, checkpointing and logging to
+TensorBoard along the way
+([source: TF2 Object Detection API training guide](https://github.com/tensorflow/models/blob/master/research/object_detection/g3doc/tf2_training_and_evaluation.md),
+checked 2026-09-03):
+
+```bash
+python object_detection/model_main_tf2.py \
+    --pipeline_config_path=${PIPELINE_CONFIG_PATH} \
+    --model_dir=${MODEL_DIR} \
+    --alsologtostderr
+```
+
+The case study's best run trained `efficientdet-b0` for roughly **20,000 steps** — a number chosen by
+watching validation loss/mAP plateau in TensorBoard, not fixed in advance; more steps past that point
+stopped improving the held-out metric.
+
+### Step 5 — evaluate the same way ML-7 already taught you
+
+Fine-tuning doesn't get its own evaluation vocabulary. Whatever training run you produce, you score it
+exactly the way [ML-7's mAP/mAR walkthrough](04-cv-metrics.md) derived by hand: match predicted boxes
+to your held-out validation boxes by IoU, turn that into per-class precision/recall, and summarise
+with mAP@[.5:.95] and mAR. The TF Object Detection API and `torchmetrics.detection.MeanAveragePrecision`
+both compute this automatically against your validation TFRecords/COCO-JSON — the same
+`box_iou`/greedy-matching/101-point-interpolation machinery ML-7 built from scratch on a six-prediction
+toy set, just run at real dataset scale. A fine-tuned model's headline number is directly comparable to
+Section 2's pretrained baselines in kind, if not in scale — 33.6 COCO mAP for stock `EfficientDet-D0`
+on all 80 COCO classes is a different question from "what's this model's mAP on just `lenin` vs.
+`other`," but it's the same metric, computed the same way.
+
+### Step 6 — track the run
+
+Fine-tuning is inherently iterative: a different learning rate, a different step count, a different
+base checkpoint each produce a different mAP, and "which run actually produced the exported model"
+stops being obvious after the third attempt. The case study logs every run's TensorBoard
+metrics and parameters into [**MLflow**](https://mlflow.org/docs/latest/index.html) — an open-source
+platform for experiment tracking, covering "experiment tracking, model packaging, registry management,
+and deployment" (checked 2026-09-03) — stored locally under `mlruns/` and browsable with `mlflow ui`.
+This is the ML analogue of a CI system's build log plus artifact registry: not optional bookkeeping,
+but the only reliable record of *why* the model you eventually export is the one you kept.
+
+### Step 7 — export
+
+Once a run's validation mAP is good enough, export it to a format a serving process can load without
+the training framework attached. The case study exports its best `efficientdet-b0` run as a
+TensorFlow **SavedModel** — the same export format the TF Object Detection API always produces,
+independent of which detector architecture was fine-tuned — and a separate, much smaller inference
+script loads that SavedModel and runs it over a folder of new images, writing one row per detection to
+a CSV. torchvision's equivalent is `torch.save(model.state_dict(), ...)` for a checkpoint you'll reload
+into the same class definition, or exporting to TorchScript/ONNX for a runtime that doesn't have Python
+or torchvision installed at all — the same "detach the trained weights from the training code" idea
+Section 3's `weights.meta` already relies on, just running in the export direction instead of the load
+direction.
+
+| | **This chapter (Sections 1–7)** | **This section — fine-tuning** |
+|---|---|---|
+| Data | none — inference only | your own labelled images |
+| Classes | COCO's fixed 80 | whatever you labelled |
+| Compute | CPU, seconds per image | GPU, hours–days for a real run |
+| What changes | nothing — weights are frozen | the prediction head (and optionally more) |
+| Run in this chapter? | yes, real inference, real boxes | no — conceptual, per SPEC-ML-5's scope |
+
 ## 8. Recap & what's next
 
 - **Detection outputs boxes + labels + scores, not one label** — `List<Detection>`, not `Label`; a
