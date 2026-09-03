@@ -2,6 +2,27 @@
 
 *Data Science · Cloud Environment Setup / Production Considerations · SPEC-DS-16*
 
+## Two Slack messages, same model, same afternoon
+
+You just finished training a delivery-ETA model — the same kind of `RandomForestRegressor` pipeline
+this chapter builds for real in §2. It scores well on the holdout set. You post the good news, and
+two replies land within the hour:
+
+> **checkout-team:** "Can we call this from the app? We show an ETA on the order-confirmation
+> screen — it needs to answer in well under a second, or the page feels broken."
+
+> **ops-team:** "Can you score last night's 2 million completed deliveries against this new model
+> before the 9am standup? We want predicted-vs-actual ETA across all of them, not one order at a
+> time."
+
+Same trained model, same `.joblib` file on disk — two completely different jobs. Checkout needs an
+answer *inside* an HTTP request, in milliseconds, for exactly one order. Ops needs an answer for
+millions of rows, and nobody is refreshing a browser tab waiting for it — the job just has to finish
+before the meeting. Serve the first request the way you'd serve the second, and the checkout page
+hangs for however long it takes to score 2 million rows. Serve the second the way you'd serve the
+first, and you've built (and are paying for) an always-on REST service to do what a one-shot nightly
+job would have done for a fraction of the cost.
+
 A trained model sitting in a `.joblib` file on disk is exactly as useful as a compiled `.jar` file
 sitting in `target/` — which is to say, not yet useful at all. Someone has to run it, and *how* they
 run it is the subject of this chapter. There are two fundamentally different shapes, and a Java
@@ -13,6 +34,18 @@ engineer already has working mental models for both:
 - **Batch inference** — a model run over millions of rows on a schedule, writing results to a table
   or file for something else to read later. This is your Quartz/cron job, or a nightly Airflow DAG,
   that processes a queue and writes output — nobody is on the other end of an HTTP connection waiting.
+
+**Four words this chapter leans on constantly — plain meanings before anything else:**
+
+| Term | Plain meaning |
+|---|---|
+| **Latency** | How long *one* answer takes to come back, once you've asked. |
+| **Throughput** | How many answers you can produce *in total*, per unit of time. |
+| **Cold start** | The extra delay the *first* request pays while a process is still waking up (loading the model into memory, etc.) — nobody after it pays that cost again. §5 shows exactly where this bites. |
+| **Endpoint** | One named, callable "address" a service exposes over HTTP — `/predict` below is an endpoint, the same idea as one `@RequestMapping` route on a Spring controller. |
+
+Low latency and high throughput are not the same goal, and a single system rarely maximizes both at
+once for free — that tension is most of what separates the two shapes below.
 
 Confusing the two is a real production mistake, not just an academic distinction: building a REST
 service when you actually need to score 50 million rows overnight wastes infrastructure cost on
@@ -34,6 +67,16 @@ to a full Airflow/Vertex/SageMaker deployment is out of scope for a local chapte
 | Throughput | Bounded by requests/second the service can handle | Bounded by how fast you can stream rows through the model |
 | Freshness of the answer | As current as the deployed model + the request's live inputs | As current as the last scheduled run — could be hours old |
 | Failure mode | A 500 response, immediately visible to the caller | A silently-failed job; nobody notices until the output table doesn't update |
+
+The whole table above collapses into one question — *how does this model actually get invoked?* —
+with the three columns you'll re-check most (latency, throughput, freshness) hanging off the answer:
+
+```mermaid
+flowchart TD
+    D{"How does this model get invoked?"}
+    D -->|"one HTTP request -- someone is waiting"| ON["Online inference<br/>latency: milliseconds<br/>throughput: bounded by requests/sec<br/>freshness: as current as this request's live input"]
+    D -->|"a schedule or event -- nobody is waiting"| BA["Batch inference<br/>latency: minutes to hours<br/>throughput: bounded by rows/sec through the model<br/>freshness: as current as the last scheduled run"]
+```
 
 The trade-off in one sentence: **online buys low latency per request at the cost of running (and
 paying for) a service that's always up; batch buys cheap, massively parallel throughput at the cost
@@ -251,6 +294,25 @@ async def predict(request: PredictRequest) -> PredictResponse:
     )
 ```
 
+That's the whole request path this section makes real — a client sends JSON, pydantic checks it
+*before* your handler code ever runs, and only a validated row reaches the model:
+
+```mermaid
+sequenceDiagram
+    participant C as "Client"
+    participant F as "FastAPI /predict"
+    participant M as "model.predict()"
+    C->>F: POST /predict {distance_km, num_items, is_peak_hour}
+    F->>F: pydantic validates PredictRequest
+    alt invalid input, e.g. distance_km < 0
+        F-->>C: 422 Unprocessable Content
+    else valid input
+        F->>M: row, in feature_order
+        M-->>F: eta_minutes
+        F-->>C: 200 {eta_minutes, model_version}
+    end
+```
+
 Three things a Java REST-controller reflex should notice:
 
 - **`lifespan` is the `@PostConstruct` equivalent.** FastAPI's current recommended pattern for
@@ -421,6 +483,16 @@ textbook shows a `web.xml` snippet without standing up a full servlet container 
 
 ### 3.1 Airflow DAG sketch — the model embedded in a scheduled job
 
+The shape, before the code — a trigger, a bulk load, a bulk score, a bulk write, with no caller
+blocked on any of it:
+
+```mermaid
+flowchart LR
+    S["Scheduler<br/>cron / Airflow @daily"] --> L["Load model.joblib<br/>same artifact the online service uses"]
+    L --> SC["Score the table<br/>model.predict over many rows at once"]
+    SC --> W["Write predictions<br/>to a warehouse table<br/>nobody is waiting on this write"]
+```
+
 ```python-pseudocode
 # Reference only — requires a running Airflow scheduler + worker; not executed here.
 # Pattern per Apache Airflow's official docs: https://airflow.apache.org/docs/stable/
@@ -520,6 +592,17 @@ score written to a CRM field is batch. Streaming inference (a third shape — co
 scoring over a message stream, e.g. Kafka) sits between the two and is out of this chapter's scope,
 mentioned here only so you know the term exists when you meet it.
 
+As a chooser, that rule of thumb draws as two questions:
+
+```mermaid
+flowchart TD
+    Q1{"Does the answer need to change<br/>the outcome of the request asking for it?"}
+    Q1 -->|"yes -- a human or another service is waiting"| ONLINE["Online inference<br/>REST endpoint, milliseconds<br/>(this chapter's Section 2)"]
+    Q1 -->|"no -- it feeds a downstream store"| Q2{"Can the consumer tolerate an answer<br/>that is minutes to hours old?"}
+    Q2 -->|"yes"| BATCH["Batch inference<br/>scheduled job, millions of rows<br/>(this chapter's Section 3)"]
+    Q2 -->|"no, but it is not one request/response either"| STREAM["Streaming inference<br/>event-by-event over a message stream<br/>out of scope here -- now you know the term"]
+```
+
 ## 5. Pitfalls
 
 - **Model/feature versioning skew.** The single most common way an online service silently returns
@@ -559,6 +642,12 @@ mentioned here only so you know the term exists when you meet it.
   monitoring.
 
 ## 6. Recap & what's next
+
+Back to the two Slack messages this chapter opened with: checkout-team's request is what §2 built —
+a live `/predict` endpoint, milliseconds per call, validated at the boundary. Ops-team's request is
+what §3 sketched — the same `model.joblib` artifact, invoked instead from a scheduled job over
+millions of rows, with nobody blocked on the response. One model, two invocation shapes, and now a
+concrete way to tell which reply gets which answer.
 
 - **Online inference** = a REST service, one row (or a small batch) per request, millisecond latency,
   always-fresh input, mapped directly onto a Spring Boot `@RestController` mental model. This
