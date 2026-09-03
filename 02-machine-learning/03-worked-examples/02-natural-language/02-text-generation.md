@@ -2,20 +2,35 @@
 
 *Machine Learning · Worked Examples · Natural Language · SPEC-ML-9*
 
-**A correction before anything else.** An earlier pass at this curriculum assumed you could take
-RoBERTa — the encoder model from SPEC-ML-8's text classification chapter — and just point it at
-`generate()` to produce text. You can't. RoBERTa is architecturally incapable of open-ended text
-generation, and the reason is not a library limitation you can work around with different
-parameters — it's baked into how the model was trained. This chapter starts by showing you exactly
-why, then introduces the model family that *can* generate: decoder-only, autoregressive models like
-GPT-2 and its small CPU-friendly variant, `distilgpt2`.
+## The model that can grade an essay but can't write one
 
-If you've built request-handling pipelines in Java, the encoder/decoder split maps onto a distinction
-you already know: a **validator** that reads a whole request and decides something about it (valid or
-not, positive or negative — RoBERTa's job) is a fundamentally different piece of machinery from a
-**generator** that produces a new response one token at a time, each token depending on everything
-produced so far (a decoder's job). No amount of reconfiguring a validator turns it into a generator —
-the internals that make one good at its job make it structurally unable to do the other.
+Hand RoBERTa — the model from SPEC-ML-8's text classification chapter — a paragraph and ask "is
+this positive or negative," and it answers instantly and well. So the next move looks obvious:
+keep the same model, just ask it to keep *writing* instead of grading. Point RoBERTa's `generate()`
+at the prompt "The future of AI is" and let it finish the sentence.
+
+**It can't.** Not "it's mediocre at it" — it is architecturally incapable of open-ended text
+generation, for a reason that's checkable from the model's own metadata in four lines of code, not
+asserted from a hunch. (An earlier pass at this curriculum assumed you could take RoBERTa and just
+point it at `generate()` — you can't, and this chapter starts by showing exactly why, in the
+model's own words, before it shows you the model family that *can*.)
+
+Here's the one-sentence version, the kind you could repeat at dinner: **an encoder reads a whole
+input at once to understand it; a decoder writes one piece at a time, using only what's already
+been written, over and over, until it decides to stop.** If you've built request-handling code in
+Java, this maps onto a distinction you already carry around: a **validator** that reads an entire
+request and renders one verdict (valid or not, positive or negative — RoBERTa's job) is a
+fundamentally different piece of machinery from a **generator** that produces a new response one
+token at a time, each token depending on everything produced so far (a decoder's job). No amount of
+reconfiguring a validator turns it into a generator — the internals that make one good at its job
+make it structurally unable to do the other.
+
+```mermaid
+flowchart LR
+    ENC["encoder<br/>(RoBERTa)<br/>reads the WHOLE input,<br/>both directions, at once"] -->|"good at"| UNDERSTAND["understanding<br/>classify / embed / search"]
+    DEC["decoder<br/>(distilgpt2)<br/>reads only what's<br/>written SO FAR"] -->|"good at"| GENERATE["generating<br/>one new token at a time"]
+    UNDERSTAND -.->|"cannot swap jobs"| GENERATE
+```
 
 Everything below runs from
 [`text_generation.py`](code/text_generation.py), and every claim about a model, a license, or an API
@@ -44,6 +59,22 @@ for every token in a sequence to gather context from other tokens (the LLMs sect
 want the internals; nothing here depends on having read it first) — but *how* that attention is
 allowed to look at the input is what separates three distinct model families with three distinct
 jobs:
+
+```mermaid
+flowchart TB
+    subgraph ENC["Encoder-only -- BERT, RoBERTa"]
+        E1["bidirectional attention:<br/>every token sees every token,<br/>both directions"] --> E2["pretrained on: masked LM<br/>(fill in a HIDDEN token<br/>using context from both sides)"]
+        E2 --> E3["good at: understanding<br/>classify, embed, search"]
+    end
+    subgraph DEC["Decoder-only -- GPT-2, distilgpt2"]
+        D1["causal attention:<br/>every token sees only<br/>itself and EARLIER tokens"] --> D2["pretrained on: causal LM<br/>(predict the NEXT token<br/>from everything before it)"]
+        D2 --> D3["good at: generating<br/>completions, chat, code"]
+    end
+    subgraph S2S["Encoder-decoder -- T5, BART"]
+        S1["encoder half bidirectional;<br/>decoder half causal +<br/>attends back to the encoder"] --> S2["pretrained on: sequence-to-sequence<br/>(map one full sequence<br/>to a different one)"]
+        S2 --> S3["good at: transforming<br/>translate, summarize"]
+    end
+```
 
 | Family | Attention direction | Pretraining objective | What it's good at | Example |
 |---|---|---|---|---|
@@ -96,19 +127,41 @@ Three facts, straight from the checkpoint's own metadata:
 
 This chapter deliberately does **not** load RoBERTa's ~500MB of weights and force it through
 `.generate()` just to show broken output — the architectural fact above is the actual reason, and
-it's checkable from a few kilobytes of config, not from a wasted download.
+it's checkable from a few kilobytes of config, not from a wasted download. This is the naive attempt
+failing before it even starts: no exception to catch, no bad text to laugh at — just a config field
+that says, flatly, "this model was never built for the job you're about to ask of it."
 
 ## 2. Autoregressive generation — the next-token loop
 
-A decoder-only model generates text by repeating one operation: given all tokens so far, predict a
-probability distribution over the *next* token, pick one, append it, repeat. That's it — no separate
-"generation mode," just the same forward pass a decoder always does, called in a loop.
+So what *is* built for the job? A decoder-only model generates text by repeating one operation:
+given all tokens so far, predict a probability distribution over the *next* token, pick one,
+append it, repeat. That's it — no separate "generation mode," just the same forward pass a decoder
+always does, called in a loop. **Autoregressive** is the name for exactly this: each new token is
+predicted using the model's own previous outputs as part of its input — "auto" (self) +
+"regressive" (feeding back).
 
-The Java-side analogy that transfers cleanly: think of building a `String` with a `StringBuilder`, one
-character at a time, except at each step you don't pick a fixed next character — you get back a
-**probability distribution over the entire vocabulary** (50,257 possible next tokens for
-`distilgpt2`'s tokenizer, measured below), and a *decoding strategy* (Section 3) decides how to turn
-that distribution into one concrete choice.
+```mermaid
+flowchart LR
+    PROMPT["tokens so far<br/>(prompt, then prompt + generated)"] --> PREDICT["forward pass:<br/>predict a probability<br/>distribution over the NEXT token"]
+    PREDICT --> PICK["decoding strategy<br/>(Section 3)<br/>picks ONE token"]
+    PICK --> APPEND["append that token<br/>to the sequence"]
+    APPEND -->|"not done yet"| PROMPT
+    APPEND -->|"EOS token, or<br/>max_new_tokens reached"| DONE["decode the ID sequence<br/>back to a string"]
+```
+
+In one line of math, at every step the model estimates:
+
+$$P(x_t \mid x_1, x_2, \ldots, x_{t-1})$$
+
+Plain-language gloss: "given everything written so far ($x_1$ through $x_{t-1}$), how likely is
+each possible next word ($x_t$)?" That's a distribution over `distilgpt2`'s entire vocabulary —
+50,257 possible next tokens, measured below — not one guess; turning that distribution into one
+concrete choice is exactly what Section 3's decoding strategies do.
+
+The Java-side analogy that transfers cleanly: think of building a `String` with a `StringBuilder`,
+one character at a time, except at each step you don't pick a fixed next character — you get back
+that whole 50,257-way probability distribution, and a *decoding strategy* decides how to turn it
+into one concrete choice.
 
 ### The tokenizer round-trip
 
@@ -148,13 +201,124 @@ how the model behaves. What *is* load-bearing for later sections: `n_positions=1
 sequence length (prompt + generated tokens combined) this model can handle — more on that in
 Pitfalls.
 
-## 3. Decoding strategies — same prompt, six real outputs
+## 3. Decoding strategies — turn the knob, watch the text change
 
 Everything above the "pick one token" step is identical across every decoding strategy: same model,
-same forward pass, same probability distribution over 50,257 tokens. The strategies differ only in
-**how they turn that distribution into a chosen token**. `text_generation.py` runs the exact same
-prompt, `"The future of AI is"`, through `distilgpt2.generate()` six times, changing only the decoding
-parameters, and prints and saves the real output of every run — nothing below is hand-written.
+same forward pass, same probability distribution over 50,257 tokens. The strategies differ *only* in
+how they turn that distribution into a chosen token — which means you can hold the model completely
+fixed and watch the output change purely by turning a knob. `text_generation.py` runs the exact same
+prompt, `"The future of AI is"`, through `distilgpt2.generate()` six times, changing only the
+decoding parameters, and prints and saves the real output of every run — nothing below is
+hand-written.
+
+The six settings sit on one spectrum, from "always play it safe" to "let the model take real risks":
+
+```mermaid
+flowchart LR
+    G["greedy<br/>always the #1 token<br/>deterministic, safest,<br/>most repetitive"] --> B["beam search<br/>track 5 sequences at once<br/>still deterministic,<br/>explores more before committing"]
+    B --> SAMP["sampling<br/>(do_sample=True)<br/>introduces real randomness"]
+    SAMP --> T["+ temperature<br/>sharpen or flatten<br/>the whole distribution"]
+    SAMP --> K["+ top-k<br/>hard-cap the candidate<br/>set to K tokens"]
+    SAMP --> P["+ top-p<br/>cap the candidate set by<br/>cumulative probability instead"]
+```
+
+### Step by step, on the real prompt
+
+**Step 1 — greedy: always the single most likely word.** `do_sample=False, num_beams=1` — no
+randomness at all. Plain-language gloss: it's autocomplete that never gambles, always taking
+whichever next word the model currently rates highest.
+
+```text
+"The future of AI is not yet clear." (then 26 blank lines -- see Pitfalls)
+```
+
+**Step 2 — beam search: track several sentences at once, keep the best.** `num_beams=5` — instead
+of committing to the single best token at each step, keep the 5 highest-scoring *partial sequences*
+in parallel, and return the one with the best overall score at the end. Still fully deterministic
+(no randomness), but it explores more of the possibility space than greedy before committing to an
+answer:
+
+```text
+"The future of AI is in the hands of the AI." (then 22 blank lines)
+```
+
+**Step 3 — start sampling: let the model roll dice.** `do_sample=True` turns on genuine randomness —
+instead of always taking the top pick, the model draws a token from the probability distribution
+itself, so a token rated 5% likely gets picked roughly 1 time in 20. This is the point where
+"deterministic" stops being true at all: run the exact same prompt twice and you can get two
+different continuations (which is why the code fixes a seed for reproducibility — more below).
+
+**Step 4 — control the randomness with temperature.** Before turning probabilities into a
+distribution to sample from, the model's raw scores (**logits**, one per possible next token) get
+divided by a temperature $T$:
+
+$$P(x_i) = \frac{\exp(z_i / T)}{\sum_j \exp(z_j / T)}$$
+
+Plain-language gloss: $z_i$ is "how much the model likes token $i$, before normalizing"; dividing by
+$T$ before the usual softmax either sharpens the distribution ($T<1$: the leader pulls further
+ahead, output reads closer to greedy, safer, less varied) or flattens it ($T>1$: more of the
+vocabulary gets a real shot, output reads more varied, more prone to incoherence). $T=1.0$ leaves the
+model's probabilities unchanged
+([source: HuggingFace, "How to generate text: using different decoding methods for language
+generation with Transformers"](https://huggingface.co/blog/how-to-generate), checked 2026-09-03 —
+"a trick is to make the distribution sharper... by lowering the temperature," the same mechanism
+this formula expresses).
+
+Below 1.0 (sharper, safer):
+
+```text
+"The future of AI is not just the work of the AI, but also the work of the human being and the mind
+itself. The AI's design process is not just about"
+```
+
+Above 1.0 (flatter, riskier) — same model, same prompt, same seed, only $T$ changed:
+
+```text
+"The future of AI is solid and intelligent work moves on in humanoid conversations, smart hearts
+translating crucial commands once again would we ever understand interacting with siblings)." >>>
+Once It ACM"
+```
+
+Watch what happened: turning one number up let genuinely low-probability, barely-related tokens
+through, and "diverse" visibly shaded into "incoherent" by the end of the sentence.
+
+**Step 5 — cap the risk with top-k.** Before sampling, throw away every token except the `K` most
+likely ones, then sample from just those `K`, renormalized. This caps how weird a single sampled
+token can ever be — even at a high temperature, a `top_k=10` filter never samples from outside the
+10 most plausible next tokens:
+
+```text
+"The future of AI is not just the future, it's the future, it is the future, and it is the future.
+The AI is the future, it is the"
+```
+
+**Step 6 — cap the risk adaptively with top-p (nucleus sampling).** Instead of a fixed count, keep
+the *smallest* set of most-likely tokens whose cumulative probability reaches `P`, then sample from
+that set. When the model is very confident (one token dominates), the candidate set can be tiny; when
+it's genuinely uncertain (many tokens are plausible), the set grows to match:
+
+```text
+"The future of AI is solid and intelligent and moves on in humanoid conversations, smart, intelligent,
+and even clearer. AI can understand, perceive, act, act, respond,"
+```
+
+Here's the mechanics behind steps 4–6 as one pipeline — same logits in, three different ways to
+narrow the field before the dice get rolled:
+
+```mermaid
+flowchart LR
+    LOGITS["raw scores<br/>(logits, one per token,<br/>50,257-wide for distilgpt2)"] --> TEMP["divide by temperature T<br/>(T&lt;1 sharpens, T&gt;1 flattens)"]
+    TEMP --> SOFTMAX["softmax<br/>-> probability distribution"]
+    SOFTMAX --> FILTER{"narrow the<br/>candidate set?"}
+    FILTER -->|"top_k=K"| TOPK["keep only the K<br/>most likely tokens"]
+    FILTER -->|"top_p=P"| TOPP["keep the smallest set whose<br/>probabilities sum to at least P"]
+    FILTER -->|"neither set"| ALL["keep the full<br/>50,257-token distribution"]
+    TOPK --> SAMPLE["sample one token<br/>from what's left"]
+    TOPP --> SAMPLE
+    ALL --> SAMPLE
+```
+
+### The code behind all six steps
 
 ```python
 def generate(tokenizer, model, prompt: str, **gen_kwargs) -> tuple[str, float]:
@@ -184,33 +348,7 @@ NOTE-ML-7-nlp-models.md. `transformers.set_seed(42)` is called before every samp
 actual script, so the sampled rows below reproduce exactly on a re-run
 ([code](code/text_generation.py), `generate()`).
 
-### What each knob actually does
-
-- **Greedy (`do_sample=False, num_beams=1`)** — at every step, take the single highest-probability
-  next token. Fully deterministic: same prompt, same output, every time. Greedy's "always take the
-  local best" strategy can walk into text that reads worse overall than a slightly less-greedy path
-  would have — the classic local-optimum trap, and it's also the strategy most prone to repetition
-  loops (Section 5).
-- **Beam search (`num_beams=5`)** — instead of committing to the single best token at each step, keep
-  the 5 highest-scoring *partial sequences* in parallel at every step, and return the one with the
-  best overall score at the end. Still deterministic (no randomness), but explores more of the
-  possibility space than greedy before committing — at real, measurable extra cost: 1.67s vs. greedy's
-  1.18s in the run below, since it's tracking 5 sequences through every forward pass instead of 1.
-- **Temperature (`do_sample=True, temperature=T`)** — sampling instead of always taking the top
-  choice: the model's raw output scores (logits) are divided by `T` before converting to
-  probabilities. `T < 1.0` sharpens the distribution (closer to greedy, more confident, less varied);
-  `T > 1.0` flattens it (more of the vocabulary gets a real chance, more varied, more prone to
-  incoherence). `T = 1.0` uses the model's probabilities unchanged.
-- **Top-k (`top_k=K`)** — before sampling, throw away every token except the `K` most likely ones,
-  then sample from just those `K`, renormalized. Caps how weird a single sampled token can be — even
-  at high temperature, a top-k=10 filter never samples from outside the 10 most plausible next tokens.
-- **Top-p / nucleus sampling (`top_p=P`)** — before sampling, keep the *smallest* set of most-likely
-  tokens whose cumulative probability reaches `P`, then sample from that set. Unlike top-k's fixed
-  count, top-p's candidate-set size adapts per step: when the model is very confident (one token
-  dominates), the set can be tiny; when it's uncertain (many tokens are plausible), the set grows to
-  match.
-
-### The actual comparison table
+### The full comparison, side by side
 
 Real output from the gate run, and the same data written to
 [`artefacts/decoding_comparison.csv`](artefacts/decoding_comparison.csv):
@@ -245,7 +383,15 @@ text, not just in theory:
 
 ## 4. Model families recap — pick the right one for the job
 
-Section 1's table, now with the "which one do I reach for" question answered directly:
+Section 1's table, now as the decision you'd actually make in a design doc:
+
+```mermaid
+flowchart TD
+    Q{"what do you need<br/>the model to do?"}
+    Q -->|"classify, score, embed,<br/>or search text"| ENC["encoder-only<br/>BERT, RoBERTa, DistilBERT"]
+    Q -->|"generate open-ended text --<br/>completions, chat, code"| DEC["decoder-only<br/>GPT-2, distilgpt2"]
+    Q -->|"transform one full sequence<br/>into a different one --<br/>translate, summarize"| S2S["encoder-decoder<br/>T5, BART"]
+```
 
 - **Need to classify, score, embed, or search text?** Reach for an **encoder** (BERT, RoBERTa,
   DistilBERT) — SPEC-ML-8's text classification chapter covers this. Bidirectional context is exactly
@@ -346,8 +492,9 @@ text, _ = generate(tokenizer, model, fact_prompt, do_sample=False, num_beams=1)
   the one operation autoregressive generation repeats in a loop (Section 1, confirmed directly from
   the checkpoint's own config, grounded against the RoBERTa paper).
 - **Autoregressive generation** is one operation, repeated: encode the prompt to token IDs, predict a
-  probability distribution over the next token, pick one, append, repeat until an end-of-sequence
-  token or a length limit — decode back to a string at the end (Section 2).
+  probability distribution over the next token ($P(x_t \mid x_1, \ldots, x_{t-1})$), pick one, append,
+  repeat until an end-of-sequence token or a length limit — decode back to a string at the end
+  (Section 2).
 - **Decoding strategy is a separate concern from the model itself** — the same `distilgpt2` weights,
   the same forward pass, produced six visibly different continuations from the identical prompt in
   Section 3, purely by changing how the next-token probability distribution gets turned into a chosen
