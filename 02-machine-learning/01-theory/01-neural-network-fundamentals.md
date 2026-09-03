@@ -2,30 +2,95 @@
 
 *Machine Learning · Theory · SPEC-ML-1*
 
+## The wall the Perceptron hit
+
+In July 1958, a psychologist named Frank Rosenblatt stood in front of reporters at the Cornell
+Aeronautical Laboratory in Buffalo, New York, and unveiled a machine he called the Perceptron — a
+room-sized tangle of wires and motorized potentiometers that learned to tell left-marked cards from
+right-marked ones just by looking at examples. The *New York Times* ran the story under the
+headline "NEW NAVY DEVICE LEARNS BY DOING," and Rosenblatt called his creation "the first machine
+which is capable of having an original idea"
+([source: Cornell Chronicle, "Professor's perceptron paved the way for AI — 60 years too
+soon"](https://news.cornell.edu/stories/2019/09/professors-perceptron-paved-way-ai-60-years-too-soon),
+checked 2026-09-03). The Navy, quoted in the same coverage, expected a machine that would "walk,
+talk, see, write, reproduce itself and be conscious of its existence."
+
+The Perceptron itself was one neuron: a weighted sum of its inputs, thresholded into a yes/no
+answer. Eleven years later, in 1969, MIT's Marvin Minsky and Seymour Papert published a book,
+*Perceptrons*, that did the arithmetic Rosenblatt's era had skipped: a single perceptron can only
+draw one straight line (or flat plane) through its input space, and there's a painfully simple
+problem no straight line can ever solve — XOR, "exactly one of these two things, not both, not
+neither." The book is widely credited with draining funding and interest out of neural-network
+research for over a decade, the first "AI winter" — though, as historians later pointed out,
+Minsky and Papert's proof was specifically about *single-layer* perceptrons, not about networks
+with hidden layers stacked in between
+([source: Wikipedia, "Perceptrons (book)"](<https://en.wikipedia.org/wiki/Perceptrons_(book)>),
+checked 2026-09-03). Nobody yet had a working, well-understood way to *train* a network with
+hidden layers, so that distinction didn't save the field in the 1970s.
+
+That changed in 1986, when David Rumelhart, Geoffrey Hinton, and Ronald Williams published a
+short paper in *Nature* titled "Learning representations by back-propagating errors," describing a
+way to train networks with hidden layers by pushing an error signal backward through every layer,
+one calculus step at a time
+([source: Rumelhart, Hinton & Williams, "Learning representations by back-propagating errors,"
+*Nature* 323, 533–536 (1986)](https://www.nature.com/articles/323533a0), checked 2026-09-03). That
+algorithm — **backpropagation** — is still, mechanically, the same one training every network in
+this curriculum decades later.
+
+Here's the whole chapter in one sentence you could repeat at dinner: **a single straight line
+can't bend around a problem like XOR, so stack a nonlinear twist between several weighted sums, and
+use backpropagation to train every layer of those sums at once.**
+
+Walk through what that fix actually looks like, piece by piece — it's the whole chapter in
+miniature:
+
+```mermaid
+flowchart LR
+    A["Step 1<br/>start from LinearRegression<br/>y_hat = w·x + b"] --> B["Step 2<br/>watch it fail on XOR<br/>(no line separates it)"]
+    B --> C["Step 3<br/>add a nonlinear twist<br/>a = f(w·x + b)"]
+    C --> D["Step 4<br/>stack neurons into layers,<br/>layers into a network"]
+    D --> E["Step 5<br/>learn the weights:<br/>gradient descent + backprop"]
+    E --> F["Step 6<br/>keep it from memorizing:<br/>dropout"]
+    F -.->|"this chapter rebuilds every step<br/>from scratch, in plain NumPy"| A
+```
+
+This chapter builds each of those six steps from the smallest possible piece — one neuron — up to
+a tiny two-layer network you can watch learn, epoch by epoch, entirely in NumPy: no framework, no
+autograd, no magic.
+
+## 1. What & why — the line that can't bend
+
 [DS-5 (Regression — NYC Taxi Fare Prediction)](../../01-data-science/03-worked-examples/05-regression-nyc-taxi.md)
 fit a pricing function `f(features) -> dollars` by learning coefficients from data instead of
 hand-writing them — `LinearRegression` found the best straight-line (or hyperplane) relationship
-between features and fare. A neural network is what you reach for when the true relationship
-*isn't* a straight line, and you don't want to hand-engineer the curve yourself. This chapter builds
-the mental model from the smallest possible piece — one neuron — up to a tiny two-layer network you
-can watch learn, epoch by epoch, entirely in NumPy: no framework, no autograd, no magic.
+between features and fare. That's exactly Step 1's shape: `y_hat = w . x + b`.
 
-## 1. What & why
+**Now watch that shape hit the same wall Rosenblatt's Perceptron hit.** XOR is four points, each
+labelled 0 or 1 — `(0,0)->0`, `(1,1)->0`, `(0,1)->1`, `(1,0)->1` (read it as "exactly one of the
+two inputs is on"). Try to separate them with one straight decision boundary,
+`z = w1*x1 + w2*x2 + b`, predicting label 1 whenever `z > 0`:
 
-A `LinearRegression` model computes exactly one thing: `y_hat = w . x + b` — a weighted sum of the
-inputs, plus a bias. That's powerful, but it's fundamentally limited to relationships that are
-linear in the features. XOR is the textbook example of a relationship a straight line *cannot*
-separate: plot four points labelled `(0,0)->0`, `(1,1)->0`, `(0,1)->1`, `(1,0)->1`, and no single
-straight line divides the two classes — you'd need at least two lines, or one curved boundary. This
-chapter's own code demo (§6) trains a network on exactly this pattern.
+- For `(0,0)` to score negative (label 0), you need `b < 0`.
+- For `(0,1)` and `(1,0)` to both score positive (label 1), you need `w2 + b > 0` and
+  `w1 + b > 0`. Add those two: `w1 + w2 + 2b > 0`, i.e. `w1 + w2 > -2b`.
+- For `(1,1)` to score negative (label 0), you need `w1 + w2 + b < 0`, i.e. `w1 + w2 < -b`.
 
-A **neural network** solves this by composing several rounds of "weighted sum, then a nonlinear
-twist" — and it turns out that stacking enough of those is enough to approximate essentially any
-function, curved boundaries included. Everything below is building toward that one idea, one piece
-at a time: what one neuron computes, how many neurons form a layer, how the network *learns* its
-weights (gradient descent + backpropagation), which nonlinearity to use where (activation
-functions), and one of the standard tools for stopping the network from memorising its training
-data instead of generalising (dropout) — the same overfitting failure mode
+Plug in a concrete number for `b`, say `b = -1`: the first requirement demands `w1 + w2 > 2`; the
+second demands `w1 + w2 < 1`. **No number satisfies both at once.** That's not a fluke of this
+particular `b` — the same contradiction, `-2b > -b` for every negative `b`, appears no matter which
+`b` you pick. This is the arithmetic core of what Minsky and Papert proved in 1969: **one weighted
+sum, however you tune it, cannot separate XOR.** No single straight line divides the two classes —
+you'd need at least two lines, or one curved boundary.
+
+A **neural network** solves this the way Steps 3–4 above sketched: composing several rounds of
+"weighted sum, then a nonlinear twist" — and it turns out that stacking enough of those is enough
+to approximate essentially any function, curved boundaries included. This chapter's own code demo
+(§6) trains a network on exactly this XOR pattern and watches it succeed where one straight line
+algebraically cannot. Everything below is building toward that one idea, one piece at a time: what
+one neuron computes, how many neurons form a layer, how the network *learns* its weights (gradient
+descent + backpropagation), which nonlinearity to use where (activation functions), and one of the
+standard tools for stopping the network from memorising its training data instead of generalising
+(dropout) — the same overfitting failure mode
 [DS-14](../../01-data-science/01-theory/01-theory-overview.md#5-the-central-tension--overfitting-biasvariance-and-regularization)
 covered for `LinearRegression` and tree ensembles, showing up again in a new model family.
 
@@ -43,15 +108,34 @@ NumPy-only, so every gradient in this chapter is one you can trace by hand. The 
 Here's the one-line summary a Java engineer who just read DS-5 needs: **a neuron is a
 `LinearRegression` unit with one extra step.**
 
-```text
-z = w . x + b        (exactly the linear-regression formula: weighted sum + bias)
-a = f(z)              (the new part: squash z through a nonlinear "activation function")
+$$z = w \cdot x + b \qquad \text{(exactly the linear-regression formula: weighted sum + bias)}$$
+
+$$a = f(z) \qquad \text{(the new part: squash } z \text{ through a nonlinear "activation function")}$$
+
+Plain-language glosses — every symbol here earns one the first time it shows up:
+
+- **weight** (`w`) — how much each input matters; learned from data, exactly like
+  `LinearRegression`'s coefficients.
+- **bias** (`b`) — a constant offset; what the neuron would output if every input were 0.
+- **activation function** (`f`) — a fixed, *non-learned* function that bends the weighted sum —
+  the piece a plain linear model doesn't have.
+- **activation** (`a`) — the neuron's actual output, after `f` has been applied to `z`.
+
+```mermaid
+flowchart LR
+    x1["x1"] -->|"w1"| SUM(("Σ<br/>z = w·x + b"))
+    x2["x2"] -->|"w2"| SUM
+    x3["..."] -.-> SUM
+    B["bias b"] --> SUM
+    SUM --> F["activation f(z)"]
+    F --> A["a (neuron output)"]
 ```
 
 `w` (weights) and `b` (bias) are learned, exactly as in `LinearRegression`. `f` is a fixed,
 non-learned function — sigmoid, tanh, or ReLU are the three this chapter compares in §5. Without
 `f` (or with `f` being the identity function, `f(z) = z`), a neuron *is* linear regression: same
-formula, same limitation. `f` is what buys a network the ability to bend.
+formula, same limitation — the same wall §1 just proved XOR sits behind. `f` is what buys a network
+the ability to bend.
 
 **Why the nonlinearity has to be there at all** isn't just a rule of thumb — it's forced by linear
 algebra. Composing two linear functions is *still* linear: if `z1 = W1 x + b1` and
@@ -59,16 +143,27 @@ algebra. Composing two linear functions is *still* linear: if `z1 = W1 x + b1` a
 `weight . x + bias` — collapsible back into a single linear layer, no matter how many linear layers
 you stack. Insert a nonlinear `f` between the layers and that collapse no longer happens; each layer
 genuinely adds representational power. This is why every layer in a network except (usually) the
-very last one is followed by an activation function.
+very last one is followed by an activation function — and it's the piece Rosenblatt's single
+perceptron never got to use against a problem like XOR, because it never had a second layer stacked
+behind its own activation.
 
 ## 3. A dense layer: `Wx + b`, then activation
 
 One neuron produces one number. A **dense layer** (also called "fully connected") runs *several*
 neurons side by side over the *same* input, each with its own weights:
 
-```text
-Z = X @ W + b          # X: (n_samples, n_in)   W: (n_in, n_out)   b: (n_out,)   Z: (n_samples, n_out)
-A = f(Z)                # elementwise: same activation function applied to every entry of Z
+$$Z = XW + b \qquad X:(n_{\text{samples}}, n_{\text{in}}) \quad W:(n_{\text{in}}, n_{\text{out}}) \quad b:(n_{\text{out}},) \quad Z:(n_{\text{samples}}, n_{\text{out}})$$
+
+$$A = f(Z) \qquad \text{elementwise: same activation function applied to every entry of } Z$$
+
+```mermaid
+flowchart LR
+    X["X<br/>(n_samples x n_in)"] --> MM["X @ W + b"]
+    W["W<br/>(n_in x n_out)"] --> MM
+    Bv["b<br/>(n_out,)"] --> MM
+    MM --> Z["Z<br/>(n_samples x n_out)"]
+    Z --> ACT["elementwise f(Z)"]
+    ACT --> A["A<br/>(n_samples x n_out)"]
 ```
 
 This is the exact matrix-multiply shape `TinyNet` in this chapter's code uses (see §6):
@@ -84,8 +179,10 @@ this curriculum, now multiplied by a *matrix* of weights instead of a single wei
 a layer has several neurons instead of one. Stack more dense layers (each one's output `A` becomes
 the next one's input `X`) and you have a **multi-layer** or **"deep"** network — "deep learning" is
 named for exactly this: enough stacked layers that the network is meaningfully deep, not just wide.
+This is Step 4 from the roadmap above: neurons into a layer, layers into a network deep enough to
+bend around XOR and much harder problems.
 
-## 4. Learning: loss surface, gradient descent, and the learning rate
+## 4. Learning: descending the loss surface
 
 A freshly initialised network's weights are random, so its predictions are garbage. **Learning**
 means adjusting every weight to reduce a **loss function** — a single number that says how wrong the
@@ -93,20 +190,38 @@ current predictions are (DS-14 already introduced RMSE as regression's version o
 chapter's own demo uses **binary cross-entropy**, the standard loss for a sigmoid-output binary
 classifier).
 
+Two more glosses, since they'll do a lot of work below:
+
+- **gradient** — the direction (and size) of steepest *increase* of the loss, at the current
+  weights; a compass needle that always points "more wrong."
+- **epoch** — one full pass of the training data through the network, followed by a weight update;
+  this chapter's own demo (§6) runs 4000 of them.
+
 ### 4.1 The loss surface and gradient descent
 
 Picture the loss as a function of the weights — a landscape where every point is one possible
 setting of every weight, and the height at that point is the loss you'd get from it. **Gradient
 descent** is the strategy of always stepping in the direction that goes downhill fastest — the
-negative gradient — and repeating:
+negative gradient — and repeating, the same way you'd feel your way down a dark hillside by always
+taking the next step in whichever direction slopes down the most:
 
-```text
-w <- w - lr * dL/dw
+$$w \leftarrow w - \text{lr} \cdot \frac{dL}{dw}$$
+
+```mermaid
+flowchart TD
+    S["random start:<br/>high loss"] --> G1["compute the gradient dL/dw<br/>(the uphill direction)"]
+    G1 --> ST["step downhill:<br/>w ← w - lr * dL/dw"]
+    ST --> C{"loss still<br/>decreasing?"}
+    C -->|"yes: take another step"| G1
+    C -->|"converged"| MIN["near the minimum<br/>(low loss)"]
 ```
 
 `dL/dw` (the **gradient** of the loss with respect to `w`) is the vector that points *uphill*
 steepest; subtracting it (scaled by the **learning rate**, `lr`) steps downhill. `lr` controls how
-big each step is. This chapter's code (`bowl_loss`/`bowl_grad`/`run_gradient_descent` in
+big each step is: too small, and training crawls toward the minimum one tiny shuffle at a time; too
+large, and a single step can overshoot the minimum entirely and land higher up the opposite slope
+than where it started — exactly what the right-hand panel below shows. This chapter's code
+(`bowl_loss`/`bowl_grad`/`run_gradient_descent` in
 [`code/nn_fundamentals.py`](code/nn_fundamentals.py)) runs plain gradient descent on a synthetic,
 deliberately elongated 2-D bowl, `L(w1, w2) = w1^2 + 5*w2^2`, from the same starting point, twice —
 once with a learning rate that converges, once with one large enough to diverge:
@@ -153,11 +268,11 @@ this is §7's first pitfall, made concrete.
 A real network's loss depends on *every* weight in *every* layer, through a chain of function
 compositions — layer 1's output feeds layer 2, whose output feeds the loss. **Backpropagation**
 computes `dL/dw` for every weight by applying the calculus **chain rule** once per layer, working
-backward from the loss to the input:
+backward from the loss to the input — the same algorithm Rumelhart, Hinton, and Williams described
+in 1986, and the fix that finally let networks with hidden layers climb out of the wall this
+chapter opened on:
 
-```text
-dL/dw = (dL/da_n) x (da_n/da_(n-1)) x ... x (da_1/dw)
-```
+$$\frac{dL}{dw} = \frac{dL}{da_n} \times \frac{da_n}{da_{n-1}} \times \cdots \times \frac{da_1}{dw}$$
 
 — [research/NOTE-ML-2-nn-theory.md](../../research/NOTE-ML-2-nn-theory.md), evidence item 2,
 grounded against [cs231n.github.io/optimization-2](https://cs231n.github.io/optimization-2/)
@@ -166,6 +281,15 @@ respect to *my output*" into "the gradient of the loss with respect to *my input
 it doesn't need to know anything about any other layer. Chaining that one local computation
 backward through every layer, reusing the values computed during the forward pass, is what makes
 backprop efficient instead of re-deriving each weight's gradient from scratch.
+
+```mermaid
+flowchart LR
+    X0["input x"] --> L1["layer 1<br/>z1 = w1·x + b1<br/>a1 = f(z1)"]
+    L1 --> L2["layer 2<br/>z2 = w2·a1 + b2<br/>a2 = f(z2)"]
+    L2 --> LOSS["loss L(a2, target)"]
+    LOSS -.->|"backward: dL/da2"| B2["layer 2 gradient<br/>dL/dw2 = dL/da2 · da2/dz2 · dz2/dw2"]
+    B2 -.->|"backward: dL/da1"| B1["layer 1 gradient<br/>dL/dw1 = dL/da2 · da2/dz2 · dz2/da1 · da1/dz1 · dz1/dw1"]
+```
 
 **A tiny numeric example**, small enough to trace by hand — two toy scalar "layers", a ReLU neuron
 feeding a sigmoid neuron:
@@ -231,10 +355,10 @@ against [ml-cheatsheet.readthedocs.io/activation_functions](https://ml-cheatshee
 
 | Function | Formula | Output range | Typical use |
 |---|---|---|---|
-| **Sigmoid** | `sigma(x) = 1 / (1 + exp(-x))` | `(0, 1)` | Binary classification output |
-| **Tanh** | `tanh(x) = 2 / (1 + exp(-2x)) - 1` | `(-1, 1)` | Older hidden-layer default; zero-centred |
-| **ReLU** | `ReLU(x) = max(0, x)` | `[0, infinity)` | Modern hidden-layer default |
-| **Softmax** | `softmax(x)_i = exp(x_i) / sum_j exp(x_j)` | `(0, 1)`, sums to 1 | Multi-class classification output |
+| **Sigmoid** | $\sigma(x) = \dfrac{1}{1+e^{-x}}$ | $(0, 1)$ | Binary classification output |
+| **Tanh** | $\tanh(x) = \dfrac{2}{1+e^{-2x}} - 1$ | $(-1, 1)$ | Older hidden-layer default; zero-centred |
+| **ReLU** | $\mathrm{ReLU}(x) = \max(0, x)$ | $[0, \infty)$ | Modern hidden-layer default |
+| **Softmax** | $\mathrm{softmax}(x)_i = \dfrac{e^{x_i}}{\sum_j e^{x_j}}$ | $(0, 1)$, sums to 1 | Multi-class classification output |
 
 ```python
 def sigmoid(x: np.ndarray) -> np.ndarray:
@@ -273,14 +397,14 @@ Look at the dashed derivative curves in the plot above: sigmoid's derivative top
 tanh's at **1.0**, but both collapse toward **0** the moment `x` moves a few units from the origin —
 that's **saturation**. Backpropagation (§4.2) *multiplies* these derivatives together, one per
 layer, to get the gradient for an early layer's weights. Chain `L` sigmoid layers together and the
-early-layer gradient scales roughly like `0.25^L`
+early-layer gradient scales roughly like $0.25^{L}$
 ([research/NOTE-ML-2-nn-theory.md](../../research/NOTE-ML-2-nn-theory.md), evidence item 4,
 grounded against [kdnuggets.com/2022/02/vanishing-gradient-problem](https://www.kdnuggets.com/2022/02/vanishing-gradient-problem.html),
-checked 2026-09-02): at `L=10` that's already `0.25^10 ≈ 9.5 x 10^-7`. The gradient reaching the
-earliest layers shrinks toward zero exponentially in depth — those layers stop learning even though
-the loss is still high. That's the **vanishing gradient problem**, and it's the historical reason
-sigmoid/tanh dominated hidden layers before roughly 2012, and ReLU (paired with a matching
-initialisation scheme) after
+checked 2026-09-02): at $L=10$ that's already $0.25^{10} \approx 9.5 \times 10^{-7}$. The gradient
+reaching the earliest layers shrinks toward zero exponentially in depth — those layers stop
+learning even though the loss is still high. That's the **vanishing gradient problem**, and it's
+the historical reason sigmoid/tanh dominated hidden layers before roughly 2012, and ReLU (paired
+with a matching initialisation scheme) after
 ([research/NOTE-ML-2-nn-theory.md](../../research/NOTE-ML-2-nn-theory.md) caveats).
 
 ReLU's derivative is exactly **0 or 1** — never a small fraction — so chaining many ReLU layers
@@ -301,15 +425,33 @@ modern practice, for the same saturation reason as tanh.
 
 `LinearRegression` fights overfitting with L1/L2 regularization — shrinking coefficients toward zero
 ([DS-14 §5.3](../../01-data-science/01-theory/01-theory-overview.md#53-regularization--fighting-variance-directly)).
-A dense network has a different, network-specific tool: **dropout**.
+A dense network has a different, network-specific tool: **dropout** — Step 6 from the roadmap that
+opened this chapter.
 
 **Dropout** ([Srivastava, Hinton, Krizhevsky, Sutskever & Salakhutdinov, "Dropout: A Simple Way to
 Prevent Neural Networks from Overfitting", *JMLR* Vol. 15, pp. 1929–1958, 2014](https://jmlr.org/papers/v15/srivastava14a.html),
 grounded via [research/NOTE-ML-2-nn-theory.md](../../research/NOTE-ML-2-nn-theory.md) evidence item
 3) randomly zeroes out a fraction `p` of a layer's activations on *every training step*, forcing the
-surviving units to not rely on any one other unit always being present. Srivastava et al. frame the
-effect as approximating an ensemble of exponentially many "thinned" sub-networks trained
-simultaneously, averaged together — a network-native cousin of the bagging ensembles
+surviving units to not rely on any one other unit always being present:
+
+```mermaid
+flowchart LR
+    IN["hidden layer output<br/>(5 units, ReLU)"]
+    IN --> H1["h1 (kept)"]
+    IN --> H2["h2 (DROPPED this step)"]
+    IN --> H3["h3 (kept)"]
+    IN --> H4["h4 (DROPPED this step)"]
+    IN --> H5["h5 (kept)"]
+    H1 --> OUT["next layer<br/>(kept units rescaled by 1/(1-p))"]
+    H3 --> OUT
+    H5 --> OUT
+    H2 -.->|"masked to 0"| OUT
+    H4 -.->|"masked to 0"| OUT
+```
+
+Srivastava et al. frame the effect as approximating an ensemble of exponentially many "thinned"
+sub-networks trained simultaneously, averaged together — a network-native cousin of the bagging
+ensembles
 ([DS-14 §4](../../01-data-science/01-theory/01-theory-overview.md#4-models--regression-classification-and-ensembles))
 already covered.
 
@@ -340,7 +482,9 @@ inference: Must be disabled").
 **Seeing the effect.** [`code/nn_fundamentals.py`](code/nn_fundamentals.py) generates a small, noisy
 XOR-pattern dataset — four Gaussian blobs at the corners of a unit square, labelled by the XOR rule
 (`(0,0)->0 (1,1)->0 (0,1)->1 (1,0)->1`), with roughly 6% of labels deliberately flipped so there's
-genuine noise for an over-parameterised network to memorise:
+genuine noise for an over-parameterised network to memorise. This is the same XOR pattern §1
+proved a single straight line can't separate — the whole point of this demo is watching a real,
+trained network succeed where that algebra said one weighted sum never could:
 
 ```python
 def make_xor_dataset(n_per_corner: int = 30, coord_noise: float = 0.28,
@@ -411,6 +555,10 @@ training set.
 
 ## 8. Recap & what's next
 
+- **The wall (cold open):** Rosenblatt's 1958 Perceptron was one neuron; Minsky and Papert proved
+  in 1969 that one weighted sum can never separate XOR — §1 reproduced that proof with real numbers.
+  Rumelhart, Hinton, and Williams' 1986 backpropagation paper is what finally let networks with
+  hidden layers train past that wall.
 - **A neuron** (§2) is `LinearRegression`'s `w . x + b` plus one nonlinear activation function.
 - **A dense layer** (§3) runs many neurons over the same input as one matrix multiply,
   `Z = X @ W + b`, followed by an elementwise activation; stacking layers needs a nonlinearity
@@ -424,7 +572,8 @@ training set.
   into a multi-class probability distribution.
 - **Dropout** (§6) randomly drops hidden units during training only, cheaply approximating an
   ensemble of sub-networks and narrowing the train/validation gap — this chapter's own 80-point demo
-  showed a modest version of exactly that effect.
+  showed a modest version of exactly that effect, on the very XOR pattern §1 proved a straight line
+  could never fit.
 
 **What's next:** this chapter deliberately stayed at the level of one neuron and one dense layer.
 The next Theory chapter in this subject, SPEC-ML-2 ("Network Architectures"), picks up specific
