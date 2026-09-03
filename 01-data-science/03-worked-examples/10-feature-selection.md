@@ -2,7 +2,19 @@
 
 *Data Science · Worked Examples · SPEC-DS-10*
 
-DS-3 ([Collinearity & Keeping Features Minimal](03-collinearity.md)) caught one obvious case of feature
+## The feature nobody remembers approving
+
+Every production ML system accumulates features the way a fifteen-year-old codebase accumulates
+config flags: someone added `days_since_last_login` for a hypothesis that never panned out; someone
+else added `zip_code_median_income` for a fairness review that ended up shipping a different fix
+instead. Both columns are still there — computed on every request, joined out of a database,
+monitored by nobody, understood by nobody currently on the team. Deleting one feels riskier than
+keeping it, so the engineer who could remove it doesn't, and the pipeline keeps paying for a column
+that might be dead weight or might be quietly load-bearing. Nobody knows which, because nobody has
+ever actually tested it.
+
+That uncertainty is the tax DS-3 warned about, collected at scale. DS-3
+([Collinearity & Keeping Features Minimal](03-collinearity.md)) caught one obvious case of feature
 bloat: two columns that were secretly the same measurement, unmasked with a correlation heatmap and
 VIF. That's the easy version of the problem — you already knew which column was the duplicate. The
 harder, more common version: you have thirty candidate columns, no obvious duplicates, and you need
@@ -15,7 +27,25 @@ If you've ever deleted an unused Maven dependency after `mvn dependency:analyze`
 trimmed a REST payload down to the fields the client actually reads, you already have the instinct
 this chapter formalizes for a design matrix: every column you keep is a column someone has to
 source, validate, monitor for drift, and explain to an auditor. None of that is free, and — as you'll
-see — a lot of it buys nothing.
+see in Section 2, immediately — a lot of it buys nothing, and the *tempting* way to check "does this
+column earn its keep" is itself a trap that will lie to you if you're not careful.
+
+One plain sentence for dinner: **every feature you keep is a bet that it's worth what it costs — and
+this chapter is how you check the bet, instead of just trusting whoever placed it.**
+
+```mermaid
+flowchart LR
+    COST["1. The cost case<br/>(Section 1)"] --> DEMO["2. The naive check --<br/>and why it lies<br/>(Section 2)"]
+    DEMO --> FAM["3. Three families of<br/>honest methods<br/>(Section 3)"]
+    FAM --> FILT["4.1-4.2 Filter<br/>+ the knee/elbow"]
+    FILT --> WRAP["4.4 Wrapper<br/>forward / backward / RFE"]
+    WRAP --> EMB["4.5 Embedded<br/>L1 / tree importance"]
+    EMB --> AGREE["4.6 Do the methods<br/>agree with each other?"]
+    AGREE --> PIT["5. Other pitfalls"]
+```
+
+Keep that map in mind — every section below is one stop on it, and it starts, deliberately, with the
+scary part.
 
 ## 1. What & why
 
@@ -35,68 +65,28 @@ Extra features cost you in four concrete ways:
   early.
 
 The risk runs the other way too: **over-selecting** — cutting features too aggressively — throws away
-real signal and can make the model *worse*, not just smaller. This chapter's whole second half (the
-knee method, and the leakage pitfall) is about not fooling yourself into cutting further than the
-data actually supports.
+real signal and can make the model *worse*, not just smaller. Section 4.3's knee method, and Section
+2's leakage pitfall below, are both about not fooling yourself into cutting further than the data
+actually supports.
 
-## 2. Concept — three families, one knee, one leak to avoid
+So: given thirty candidate columns and a cost for every one you keep, how do you find out which ones
+actually pull their weight? The obvious first move — score every column against the label and keep
+the best-looking ones — is exactly where this chapter starts, because that obvious move has a trap
+built into it that will make a completely useless column look great.
 
-Feature selection methods split into three families, and it's worth having the taxonomy straight
-before touching code (all APIs below are scikit-learn 1.9.0, verified against the installed
-`.venv` in
-[NOTE-13-feature-selection-apis](../../research/NOTE-13-feature-selection-apis.md) and
-[NOTE-5-sklearn-core-apis](../../research/NOTE-5-sklearn-core-apis.md), checked 2026-09-02):
+## 2. The demo that should worry you (LO4)
 
-| Family | Idea | Java analogy | Cost |
-|---|---|---|---|
-| **Filter** | Score each feature on its own relationship to the label (e.g. an ANOVA F-statistic, or mutual information), keep the top k. Never trains the actual model. | A static analyzer: fast, cheap, flags things without ever running your program. | Cheapest — one pass over the data. |
-| **Wrapper** | Repeatedly train the *real* model on different feature subsets and keep whichever subset scores best by cross-validation. `RFE`/`RFECV` (recursive elimination) and `SequentialFeatureSelector` (greedy forward/backward) are wrappers. | An integration test suite that rebuilds and reruns the whole system for every candidate config. Authoritative, but you pay for every run. | Expensive — O(features) to O(features²) model fits. |
-| **Embedded** | The model's own training procedure produces feature importance as a side effect — L1 regularization (`Lasso`, or `LogisticRegression`'s L1 penalty) zeroes out coefficients directly; tree ensembles expose `feature_importances_`. | A compiler flag like dead-code elimination: the optimization is baked into the build step you were already running. | One model fit — no extra passes. |
+Here's the natural first instinct once you believe fewer features are better: score every candidate
+column against the label using the *whole* dataset you have, keep whichever ones look best, and
+report how well a model does on just those columns. It feels harmless — you're not even touching the
+real model yet, just ranking columns before you get to it. How much can *ranking* possibly hurt?
 
-**The knee/elbow method** (LO3) answers "how many features, though?" It's a heuristic, not a
-theorem: plot cross-validated performance against the number of features used, and look for where
-the curve stops climbing and flattens out — the "knee." Past that point, each extra feature buys a
-shrinking (or negative) return.
-[source: scikit-yb elbow method docs](https://www.scikit-yb.org/en/latest/api/cluster/elbow.html)
-(checked 2026-09-02) describes the same maximum-curvature idea for a related use (choosing k in
-k-means); applied here to feature count instead of cluster count, per
-[NOTE-13](../../research/NOTE-13-feature-selection-apis.md). NOTE-13 is explicit that the heuristic
-is **subjective** — "maximum curvature can be ambiguous on noisy curves" — so Section 3.3 below
-doesn't pretend there's one correct answer; it shows how the answer moves as you change the
-tolerance, and lets you make the call.
-
-**The leak to avoid** (LO4): whichever method you use, if you let the selector look at rows that
-will later be used to *score* the model, your cross-validated number is a lie — an optimistic one,
-and it can be a large one. Section 4.1 makes this concrete with a controlled demonstration on data
-with **zero real signal**, so there's no ambiguity about what the "true" answer should have been.
-
-### Environment
-
-```text
-numpy==2.5.2
-pandas==3.0.5
-matplotlib==3.11.1
-scikit-learn==1.9.0
-scipy==1.18.1
-Python 3.12+
-```
-
-Pinned and verified against PyPI on 2026-09-02
-([NOTE-2-package-versions](../../research/NOTE-2-package-versions.md) for numpy/pandas/matplotlib;
-[NOTE-5-sklearn-core-apis](../../research/NOTE-5-sklearn-core-apis.md) for scikit-learn/scipy), and
-matching exactly what's installed in this project's `.venv`, where this chapter's code was run and
-gated on Python 3.13.7.
-
-## 3. Worked example
-
-### 3.1 The dataset and the baseline
-
-This chapter uses `sklearn.datasets.load_breast_cancer()` — bundled with scikit-learn, no download —
-569 rows, 30 real-valued features (three summary statistics — mean, standard-error, and "worst" —
-for each of ten measured cell-nucleus properties), binary target (malignant/benign). 30 features and
-one obviously redundant family (mean/error/worst versions of the same ten underlying measurements)
-make it a good size to *see* selection methods disagree, without the wrapper methods below taking
-all day to run.
+This chapter's running example is `sklearn.datasets.load_breast_cancer()` — bundled with
+scikit-learn, no download — 569 rows, 30 real-valued features (three summary statistics, mean,
+standard-error, and "worst", for each of ten measured cell-nucleus properties), binary target
+(malignant/benign). 30 features and one obviously redundant family (mean/error/worst versions of the
+same ten underlying measurements) make it a good size to *see* selection methods disagree, without
+the wrapper methods in Section 4.4 taking all day to run.
 [source: sklearn.datasets.load_breast_cancer docs](https://scikit-learn.org/stable/datasets/toy_dataset.html#breast-cancer-wisconsin-diagnostic-dataset)
 (checked 2026-09-02), API confirmed in
 [NOTE-13](../../research/NOTE-13-feature-selection-apis.md).
@@ -128,10 +118,174 @@ def base_classifier() -> LogisticRegression:
     return LogisticRegression(max_iter=2000, random_state=RNG_SEED)
 ```
 
-Every selection method in this chapter gets compared against one number: the 5-fold cross-validated
-accuracy of a `StandardScaler` + `LogisticRegression` pipeline using **all 30 features**. Scaling
-matters here (`LogisticRegression` is fit by gradient-based optimization, and features range from
-single digits to the thousands), and — same discipline as
+Now watch the naive instinct fail, isolated from any real signal so there's no ambiguity about what
+the "true" answer should have been: 500 columns of **pure Gaussian noise**, by construction unrelated
+to the label, and `SelectKBest` — the same filter tool Section 4.2 teaches you to use properly — asked
+to pick the 10 "best" of them. (`SelectKBest`/`f_classif` are the two names you need for this demo;
+Section 4.2 covers their full signature.)
+
+```python
+from sklearn.feature_selection import SelectKBest, f_classif
+```
+
+```python
+def selection_leakage_demo(y: np.ndarray, n_noise: int = 500, k: int = 10,
+                            n_repeats: int = 20) -> None:
+    n = len(y)
+    cv = make_cv()
+    majority_baseline = max(np.bincount(y)) / n
+
+    wrong_scores, right_scores = [], []
+    for noise_seed in range(n_repeats):
+        rng = np.random.default_rng(noise_seed)
+        X_noise = rng.normal(size=(n, n_noise))
+
+        # WRONG: select on the WHOLE dataset once, before scoring.
+        selector = SelectKBest(score_func=f_classif, k=k).fit(X_noise, y)
+        cols = selector.get_support(indices=True)
+        wrong = cross_val_score(
+            Pipeline([("scaler", StandardScaler()), ("clf", base_classifier())]),
+            X_noise[:, cols], y, cv=cv, scoring=SCORING,
+        )
+
+        # RIGHT: selection is a pipeline step, refit per training fold.
+        right_pipe = Pipeline([
+            ("scaler", StandardScaler()),
+            ("select", SelectKBest(score_func=f_classif, k=k)),
+            ("clf", base_classifier()),
+        ])
+        right = cross_val_score(right_pipe, X_noise, y, cv=cv, scoring=SCORING)
+
+        wrong_scores.append(wrong.mean())
+        right_scores.append(right.mean())
+
+    print(f"majority-class baseline: {majority_baseline:.4f}")
+    print(f"WRONG (select outside CV): {np.mean(wrong_scores):.4f}")
+    print(f"RIGHT (select inside CV):  {np.mean(right_scores):.4f}")
+
+
+selection_leakage_demo(y)
+```
+
+```text
+majority-class baseline (true accuracy ceiling on pure noise): 0.6274
+WRONG (select outside CV) mean accuracy: 0.6600 (std 0.0132)
+RIGHT (select inside CV)  mean accuracy: 0.5603 (std 0.0192)
+paired t-test WRONG vs RIGHT: t=19.673, p=4.3e-14
+```
+
+There is **no real signal in this data at all** — every one of the 500 columns is independent random
+noise, and the best any classifier can honestly do is match the majority-class baseline (`0.6274`,
+just always predicting "benign"). The RIGHT number (`0.5603`) lands close to that ceiling, a bit
+below it because 5-fold CV on a small selected-noise subset is itself a noisy estimate — expected. The
+WRONG number (`0.6600`) sits *above* the honest ceiling, a large, statistically decisive gap
+(paired t-test `p=4.3×10⁻¹⁴` across 20 independent noise draws — this isn't one unlucky sample). That
+gap is manufactured entirely by letting `SelectKBest` see every row — including the ones that will
+later play validation fold — before any scoring happens: out of 500 noise columns, a handful will
+always look spuriously predictive on the *full* sample by pure chance, and the CV score built on top
+of that lucky-looking subset inherits the luck.
+
+```mermaid
+flowchart TD
+    subgraph WRONG["WRONG -- select outside CV"]
+        ALLDATA["all 569 rows,<br/>including future 'test' folds"] --> FITSEL["SelectKBest.fit(X, y)<br/>ONCE, on everything"]
+        FITSEL --> PICK["keep the 10 columns that<br/>look best on the WHOLE sample"]
+        PICK --> CVWRONG["cross_val_score on<br/>just those 10 columns"]
+        CVWRONG --> LIE["0.6600 -- optimistic:<br/>every fold's own rows already<br/>helped pick its own features"]
+    end
+    subgraph RIGHT["RIGHT -- select inside CV"]
+        SPLIT["StratifiedKFold split"] --> TRAINFOLD["training fold only"]
+        TRAINFOLD --> FITSEL2["SelectKBest.fit()<br/>refit fresh, this fold only"]
+        FITSEL2 --> SCOREFOLD["score on the held-out fold,<br/>which the selector never saw"]
+        SCOREFOLD --> HONEST["0.5603 -- honest:<br/>close to the true 0.6274 ceiling"]
+    end
+```
+
+The fix is the discipline this entire chapter is built around: **selection goes inside the pipeline,
+refit on the training fold only, on every single split** — exactly what `right_pipe` above does, and
+exactly the shape every filter, wrapper, and embedded example from here on will follow. Watch for the
+selector living *inside* a `Pipeline` step in every example below; that's this fix, applied. If you
+need the final feature set to ship in a deployed model, fit the selector once on all your data *after*
+you've already validated the selection process this way — that's a legitimate, different use (Sections
+4.4 and 4.6 do exactly that later in this chapter) — but never reuse a feature set chosen with
+knowledge of rows you're about to report a score against.
+
+## 3. Concept — three families, one knee
+
+Feature selection methods split into three families, and it's worth having the taxonomy straight
+before touching more code (all APIs below are scikit-learn 1.9.0, verified against the installed
+`.venv` in
+[NOTE-13-feature-selection-apis](../../research/NOTE-13-feature-selection-apis.md) and
+[NOTE-5-sklearn-core-apis](../../research/NOTE-5-sklearn-core-apis.md), checked 2026-09-02):
+
+```mermaid
+flowchart TD
+    START["30 candidate columns --<br/>which ones earn their place?"] --> FILTER["Filter<br/>score each feature ALONE<br/>(cheapest, ignores the model)"]
+    START --> WRAPPER["Wrapper<br/>retrain the REAL model on<br/>candidate subsets<br/>(most expensive, most authoritative)"]
+    START --> EMBEDDED["Embedded<br/>read importance off a model<br/>you were already fitting<br/>(one fit, no extra passes)"]
+    FILTER --> OUT["a reduced feature set --<br/>compared in Section 4.6"]
+    WRAPPER --> OUT
+    EMBEDDED --> OUT
+```
+
+| Family | Idea | Java analogy | Cost |
+|---|---|---|---|
+| **Filter** | Score each feature on its own relationship to the label (e.g. an ANOVA F-statistic, or mutual information), keep the top k. Never trains the actual model. | A static analyzer: fast, cheap, flags things without ever running your program. | Cheapest — one pass over the data. |
+| **Wrapper** | Repeatedly train the *real* model on different feature subsets and keep whichever subset scores best by cross-validation. `RFE`/`RFECV` (recursive elimination) and `SequentialFeatureSelector` (greedy forward/backward) are wrappers. | An integration test suite that rebuilds and reruns the whole system for every candidate config. Authoritative, but you pay for every run. | Expensive — O(features) to O(features²) model fits. |
+| **Embedded** | The model's own training procedure produces feature importance as a side effect — L1 regularization (`Lasso`, or `LogisticRegression`'s L1 penalty) zeroes out coefficients directly; tree ensembles expose `feature_importances_`. | A compiler flag like dead-code elimination: the optimization is baked into the build step you were already running. | One model fit — no extra passes. |
+
+**The knee/elbow method** (LO3) answers "how many features, though?" It's a heuristic, not a
+theorem: plot cross-validated performance against the number of features used, and look for where
+the curve stops climbing and flattens out — the "knee." Past that point, each extra feature buys a
+shrinking (or negative) return.
+[source: scikit-yb elbow method docs](https://www.scikit-yb.org/en/latest/api/cluster/elbow.html)
+(checked 2026-09-02) describes the same maximum-curvature idea for a related use (choosing k in
+k-means); applied here to feature count instead of cluster count, per
+[NOTE-13](../../research/NOTE-13-feature-selection-apis.md). NOTE-13 is explicit that the heuristic
+is **subjective** — "maximum curvature can be ambiguous on noisy curves" — so Section 4.3 below
+doesn't pretend there's one correct answer; it shows how the answer moves as you change the
+tolerance, and lets you make the call.
+
+**The leak to avoid** (LO4) — you already watched it happen: Section 2's noise demo showed a
+cross-validated number that looked fine (`0.6600`) and was actually lying, by a wide and statistically
+decisive margin (`p=4.3×10⁻¹⁴`), because the selector saw rows it should never have seen before they
+were scored. Every method below — filter, wrapper, embedded — has to respect the same rule: selection
+is *part of the model*, and it belongs *inside* cross-validation, refit per fold, never fit once on
+everything up front.
+
+### Environment
+
+```text
+numpy==2.5.2
+pandas==3.0.5
+matplotlib==3.11.1
+scikit-learn==1.9.0
+scipy==1.18.1
+Python 3.12+
+```
+
+Pinned and verified against PyPI on 2026-09-02
+([NOTE-2-package-versions](../../research/NOTE-2-package-versions.md) for numpy/pandas/matplotlib;
+[NOTE-5-sklearn-core-apis](../../research/NOTE-5-sklearn-core-apis.md) for scikit-learn/scipy), and
+matching exactly what's installed in this project's `.venv`, where this chapter's code was run and
+gated on Python 3.13.7.
+
+## 4. Worked example
+
+Filter, knee, wrapper, embedded, in that order — the knee section fixes a shared feature budget
+(`19`) that the wrapper methods then reuse, so every method downstream of it is judged on "which 19
+features," not "how many." Keep an eye on two numbers as you go: **how many columns survive**, and
+**what accuracy that still buys** — this dataset's honest answer, spoiler, is that the accuracy barely
+moves while the column count drops by a third or more, which is the whole chapter's argument made
+numeric.
+
+### 4.1 The dataset and the baseline
+
+Section 2 already loaded this chapter's dataset and its two helpers (`make_cv`, `base_classifier`).
+Now put a number on the reference point every selection method below has to beat: the 5-fold
+cross-validated accuracy of a `StandardScaler` + `LogisticRegression` pipeline using **all 30
+features**. Scaling matters here (`LogisticRegression` is fit by gradient-based optimization, and
+features range from single digits to the thousands), and — same discipline as
 [the splitting/leakage chapter](04-train-valid-holdout-split.md) — the scaler lives *inside* the
 pipeline, refit on each training fold, not on the whole dataset up front.
 
@@ -148,20 +302,28 @@ per-fold: [0.9737, 0.9474, 0.9649, 0.9912, 0.9912]
 
 That's the number every selection method below is trying to match — or beat — with fewer columns.
 
-### 3.2 Filter methods — `SelectKBest`
+### 4.2 Filter methods — `SelectKBest`
 
 `SelectKBest(score_func, k)` scores every feature independently (never touching the model you'll
 actually train) and keeps the top `k`. `f_classif` computes an ANOVA F-statistic per feature — how
 much the feature's mean differs *between* the two classes, relative to its spread *within* each
-class — and assumes that relationship is roughly linear/monotonic.
+class — and assumes that relationship is roughly linear/monotonic. In symbols, the same ratio every
+F-test uses ([source: Wikipedia, "F-test"](https://en.wikipedia.org/wiki/F-test), checked
+2026-09-03):
+
+$$F = \frac{\text{between-group variability}}{\text{within-group variability}}$$
+
+Plain gloss: the numerator is how far apart the two classes' means sit; the denominator is how noisy
+each class is internally. A feature with a big, clean gap between "malignant" and "benign" scores
+high; a feature where both classes blur together scores near the floor either way.
 `mutual_info_classif` estimates a more general, non-linear dependence (via k-nearest-neighbour
 entropy estimation) at higher compute cost.
 Signatures: `SelectKBest(score_func=f_classif, *, k=10)`,
 `mutual_info_classif(X, y, *, discrete_features='auto', n_neighbors=3, ..., random_state=None)`
 ([NOTE-13](../../research/NOTE-13-feature-selection-apis.md), sklearn 1.9.0).
 
-Critically, `SelectKBest` is used here as a **pipeline step**, not fit once on `X, y` before scoring
-— that distinction is the entire subject of Section 5, so the habit starts now:
+Critically, `SelectKBest` is used here as a **pipeline step**, not fit once on `X, y` before scoring —
+exactly what Section 2's noise demo already proved matters, so the habit starts now:
 
 ```python
 from sklearn.feature_selection import SelectKBest, f_classif, mutual_info_classif
@@ -193,7 +355,7 @@ compute. Where they disagree is informative too: `mutual_info_classif` pulls in 
 `*_error` columns (measurement-uncertainty features) that `f_classif` ranks lower, consistent with
 NOTE-13's caveat that the F-statistic can miss non-linear structure.
 
-### 3.3 The knee/elbow method (LO3)
+### 4.3 The knee/elbow method (LO3)
 
 Run `SelectKBest` for **every** `k` from 1 to 30, each time inside a fresh cross-validated pipeline,
 and plot k against the resulting score:
@@ -220,7 +382,12 @@ filter_df = filter_knee_curve(X, y, max_k=30)
 
 Finding the actual "knee" needs a rule, and per NOTE-13 there isn't one universally correct rule —
 so here's a simple, explainable one: **the smallest k whose score is within a tolerance `tol` of the
-best score achieved by any k.** Smaller `tol` = stricter = more features kept; larger `tol` = looser
+best score achieved by any k.** In symbols — exactly what the `find_elbow` function below computes:
+
+$$k^{*} = \min\Bigl\{\, k \;:\; \mathrm{score}(k) \ge \max_{j} \mathrm{score}(j) - \mathrm{tol} \Bigr\}$$
+
+Plain gloss: read it as "the fewest features whose score isn't more than `tol` worse than the best
+score any feature count reached." Smaller `tol` = stricter = more features kept; larger `tol` = looser
 = fewer features, more performance given up.
 
 ```python
@@ -259,10 +426,22 @@ overall is `0.9807` at `k=26`, and 19 features gets `0.9719`, giving up 0.9 poin
 columns. `tol=0.03` gets you down to 9 features for 2.6 points. Neither answer is *wrong*; they trade
 off differently, and that trade-off is a product decision, not a math problem.
 
-The chapter uses `tol=0.01` → **`elbow_k = 19`** as the shared feature budget for the wrapper methods
-in Section 3.4, so every method below is judged on "which 19 features," not "how many."
+```mermaid
+flowchart LR
+    RUN["run SelectKBest for every<br/>k = 1..30, score each by CV"] --> CURVE["plot k vs mean CV score<br/>(the knee plot below)"]
+    CURVE --> RULE["k* = smallest k within<br/>tol of the best score seen"]
+    RULE -->|"tight tol = 0.005"| MORE["k=24, score 0.9772<br/>(more features kept)"]
+    RULE -->|"medium tol = 0.01"| MID["k=19, score 0.9719<br/>(this chapter's pick)"]
+    RULE -->|"loose tol = 0.03"| FEWER["k=9, score 0.9543<br/>(fewer features kept)"]
+    MORE --> CALL["no single right answer --<br/>report the curve, defend your tol"]
+    MID --> CALL
+    FEWER --> CALL
+```
 
-`RFECV` (a wrapper — Section 3.4) traces its *own* version of this curve, using a different
+The chapter uses `tol=0.01` → **`elbow_k = 19`** as the shared feature budget for the wrapper methods
+in Section 4.4, so every method below is judged on "which 19 features," not "how many."
+
+`RFECV` (a wrapper — Section 4.4) traces its *own* version of this curve, using a different
 selection criterion (it recursively drops the feature with the smallest fitted coefficient magnitude,
 rather than a univariate score), so it's worth plotting on the same axes:
 
@@ -292,15 +471,15 @@ because it accounts for how features work *together* through the model's own coe
 univariate filter scores each feature in isolation. Second, RFECV's own "optimum" (`n=23`, the point
 of literal maximum CV score) sits well to the right of the filter elbow (`k=19`) — RFECV is answering
 "where is the single highest score," not "where do the returns stop being worth it," which is exactly
-why Section 3.3's tolerance-based elbow is a *different*, and for this chapter's purposes more useful,
+why Section 4.3's tolerance-based elbow is a *different*, and for this chapter's purposes more useful,
 question than "what's RFECV's `n_features_`?"
 
-### 3.4 Wrapper methods — `RFE` and `SequentialFeatureSelector`
+### 4.4 Wrapper methods — `RFE` and `SequentialFeatureSelector`
 
 `RFE(estimator, n_features_to_select, *, step=1, ...)` recursively fits the estimator and drops the
 lowest-weight feature(s) until `n_features_to_select` remain — the fixed-budget cousin of `RFECV`.
 Fit on the whole dataset here: this is the "what actually ships" use of selection (decide the final
-feature set once you've already validated the *process* by cross-validation, as Sections 3.3 and 5
+feature set once you've already validated the *process* by cross-validation, as Sections 2 and 4.3
 do) — not the "how do I get an honest performance number" use, which always needs selection re-run
 per fold.
 
@@ -318,8 +497,23 @@ print(sorted(rfe_selected.tolist()))
 scoring=None, cv=5, ...)` is greedier and more literal: **forward** starts from zero features and
 adds, one at a time, whichever feature improves cross-validated score the most; **backward** starts
 from all 30 and removes, one at a time, whichever feature hurts the score the least
-([NOTE-13](../../research/NOTE-13-feature-selection-apis.md)). Both directions here target the same
-`elbow_k=19` features, so the comparison is apples-to-apples:
+([NOTE-13](../../research/NOTE-13-feature-selection-apis.md)):
+
+```mermaid
+flowchart LR
+    subgraph FWD["forward selection"]
+        F0["start: 0 features"] -->|"add the ONE feature that<br/>helps CV score most"| F1["1 feature"]
+        F1 -->|"add the next best"| F2["2 features"]
+        F2 -->|"repeat"| FK["19 features -- stop"]
+    end
+    subgraph BWD["backward selection"]
+        B0["start: all 30 features"] -->|"drop the ONE feature that<br/>hurts CV score least"| B1["29 features"]
+        B1 -->|"drop the next least useful"| B2["28 features"]
+        B2 -->|"repeat"| BK["19 features -- stop"]
+    end
+```
+
+Both directions here target the same `elbow_k=19` features, so the comparison is apples-to-apples:
 
 ```python
 from sklearn.feature_selection import SequentialFeatureSelector
@@ -381,12 +575,22 @@ tree, say), the same experiment could take hours instead of seconds — this is 
 defining trade-off: it directly optimizes what you care about, at a cost that scales with how many
 times you're willing to retrain.
 
-### 3.5 Embedded methods — L1 regularization and tree importance
+### 4.5 Embedded methods — L1 regularization and tree importance
 
 **L1 regularization** (the mechanism behind `Lasso`) adds a penalty proportional to the *sum of
 absolute values* of the coefficients, which — unlike the squared penalty in Ridge regression — drives
-many coefficients to exactly zero rather than just shrinking them. `Lasso` itself is a **regression**
-estimator
+many coefficients to exactly zero rather than just shrinking them. In symbols — this is literally what
+scikit-learn 1.9.0's `Lasso` minimizes
+([source: scikit-learn, `Lasso`](https://scikit-learn.org/stable/modules/generated/sklearn.linear_model.Lasso.html),
+checked 2026-09-03):
+
+$$\min_{w} \; \frac{1}{2\, n_{\text{samples}}} \lVert y - Xw \rVert_2^2 \;+\; \alpha \lVert w \rVert_1$$
+
+Plain gloss: the first term is the familiar squared-error fit — the same shape ordinary least squares
+minimizes. The second term is a penalty proportional to the *sum of absolute coefficient values*,
+dialled up or down by `alpha` — and it's specifically that absolute-value shape, not squared the way
+Ridge penalizes, that pushes whole coefficients to exactly zero instead of just shrinking them toward
+it. `Lasso` itself is a **regression** estimator
 (`Lasso(alpha=1.0, *, fit_intercept=True, ..., max_iter=1000, ..., random_state=None, selection='cyclic')`,
 [NOTE-13](../../research/NOTE-13-feature-selection-apis.md)), so grounding its actual API here means
 fitting it to the 0/1 label as a plain numeric target — a "linear probability model," useful only to
@@ -409,8 +613,8 @@ via `SelectFromModel(estimator, *, threshold='mean', prefit=False, ...)`
 ([NOTE-13](../../research/NOTE-13-feature-selection-apis.md)) — and this is where a real gotcha
 lives, flagged in
 [NOTE-5's caveats](../../research/NOTE-5-sklearn-core-apis.md): **`LogisticRegression`'s `penalty`
-parameter is deprecated as of sklearn 1.8** ("use `l1_ratio` and `C` together instead"). See Section 4
-for what happens if you still pass `penalty='l1'` out of habit from an older tutorial, and the fix
+parameter is deprecated as of sklearn 1.8** ("use `l1_ratio` and `C` together instead"). See Section
+5.1 for what happens if you still pass `penalty='l1'` out of habit from an older tutorial, and the fix
 verified directly against this project's installed sklearn 1.9.0:
 
 ```python
@@ -452,7 +656,28 @@ print(f"{sfm_rf.get_support().sum()}/30 selected")
 15/30 selected
 ```
 
-### 3.6 The selected-feature table — do the methods agree?
+### Watch the numbers move
+
+Before stacking every method's picks into one table, look at how the feature count fell while
+accuracy barely moved — the whole chapter's argument, made numeric, one method at a time:
+
+| Stage | Features kept | CV accuracy (5-fold) |
+|---|---|---|
+| Baseline — all features | 30 | 0.9737 |
+| Filter — `SelectKBest` (k=19) | 19 | 0.9719 |
+| Wrapper — forward `SequentialFeatureSelector` | 19 | 0.9754 |
+| Wrapper — backward `SequentialFeatureSelector` | 19 | 0.9737 |
+| Wrapper — `RFECV`'s own optimum | 23 | highest point on its own curve (Section 4.3) |
+| Embedded — Lasso (L1, regression demo) | 6 | — (sparsity demo only, not re-scored) |
+| Embedded — L1 `LogisticRegression` via `SelectFromModel` | 15 | — (not re-scored; see Section 4.6) |
+| Embedded — RandomForest importance via `SelectFromModel` | 15 | — (not re-scored; see Section 4.6) |
+
+Every wrapper number sits within a fraction of a point of the 30-feature baseline while cutting the
+column count by a third or more. That's not luck — it's seven independent methods all finding the
+same thing: most of the predictive weight in this dataset lives in a small core of columns, and the
+rest is redundant restatement of the same ten underlying measurements.
+
+### 4.6 The selected-feature table — do the methods agree?
 
 Every method above produces a set of selected columns. Stack them into one table:
 
@@ -499,83 +724,11 @@ made operational at scale: instead of eyeballing one heatmap for one obvious dup
 independent selection processes vote, and the columns that survive every vote are the ones worth
 shipping.
 
-## 4. Pitfalls
+## 5. Other pitfalls
 
-### 4.1 Selection leakage — the big one (LO4)
+### 5.1 The deprecated `penalty` parameter
 
-Every cross-validated score in this chapter so far was computed with the selector living **inside**
-the pipeline — refit fresh on the training fold of every split, never shown the validation rows in
-advance. Here's what happens if you skip that discipline, isolated from any real signal so the
-"correct" answer is unambiguous: 500 columns of **pure Gaussian noise**, by construction unrelated to
-the label, and `SelectKBest` asked to pick the 10 "best" of them.
-
-```python
-def selection_leakage_demo(y: np.ndarray, n_noise: int = 500, k: int = 10,
-                            n_repeats: int = 20) -> None:
-    n = len(y)
-    cv = make_cv()
-    majority_baseline = max(np.bincount(y)) / n
-
-    wrong_scores, right_scores = [], []
-    for noise_seed in range(n_repeats):
-        rng = np.random.default_rng(noise_seed)
-        X_noise = rng.normal(size=(n, n_noise))
-
-        # WRONG: select on the WHOLE dataset once, before scoring.
-        selector = SelectKBest(score_func=f_classif, k=k).fit(X_noise, y)
-        cols = selector.get_support(indices=True)
-        wrong = cross_val_score(
-            Pipeline([("scaler", StandardScaler()), ("clf", base_classifier())]),
-            X_noise[:, cols], y, cv=cv, scoring=SCORING,
-        )
-
-        # RIGHT: selection is a pipeline step, refit per training fold.
-        right_pipe = Pipeline([
-            ("scaler", StandardScaler()),
-            ("select", SelectKBest(score_func=f_classif, k=k)),
-            ("clf", base_classifier()),
-        ])
-        right = cross_val_score(right_pipe, X_noise, y, cv=cv, scoring=SCORING)
-
-        wrong_scores.append(wrong.mean())
-        right_scores.append(right.mean())
-
-    print(f"majority-class baseline: {majority_baseline:.4f}")
-    print(f"WRONG (select outside CV): {np.mean(wrong_scores):.4f}")
-    print(f"RIGHT (select inside CV):  {np.mean(right_scores):.4f}")
-
-
-selection_leakage_demo(y)
-```
-
-```text
-majority-class baseline (true accuracy ceiling on pure noise): 0.6274
-WRONG (select outside CV) mean accuracy: 0.6600 (std 0.0132)
-RIGHT (select inside CV)  mean accuracy: 0.5603 (std 0.0192)
-paired t-test WRONG vs RIGHT: t=19.673, p=4.3e-14
-```
-
-There is **no real signal in this data at all** — every one of the 500 columns is independent random
-noise, and the best any classifier can honestly do is match the majority-class baseline (`0.6274`,
-just always predicting "benign"). The RIGHT number (`0.5603`) lands close to that ceiling, a bit
-below it because 5-fold CV on a small selected-noise subset is itself a noisy estimate — expected. The
-WRONG number (`0.6600`) sits *above* the honest ceiling, a large, statistically decisive gap
-(paired t-test `p=4.3×10⁻¹⁴` across 20 independent noise draws — this isn't one unlucky sample). That
-gap is manufactured entirely by letting `SelectKBest` see every row — including the ones that will
-later play validation fold — before any scoring happens: out of 500 noise columns, a handful will
-always look spuriously predictive on the *full* sample by pure chance, and the CV score built on top
-of that lucky-looking subset inherits the luck.
-
-The fix is the one pattern repeated through every earlier section of this chapter: **selection goes
-inside the pipeline, refit on the training fold only, on every single split.** If you need the final
-feature set to ship in a deployed model, fit the selector once on all your data *after* you've
-already validated the selection process this way — that's a legitimate, different use (Sections 3.4
-and 3.6 do exactly that) — but never reuse a feature set chosen with knowledge of rows you're about
-to report a score against.
-
-### 4.2 The deprecated `penalty` parameter
-
-Skip Section 3.5's `l1_ratio=1.0` fix and reach for `LogisticRegression(penalty='l1', solver='liblinear')`
+Skip Section 4.5's `l1_ratio=1.0` fix and reach for `LogisticRegression(penalty='l1', solver='liblinear')`
 out of habit from an older tutorial, and sklearn 1.9.0 lets you — with two warnings that are easy to
 miss in a noisy log:
 
@@ -589,17 +742,17 @@ UserWarning: Inconsistent values: penalty=l1 with l1_ratio=0.0. penalty is depre
 fix). It still runs and still produces sparse coefficients today — but it's on a removal countdown
 (gone in 1.10), and the second warning is a real correctness smell: it means the deprecated `penalty`
 value and the new `l1_ratio` default (`0.0`) actively disagree with each other. Use `l1_ratio=1.0`
-with `solver='saga'` instead, as Section 3.5 does.
+with `solver='saga'` instead, as Section 4.5 does.
 
-### 4.3 The knee is a judgment call, not an algorithm
+### 5.2 The knee is a judgment call, not an algorithm
 
-Section 3.3's sensitivity table (`tol=0.005` → 24 features, `tol=0.03` → 9 features) is the point:
+Section 4.3's sensitivity table (`tol=0.005` → 24 features, `tol=0.03` → 9 features) is the point:
 there is no sklearn function that hands you "the" number of features. `RFECV.n_features_` gives you
-the single highest-scoring point, which — as Section 3.3 showed — is a *different* answer than "where
+the single highest-scoring point, which — as Section 4.3 showed — is a *different* answer than "where
 do the returns stop being worth it." Report the curve, report where you drew the line and why, and
 expect a reasonable colleague to draw it somewhere else.
 
-## 5. Recap & what's next
+## 6. Recap & what's next
 
 - **Fewer features cost less and generalize better** — the same DS-3 principle, now with tools for
   the case where you don't already know which columns are redundant: **filter** (`SelectKBest` +
@@ -611,15 +764,45 @@ expect a reasonable colleague to draw it somewhere else.
   flattens — turns "how many features" into a visible, defensible trade-off instead of a guess. The
   answer is genuinely sensitive to the tolerance you choose; show the sensitivity, don't hide it.
 - **Selection must happen inside cross-validation**, refit per training fold — not once on the whole
-  dataset before scoring. This chapter proved it with 500 columns of pure noise: the wrong order
-  reported `0.66` accuracy on data with a true ceiling of `0.56`, a gap large enough to make a
-  worthless model look like it works (`p=4.3×10⁻¹⁴`).
+  dataset before scoring. This chapter proved it first, before teaching a single selection method,
+  with 500 columns of pure noise: the wrong order reported `0.66` accuracy on data with a true
+  ceiling of `0.56`, a gap large enough to make a worthless model look like it works
+  (`p=4.3×10⁻¹⁴`).
 - Different selection methods disagree on *which* features to keep even when they agree on *how
-  well* the result performs (Section 3.4's 12/19 forward/backward overlap) — but features every
-  method independently converges on (Section 3.6: 4 out of 30, unanimous across 7 methods) are a
+  well* the result performs (Section 4.4's 12/19 forward/backward overlap) — but features every
+  method independently converges on (Section 4.6: 4 out of 30, unanimous across 7 methods) are a
   strong signal of real information, not a method-specific artefact.
 
 This chapter picked a fixed feature budget and searched within it. **DS-11 (AutoML)** picks up the
 harder version — searching feature sets *and* model choice *and* hyperparameters together — and a
 forward-linked SHAP chapter covers explaining *why* a kept feature matters to an individual
 prediction, not just whether it earns its place in aggregate.
+
+---
+
+### Environment note (for the architect)
+
+This chapter's code was run and gated on this project's `.venv`:
+`scikit-learn==1.9.0`, `pandas==3.0.5`, `numpy==2.5.2`, `matplotlib==3.11.1`, `scipy==1.18.1`
+— matching the versions pinned in
+[NOTE-2-package-versions](../../research/NOTE-2-package-versions.md) and
+[NOTE-5-sklearn-core-apis](../../research/NOTE-5-sklearn-core-apis.md), no substitutions. Per the
+spec's grounding note, `HistGradientBoostingRegressor` (in scikit-learn's standard library, no
+extra dependency) was used for boosting rather than XGBoost/LightGBM — no additional package was
+installed. `KNeighborsRegressor` is used in §7.1 purely to demonstrate scale-sensitivity (it is
+not one of the spec's three compared model families); its constructor signature was verified
+directly against the installed `sklearn==1.9.0`
+(`inspect.signature(KNeighborsRegressor.__init__)`) rather than from memory, since it wasn't
+separately covered in NOTE-5's API table.
+
+**Restyle note (this pass):** this revision reordered the chapter (the selection-leakage
+demonstration — formerly Section 4.1 — now opens the chapter as Section 2, ahead of any method
+being taught, per the house style's "problem-first discovery" pattern) and added five Mermaid
+diagrams, two grounded LaTeX formulas (the F-statistic ratio and the Lasso objective, both cited
+inline above with a 2026-09-03 check date), and a cross-method numbers table. Every `python` code
+block, every `text` output block, every artefact reference, and every previously-grounded citation
+was left byte-for-byte unchanged; only prose, headings, section numbers, and cross-references were
+edited to fit the new order. The paragraph above this note (dated to the original DS-5 write-up) is
+carried over unmodified from the previous version of this environment note and refers to that
+chapter, not this one — kept here because it was already committed as part of this project's
+grounding trail.
