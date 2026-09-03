@@ -2,56 +2,53 @@
 
 *Data Science · Worked Examples · SPEC-DS-9*
 
-The [train/validation/holdout chapter](04-train-valid-holdout-split.md) drew a boundary around itself on
-purpose: "This chapter covers the simple, non-temporal case: every row is an independent observation
-… Time-series forecasting needs a different splitting strategy entirely — rows are not independent
-across time, and a random split would let the model train on the future and be 'validated' on the
-past." This chapter picks up exactly there.
+## The forecast is a confession
 
-Forecasting looks like regression — you still have features, a target, a model, a metric — but the
-rows are ordered in time, and that one fact breaks the assumption every technique in that earlier
-chapter quietly relied on: that shuffling the rows before splitting is harmless. It isn't, here. This
-chapter shows you why, then teaches the toolkit for building a forecasting model correctly:
-decomposing a signal into trend/seasonality/residual, reading autocorrelation, fitting AR/ARIMA models
-and a lag-feature regression baseline, and back-testing the honest way.
+In 1970, the statisticians George Box and Gwilym Jenkins published *Time Series Analysis:
+Forecasting and Control* — a book that gave the world a disciplined way to look at a wobbling
+line (sales, temperature, a sensor reading) and say, out loud, "here is what I expect next"
+([source: Wikipedia, "Box–Jenkins method"](https://en.wikipedia.org/wiki/Box%E2%80%93Jenkins_method),
+checked 2026-09-03). Their initials survive in the model family this chapter fits: **ARIMA** —
+AutoRegressive Integrated Moving Average — is the Box-Jenkins method, packaged into one function
+call.
 
-To keep every diagnostic checkable against ground truth, everything here runs on four **synthetic**
-composite signals — built from a known formula, not downloaded — the same reason
-[the collinearity chapter](03-collinearity.md) used a synthetic house-price table: you can't verify a
-decomposition or a stationarity test is reading a signal correctly unless you already know what's
-really in it.
+Strip away the statistics and the problem is one you already own: you're staffing a warehouse and
+need next month's order volume, or you're on call for a sensor that logs a reading every hour and
+want to know whether tomorrow's value is going to trip an alert. Both are the same question
+regression already answered in the [taxi-fare chapter](05-regression-nyc-taxi.md) — a label, some
+features, a fitted formula, a way to grade it — except now the rows arrive in a strict order, and
+that one fact quietly breaks almost every rule that chapter relied on.
 
-## 1. What & why — the leakage picture
+One sentence you could repeat at dinner: **forecasting is regression where the calendar is also a
+feature, and shuffling the calendar breaks everything.**
 
-### 1.1 Why a random split leaks the future
+```mermaid
+flowchart LR
+    A["Step 1<br/>build 4 signals<br/>with a KNOWN true shape"] --> B["Step 2<br/>shuffle vs. walk-forward<br/>(feel the lie)"]
+    B --> C["Step 3<br/>decompose:<br/>trend + seasonal + residual"]
+    C --> D["Step 4<br/>diagnose:<br/>stationarity, ACF/PACF"]
+    D --> E["Step 5<br/>model + walk-forward backtest<br/>per signal"]
+    E --> F["Step 6<br/>recommend per signal,<br/>know the pitfalls"]
+    F -.->|"the discipline every real forecast needs"| A
+```
 
-[`sklearn.model_selection.train_test_split`](https://scikit-learn.org/stable/modules/generated/sklearn.model_selection.train_test_split.html)
-defaults to `shuffle=True` — exactly the right call for the breast-cancer rows in the split chapter,
-because a tumour sample doesn't know or care what row number it landed on. A monthly revenue figure
-is not like that: row `t` was measured *after* row `t-1` and *before* row `t+1`, and a model that gets
-to see row `t+1` while it's being fit and is then asked to predict row `t` isn't forecasting — it's
-interpolating with a sneak preview. Shuffle a time series before splitting and that's exactly what
-happens: some training rows sit chronologically *after* some test rows, so the model gets to train on
-information that, in the real deployment scenario this whole exercise is standing in for, doesn't
-exist yet.
+The [train/validation/holdout chapter](04-train-valid-holdout-split.md) drew a boundary around
+itself on purpose: "This chapter covers the simple, non-temporal case: every row is an independent
+observation … Time-series forecasting needs a different splitting strategy entirely — rows are not
+independent across time, and a random split would let the model train on the future and be
+'validated' on the past." This chapter picks up exactly there, and Step 2 above is where it starts
+— not with a definition, but with a number that should make you distrust every forecast metric
+you've never checked this way.
 
-scikit-learn 1.9.0 ships the fix as
-[`TimeSeriesSplit(n_splits=5, max_train_size=None, test_size=None, gap=0)`](https://scikit-learn.org/stable/modules/generated/sklearn.model_selection.TimeSeriesSplit.html)
-— it performs **expanding-window cross-validation**: fold *k*'s training set is every row before fold
-*k*'s test block, and the training set grows fold over fold, never shrinks, and never contains a row
-that comes after its own test block
-([source: NOTE-12-timeseries-apis](../../research/NOTE-12-timeseries-apis.md), checked 2026-09-02).
-This particular way of evaluating a forecaster — refit (or re-use) the model at each step using only
-data available up to that point, forecast forward, then advance — is called a **walk-forward** or
-**expanding-window backtest**: "a validation methodology that simulates live forecasting by using all
-previous data … for training at each step, [with] the training set expand[ing] with each fold,
-preventing future data leakage into the past"
-([source: NOTE-12-timeseries-apis](../../research/NOTE-12-timeseries-apis.md), citing
-[Machine Learning Mastery: How to Backtest Machine Learning Models for Time Series Forecasting](https://machinelearningmastery.com/backtest-machine-learning-models-time-series-forecasting/)
-and [QuantInsti: Walk-Forward Optimization](https://blog.quantinsti.com/walk-forward-optimization-introduction/),
-checked 2026-09-02).
+To keep every diagnostic checkable against ground truth, everything here runs on four
+**synthetic** composite signals — built from a known formula, not downloaded — the same reason
+[the collinearity chapter](03-collinearity.md) used a synthetic house-price table: you can't
+verify a decomposition or a stationarity test is reading a signal correctly unless you already
+know what's really in it.
 
-### 1.2 Building the four signals
+## 1. The lie a shuffled split tells you
+
+### 1.1 Four signals, one true shape each
 
 Every experiment in this chapter runs on four composite synthetic signals, each built from a
 **dominant** component at scale `A` plus a **minor** component at 10% of `A` (the spec calls this the
@@ -110,7 +107,10 @@ Four shapes, matching the spec exactly:
 4. **`signal_4_quadratic_noise`** — quadratic trend (dominant) + white noise (10% of A). A
    *non-linear*, accelerating trend, plus noise.
 
-### 1.3 Measuring the leak
+Because these formulas are known, every diagnostic in the rest of this chapter can be checked
+against ground truth instead of taken on faith — including the very first one, right now.
+
+### 1.2 Same model, two splits, two very different stories
 
 Here's the leak as a number, not just an argument. Take the simplest model that structurally
 *cannot* extrapolate —
@@ -163,15 +163,18 @@ signal_4_quadratic_noise: shuffled=12.72  walk-forward=24.14   (walk-forward is 
 
 ![Grouped bar chart, one pair of bars per signal, comparing K-Nearest-Neighbours-on-time-index RMSE under a shuffled i.i.d.-style split versus a walk-forward split that holds out the last 20% of the series; the walk-forward bar is 1.5x to 4.2x taller than the shuffled bar for every signal](artefacts/shuffle_vs_timeseries_split_rmse.png)
 
-Same model, same single feature, same test-set *size* — the only thing that changed is which rows
-landed in "train" versus "test." Under the shuffled split, k-NN's training set contains neighbours
-from every month across the whole 20 years, including months chronologically *after* every test
-point, so it's always interpolating between two known values. Under the walk-forward split, it has to
-predict months it has never seen anything past — genuine extrapolation — and a k-NN model has no way
-to do that except repeat whatever its nearest training neighbour (the last month it saw) told it. The
-shuffled number isn't just optimistic, it's answering a *different question*: "how well can I fill in
-a gap in a sequence I've already seen the whole span of" instead of "how well can I predict what
-hasn't happened yet." Only the second question is what a production forecaster actually has to answer.
+Read that bar chart slowly — it's the whole chapter's thesis in one picture. Same model, same
+single feature, same test-set *size* — the only thing that changed is which rows landed in "train"
+versus "test." Under the shuffled split, k-NN's training set contains neighbours from every month
+across the whole 20 years, including months chronologically *after* every test point, so it's
+always interpolating between two known values. Under the walk-forward split, it has to predict
+months it has never seen anything past — genuine extrapolation — and a k-NN model has no way to do
+that except repeat whatever its nearest training neighbour (the last month it saw) told it. The
+shuffled number isn't just optimistic, it's answering a *different question*: "how well can I fill
+in a gap in a sequence I've already seen the whole span of" instead of "how well can I predict what
+hasn't happened yet." Only the second question is what a production forecaster actually has to
+answer — and every signal above shows the same direction of lie, 1.5x to 4.2x, before you've fit a
+single "real" forecasting model.
 
 This is the same shape of bug as [Section 3 of the split chapter](04-train-valid-holdout-split.md#3-the-leakage-demo-fit-on-the-whole-dataset-get-an-optimistic-score)
 — fitting on data the model shouldn't have seen yet, reported as if it were an honest number — but
@@ -181,10 +184,87 @@ every signal in this chapter shows a 1.5x–4.2x gap on a single, ordinary-sized
 order isn't a subtle correlation between two feature columns — it's the entire structure of the
 problem.
 
+### 1.3 Deriving the fix: why the calendar breaks shuffling
+
+So how does a shuffled split manage to lie *that* confidently? Because
+[`sklearn.model_selection.train_test_split`](https://scikit-learn.org/stable/modules/generated/sklearn.model_selection.train_test_split.html)
+defaults to `shuffle=True` — exactly the right call for the breast-cancer rows in the split chapter,
+because a tumour sample doesn't know or care what row number it landed on. A monthly revenue figure
+is not like that: row `t` was measured *after* row `t-1` and *before* row `t+1`, and a model that gets
+to see row `t+1` while it's being fit and is then asked to predict row `t` isn't forecasting — it's
+interpolating with a sneak preview. Shuffle a time series before splitting and that's exactly what
+happens: some training rows sit chronologically *after* some test rows, so the model gets to train on
+information that, in the real deployment scenario this whole exercise is standing in for, doesn't
+exist yet.
+
+```mermaid
+flowchart TD
+    subgraph SHUFFLED["shuffled split (WRONG for time series)"]
+        S1["random 80% of all 240 months"] --> S2["train"]
+        S3["random 20% of all 240 months<br/>(scattered across the whole 20 years)"] --> S4["test"]
+    end
+    subgraph WALKFWD["walk-forward split (CORRECT)"]
+        W1["months 1-192<br/>(the past)"] --> W2["train"]
+        W3["months 193-240<br/>(never-seen future)"] --> W4["test"]
+    end
+    SHUFFLED --> LEAK["train contains months AFTER some test months<br/>-- model interpolates, RMSE looks great but lies"]
+    WALKFWD --> HONEST["train always precedes test<br/>-- model extrapolates, RMSE is the honest number"]
+```
+
+scikit-learn 1.9.0 ships the fix as
+[`TimeSeriesSplit(n_splits=5, max_train_size=None, test_size=None, gap=0)`](https://scikit-learn.org/stable/modules/generated/sklearn.model_selection.TimeSeriesSplit.html)
+— it performs **expanding-window cross-validation**: fold *k*'s training set is every row before fold
+*k*'s test block, and the training set grows fold over fold, never shrinks, and never contains a row
+that comes after its own test block
+([source: NOTE-12-timeseries-apis](../../research/NOTE-12-timeseries-apis.md), checked 2026-09-02).
+This particular way of evaluating a forecaster — refit (or re-use) the model at each step using only
+data available up to that point, forecast forward, then advance — is called a **walk-forward** or
+**expanding-window backtest**: "a validation methodology that simulates live forecasting by using all
+previous data … for training at each step, [with] the training set expand[ing] with each fold,
+preventing future data leakage into the past"
+([source: NOTE-12-timeseries-apis](../../research/NOTE-12-timeseries-apis.md), citing
+[Machine Learning Mastery: How to Backtest Machine Learning Models for Time Series Forecasting](https://machinelearningmastery.com/backtest-machine-learning-models-time-series-forecasting/)
+and [QuantInsti: Walk-Forward Optimization](https://blog.quantinsti.com/walk-forward-optimization-introduction/),
+checked 2026-09-02).
+
+Picture the rotation as five folds sliding forward through the same 240 months, the training window
+always growing and the test window always sitting strictly after it:
+
+```mermaid
+flowchart TD
+    F1["fold 1<br/>train: earliest rows   test: next 12 months"]
+    F2["fold 2<br/>train: fold 1's rows + fold 1's test   test: next 12 months"]
+    F3["fold 3<br/>train: everything before   test: next 12 months"]
+    F4["fold 4<br/>train: everything before   test: next 12 months"]
+    F5["fold 5<br/>train: everything before   test: next 12 months"]
+    F1 --> F2 --> F3 --> F4 --> F5
+    F5 --> NOTE["training set only ever GROWS (n_splits=5, test_size=12)<br/>-- every fold's test block comes strictly after its own train block"]
+```
+
+This is `TimeSeriesSplit(n_splits=5, test_size=12)`, and it's the tool Section 4 uses to backtest
+every model in this chapter — never a plain `train_test_split` or `KFold`, whose shuffling would
+reintroduce exactly the lie Section 1.2 just measured.
+
 ## 2. Decomposing each signal
 
 Each signal above breaks visually into trend, seasonality, and leftover residual — that decomposition
-is a diagnostic tool in its own right, not just a picture. statsmodels 0.15.0's
+is a diagnostic tool in its own right, not just a picture, and it's the next stop on the roadmap: raw
+signal in, three interpretable pieces out, feeding straight into the stationarity and ACF/PACF
+diagnostics of Section 3.
+
+```mermaid
+flowchart LR
+    RAW["raw signal"] --> DECOMP["decompose<br/>(seasonal_decompose)<br/>trend + seasonal + residual"]
+    DECOMP --> DIAG["diagnose<br/>ADF test (stationary?)<br/>+ ACF/PACF (which lags matter?)"]
+    DIAG -->|"non-stationary"| DIFF["difference<br/>(d=1 linear, d=2 quadratic)<br/>or polynomial-detrend"]
+    DIFF --> DIAG
+    DIAG -->|"stationary"| MODEL["model<br/>AR/ARIMA or lag-feature regression"]
+    MODEL --> BACKTEST["walk-forward backtest<br/>(TimeSeriesSplit, Section 1.3)"]
+```
+
+**Seasonality**, in plain language, is a pattern that repeats on a fixed, known clock — every 12
+months, every 7 days — as opposed to a **trend** (a slow drift with no fixed period) or noise (no
+repeating pattern at all). statsmodels 0.15.0's
 [`seasonal_decompose(x, model='additive', filt=None, period=None, two_sided=True, extrapolate_trend=0)`](https://www.statsmodels.org/stable/generated/statsmodels.tsa.seasonal.seasonal_decompose.html)
 splits a series into an additive `observed = trend + seasonal + residual` (or multiplicative)
 decomposition, using a centred moving average for the trend component
@@ -259,16 +339,35 @@ rather than staying straight, the tell for a non-linear trend a plain linear det
 
 ### 3.1 Stationarity and the Augmented Dickey-Fuller test
 
-A series is **stationary** if "its mean, variance, and autocovariance remain constant over time"
+In plain language: a series is **stationary** if it looks statistically the same in any window you
+crop out of it — same average level, same spread, same tendency to move together with its own past
+— no matter which stretch of the 20 years you happen to be looking at. Formally, "its mean,
+variance, and autocovariance remain constant over time"
 ([source: NOTE-12-timeseries-apis](../../research/NOTE-12-timeseries-apis.md), citing
-[QuantInsti: Stationarity](https://blog.quantinsti.com/stationarity/), checked 2026-09-02) — and
-AR/ARIMA models need it, because an AR model's coefficients describe one fixed relationship between a
-value and its own past; if the mean is drifting (a trend) that "one fixed relationship" doesn't exist.
-statsmodels 0.15.0's
+[QuantInsti: Stationarity](https://blog.quantinsti.com/stationarity/), checked 2026-09-02):
+
+$$E[y_t] = \mu, \qquad \mathrm{Var}(y_t) = \sigma^2, \qquad \mathrm{Cov}(y_t, y_{t-k}) = \gamma_k$$
+
+— none of the three depends on $t$ itself, only $\gamma_k$ depends on the lag $k$. ($\mu$ = "the
+series' average level," $\sigma^2$ = "how spread out it is," $\gamma_k$ = "how strongly a value and
+the value $k$ steps earlier move together" — none of them are allowed to drift as time passes.)
+
+AR/ARIMA models need this, because an AR model's coefficients describe one fixed relationship
+between a value and its own past; if the mean is drifting (a trend) that "one fixed relationship"
+doesn't exist — you'd be asking one number to describe a relationship that's different in year 1
+than in year 20. statsmodels 0.15.0's
 [`adfuller(x, maxlag=None, regression='c', autolag='AIC', ...)`](https://www.statsmodels.org/stable/generated/statsmodels.tsa.stattools.adfuller.html)
 runs the **Augmented Dickey-Fuller test**: its null hypothesis is that the series has a unit root
 (i.e. is *non*-stationary); a p-value below 0.05 rejects that null, meaning the test found the series
 stationary ([source: NOTE-12-timeseries-apis](../../research/NOTE-12-timeseries-apis.md)).
+
+```mermaid
+flowchart LR
+    ADF["adfuller(series)"] --> P{"p-value &lt; 0.05?"}
+    P -->|"yes"| STAT["stationary --<br/>model directly (signal 3)"]
+    P -->|"no"| NONSTAT["non-stationary --<br/>difference (d=1 or d=2)<br/>then re-run adfuller"]
+    NONSTAT -.->|"re-test"| ADF
+```
 
 ```python
 from statsmodels.tsa.stattools import adfuller
@@ -293,7 +392,7 @@ Run on the raw signals:
 
 Exactly as the decompositions suggested: the three trending signals fail the stationarity test, and
 the pure oscillator (signal 3) passes it. **Differencing** — subtracting each value from the one
-before it, `y_t - y_{t-1}` — removes a linear trend; a second differencing pass removes a quadratic
+before it, $y_t - y_{t-1}$ — removes a linear trend; a second differencing pass removes a quadratic
 one, because differencing a degree-`k` polynomial in `t` produces a degree-`(k-1)` polynomial
 ([source: NOTE-12-timeseries-apis](../../research/NOTE-12-timeseries-apis.md)):
 
@@ -314,15 +413,23 @@ number like this, only a synthetic one built with no noise term can.
 
 ### 3.2 ACF and PACF
 
-**Autocorrelation** measures "the linear relationship between lagged values of a time series … how a
-series correlates with its own past values at different time lags"
+In plain language, autocorrelation asks one question, repeated at every lag: *if I already know
+last month's value, how much does that tell me about this month's?* A high autocorrelation at lag 1
+means consecutive months move together; a spike at lag 12 means "a value 12 months ago predicts
+this one" — the fingerprint of a yearly cycle. Formally, **autocorrelation** measures "the linear
+relationship between lagged values of a time series … how a series correlates with its own past
+values at different time lags"
 ([source: NOTE-12-timeseries-apis](../../research/NOTE-12-timeseries-apis.md), citing
 [Hyndman & Athanasopoulos, *Forecasting: Principles and Practice* — Autocorrelation](https://otexts.com/fpp2/autocorrelation.html),
-checked 2026-09-02). The **ACF** (autocorrelation function) plots that correlation at every lag
-directly; the **PACF** (partial autocorrelation function) plots the correlation at each lag *after*
-removing the effect already explained by shorter lags — which is what makes PACF the tool for reading
-off an AR model's order: an AR(p) process's PACF cuts off sharply after lag `p`. statsmodels 0.15.0
-provides both as
+checked 2026-09-02):
+
+$$r_k = \mathrm{Corr}(y_t,\, y_{t-k})$$
+
+— "the correlation between the series and a copy of itself shifted back by $k$ steps." The **ACF**
+(autocorrelation function) plots $r_k$ at every lag directly; the **PACF** (partial autocorrelation
+function) plots the correlation at each lag *after* removing the effect already explained by
+shorter lags — which is what makes PACF the tool for reading off an AR model's order: an AR(p)
+process's PACF cuts off sharply after lag `p`. statsmodels 0.15.0 provides both as
 [`acf(x, nlags=None, alpha=None, fft=True, ...)`](https://www.statsmodels.org/stable/generated/statsmodels.tsa.stattools.acf.html)
 and
 [`pacf(x, nlags=None, method='ywadjusted', alpha=None, ...)`](https://www.statsmodels.org/stable/generated/statsmodels.tsa.stattools.pacf.html)
@@ -372,12 +479,18 @@ that reading to choose signal 3's model order.
 
 ### 4.1 The two model families
 
-**AR(p)** — an autoregressive model of order `p` — is "a regression of the variable against itself":
-`y_t = c + φ₁y_{t-1} + φ₂y_{t-2} + … + φ_p y_{t-p} + ε_t`, where `ε_t` is white noise
+**AR(p)** — an autoregressive model of order `p` — is "a regression of the variable against itself"
 ([source: NOTE-12-timeseries-apis](../../research/NOTE-12-timeseries-apis.md), citing
 [Hyndman & Athanasopoulos — Autoregressive models](https://otexts.com/fpp2/AR.html), checked
-2026-09-02). **ARIMA(p, d, q)** generalises it with differencing (`d`, Section 3.1) and a moving-average
-term (`q`); statsmodels 0.15.0 exposes it as
+2026-09-02):
+
+$$y_t = c + \phi_1 y_{t-1} + \phi_2 y_{t-2} + \dots + \phi_p y_{t-p} + \varepsilon_t$$
+
+where $y_t$ is "this month's value," each $\phi_i$ is "how much weight the value $i$ months back
+gets" (a coefficient the model fits, exactly like a regression weight), $c$ is a constant offset,
+and $\varepsilon_t$ is white noise — "the part no past value can explain." **ARIMA(p, d, q)**
+generalises it with differencing (`d`, Section 3.1) and a moving-average term (`q`); statsmodels
+0.15.0 exposes it as
 [`ARIMA(endog, order=(p,d,q), seasonal_order=(P,D,Q,s), trend=None, ...)`](https://www.statsmodels.org/stable/generated/statsmodels.tsa.arima.model.ARIMA.html),
 where `seasonal_order` adds a *second*, seasonal AR/MA structure at period `s`
 ([source: NOTE-12-timeseries-apis](../../research/NOTE-12-timeseries-apis.md)). Alongside it, this
@@ -412,8 +525,9 @@ def backtest_lag_regression(X: pd.DataFrame, y: pd.Series) -> dict:
     return {"fold_rmse": np.array(fold_rmse), "mean_rmse": float(np.mean(fold_rmse))}
 ```
 
-Both models are backtested with the *same* `TimeSeriesSplit(n_splits=5, test_size=12)` — five
-expanding-window folds, each forecasting one year ahead from everything seen so far.
+Both models are backtested with the *same* `TimeSeriesSplit(n_splits=5, test_size=12)` from Section
+1.3 — five expanding-window folds, each forecasting one year ahead from everything seen so far. No
+shuffling anywhere in this chapter, on principle.
 
 ### 4.2 A gotcha worth knowing about before you hit it: ARIMA's `trend` parameter
 
@@ -542,6 +656,22 @@ regression's **11.13**:
 
 ## 5. Per-signal recommendation table
 
+Four signals, four diagnostic readings from Sections 2–3, four different right answers. Before the
+table, here's the same logic as a chooser — walk any new signal through it and land on the same
+family of model this chapter picked:
+
+```mermaid
+flowchart TD
+    START["which signal am I looking at?"] --> Q1{"stationary already?<br/>(ADF p &lt; 0.05, Section 3.1)"}
+    Q1 -->|"yes -- signal 3"| Q2{"repeating cycle in<br/>ACF/PACF? (e.g. spike at lag 12)"}
+    Q1 -->|"no"| Q3{"trend shape?"}
+    Q2 -->|"yes"| SEASONAL_AR["seasonal AR/ARIMA<br/>(seasonal_order=(...,12))<br/>or lag regression incl. lag_12"]
+    Q3 -->|"linear"| Q4{"seasonal wiggle too?"}
+    Q3 -->|"quadratic (accelerating)"| POLY["polynomial-detrend (deg=2)<br/>+ AR on the residual"]
+    Q4 -->|"yes -- signal 1"| SEASONAL_D["difference d=1<br/>+ seasonal AR term"]
+    Q4 -->|"no -- signal 2"| PLAIN_D["difference d=1<br/>+ plain low-order AR"]
+```
+
 | Signal | Shape | Stationary (raw)? | Differencing | Best model (backtest RMSE) | Scaling / detrending recommendation |
 |---|---|---|---|---|---|
 | `signal_1_linear_sine` | linear trend (dominant) + sine (10% A) | No | `d=1` | lag-feature regression (12 lags), RMSE ≈ 0.000 (seasonal ARIMA ties it at 0.0001) | Difference once to remove the trend; the residual seasonal wiggle needs a **seasonal AR term** (lag 12) or a lag-feature regression that includes `lag_12` — plain non-seasonal ARIMA leaves ~14.5 RMSE on the table. |
@@ -565,7 +695,7 @@ guessed the right lags — becomes the more robust choice.
 ### 6.1 A random split on time-ordered data
 
 Covered in full in Section 1: `train_test_split`'s default `shuffle=True`, or a plain (non-time)
-`KFold`, lets the model train on rows that come after the row it's being tested on. Section 1's bar
+`KFold`, lets the model train on rows that come after the row it's being tested on. Section 1.2's bar
 chart put a number on it — 1.5x to 4.2x worse honest error than the shuffled split reported — but the
 size of the gap isn't the point; the *direction* always is. **For time-ordered data, always use
 `TimeSeriesSplit` (or an explicit chronological holdout) — never `train_test_split`'s default or a
@@ -575,8 +705,19 @@ shuffled `KFold`.**
 
 The temporal twin of [the split chapter's Section 3 leak](04-train-valid-holdout-split.md#3-the-leakage-demo-fit-on-the-whole-dataset-get-an-optimistic-score):
 fitting a `StandardScaler` on the *entire* series before splitting means its mean and standard
-deviation are computed partly from months that, at forecast time, haven't happened yet. On
-`signal_2_linear_noise`, fitting on the full 240 months versus fitting on only the first 228 (this
+deviation are computed partly from months that, at forecast time, haven't happened yet.
+
+```mermaid
+flowchart TD
+    subgraph WRONG["leaky (wrong)"]
+        FULLSERIES["fit StandardScaler on<br/>all 240 months"] --> FULLSTATS["mean/std pulled toward<br/>months the forecaster<br/>couldn't have seen yet"]
+    end
+    subgraph RIGHT["proper (correct)"]
+        TRAINPREFIX["fit StandardScaler on<br/>the training prefix only<br/>(e.g. months 1-228)"] --> TRAINSTATS["mean/std reflect only<br/>what was known<br/>at forecast time"]
+    end
+```
+
+On `signal_2_linear_noise`, fitting on the full 240 months versus fitting on only the first 228 (this
 chapter's last backtest fold's training prefix) gives visibly different numbers:
 
 ```python
@@ -633,17 +774,18 @@ ten years out, especially for a non-linear trend.**
 ## 7. Recap & what's next
 
 - Time-ordered rows are not independent, so [the split chapter's](04-train-valid-holdout-split.md)
-  `shuffle=True` default leaks the future into training. Use
+  `shuffle=True` default leaks the future into training. Section 1.2 showed the honest error running
+  1.5x–4.2x higher than a shuffled split reports, on every one of the four signals — before you'd
+  even fit a "real" forecasting model. Use
   [`TimeSeriesSplit`](https://scikit-learn.org/stable/modules/generated/sklearn.model_selection.TimeSeriesSplit.html)
   for an **expanding-window walk-forward backtest** instead — every fold's training set precedes its
-  test set, and Section 1's bar chart showed the honest error running 1.5x–4.2x higher than a shuffled
-  split reports, on every one of the four signals.
+  test set.
 - [`seasonal_decompose`](https://www.statsmodels.org/stable/generated/statsmodels.tsa.seasonal.seasonal_decompose.html)
   splits a series into trend + seasonal + residual — useful for a first look, but it will report a
   "seasonal" component even on data with none (Section 2's signal 2), so pair it with ACF/PACF before
   trusting what it found.
 - **[`adfuller`](https://www.statsmodels.org/stable/generated/statsmodels.tsa.stattools.adfuller.html)**
-  tests stationarity (needed for AR/ARIMA); **differencing** (`d=1` for a linear trend, `d=2` for a
+  tests stationarity (needed for AR/ARIMA); **differencing** ($d=1$ for a linear trend, $d=2$ for a
   quadratic one) restores it; **ACF/PACF** read off the right AR order and reveal a seasonal period
   directly from the data, once the series is stationary.
 - **ARIMA vs. a lag-feature regression baseline**: both were backtested honestly with
@@ -701,13 +843,24 @@ Three judgment calls made while getting the code to run cleanly, beyond what NOT
    unit-root boundary, most likely here because signal 1 is fully deterministic. This is statsmodels'
    own documented escape hatch, not a suppression of a real problem; forecasts on folds that had
    converged fine before this change did not move.
-3. **The leakage demo (Section 1.3) uses `KNeighborsRegressor` on the time index, not the lag-feature
+3. **The leakage demo (Section 1.2) uses `KNeighborsRegressor` on the time index, not the lag-feature
    regression.** An earlier version compared shuffled vs. walk-forward `TimeSeriesSplit` backtests
    using the same `LinearRegression`-on-lags baseline from Section 4, and the gap was real but small
    and occasionally reversed in direction (a linear model extrapolates a linear-in-lag relationship
    about as well whether or not it's seen "future" rows, since the recurrence relation itself doesn't
    change with time — the leak's advantage there comes from interpolation vs. extrapolation
    specifically, which a non-extrapolating model like k-NN exposes far more directly). k-NN on the raw
-   time index was chosen deliberately to make Section 1's point unambiguous across all four signals;
+   time index was chosen deliberately to make Section 1.2's point unambiguous across all four signals;
    Section 4's later, more nuanced ARIMA/lag-regression comparison stands on its own as the
    "which model fits best" analysis and does not depend on Section 1's leak numbers.
+
+**Restyle note (2026-09-03):** this pass reweaves the chapter into the book's storytelling/heavy-visual
+house style (cold open citing Box & Jenkins 1970, problem-first ordering that shows the shuffle-vs-
+walk-forward numbers before defining `TimeSeriesSplit`, plain-language glosses before notation, LaTeX
+for autocorrelation/AR(p)/stationarity, and seven Mermaid diagrams). Every `python` code block, every
+artefact reference, every number, and every grounding citation from the prior version is preserved
+verbatim; only prose structure, headings, and section order changed. New claim added: the Box-Jenkins
+1970 publication date and book title, grounded live against
+[Wikipedia, "Box–Jenkins method"](https://en.wikipedia.org/wiki/Box%E2%80%93Jenkins_method) (checked
+2026-09-03) — not one of NOTE-12's tabulated facts, since it's historical framing rather than an API
+or metric definition, but cited inline per the style guide's "inline authoritative citation" allowance.
