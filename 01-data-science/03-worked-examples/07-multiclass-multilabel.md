@@ -2,34 +2,57 @@
 
 *Data Science · Worked Examples · SPEC-DS-7*
 
-The classification chapter you've just come from asked a yes/no question: did this passenger
-survive? That's **binary** classification — two possible answers, one of them correct. Most
-real classification problems aren't binary, and they split into two genuinely different shapes
-that get confused constantly, including by people who should know better. This chapter is about
-telling them apart, training a model for each, and — the part that actually bites in production —
-understanding how a single averaged metric can quietly hide a class your model is bad at.
+## One drawer, or a whole toolbox?
+
+Model a support desk in Java and the first field you reach for is a status:
+
+```java
+enum TicketStatus { OPEN, IN_PROGRESS, RESOLVED, CLOSED }
+```
+
+Exactly one value, always — a ticket is never both `OPEN` and `CLOSED`, and it's never in *zero*
+of those states either. Then product asks for tags: `BUG`, `SECURITY`, `DOCS`, `PERFORMANCE`,
+`UI`... and the `enum` stops working, because a ticket isn't one tag. It's *some subset* of tags —
+maybe `BUG` and `SECURITY` together, maybe just `DOCS` alone, maybe nothing yet. You reach for a
+different type entirely:
+
+```java
+Set<Tag> tags = EnumSet.of(Tag.BUG, Tag.SECURITY);
+```
+
+That's the whole chapter, condensed into two type signatures you already know cold:
+
+- **`enum` → multi-class.** Exactly one value out of N, every time, no exceptions. A photo of a
+  single handwritten digit is a 0, a 1, ..., or a 9 — never two digits in one photo, never zero.
+  An `OrderStatus` is `PENDING`, `SHIPPED`, `DELIVERED`, or `CANCELLED` — never two of them at once.
+- **`Set<Enum>` → multi-label.** Any subset of N values — zero, one, or all of them. A support
+  ticket can carry `BUG` *and* `SECURITY` *and* `PERFORMANCE` at once, or nothing yet. A movie can
+  be `Comedy` and `Romance` and `Drama` simultaneously.
+
+```mermaid
+flowchart TB
+    T["one input row<br/>(a photo, a support ticket, ...)"] --> Q{"how many labels<br/>can it carry at once?"}
+    Q -->|"exactly one, always"| MC["multi-class = Java enum<br/>e.g. 'which digit is this?'"]
+    Q -->|"any subset, 0 to N"| ML["multi-label = Java Set&lt;Enum&gt;<br/>e.g. 'which tags apply?'"]
+    MC --> MCSHAPE["target shape (n_samples,)<br/>one integer per row"]
+    ML --> MLSHAPE["target shape (n_samples, n_classes)<br/>one 0/1 column per label"]
+```
+
+This chapter is about telling the two shapes apart, training a model for each, and — the part
+that actually bites in production — understanding how a single averaged metric can quietly hide a
+class your model is bad at.
 
 ## 1. What & why
 
-A Java engineer already has the exact vocabulary for this distinction, just under different
-names:
-
-- **Multi-class** — pick exactly **one** value out of N possible values. This is a Java `enum`:
-  an `OrderStatus` is `PENDING`, `SHIPPED`, `DELIVERED`, or `CANCELLED` — never two of them at
-  once, never zero. A handwritten digit is a 0, a 1, ..., or a 9 — one and only one.
-- **Multi-label** — attach **any subset** of N possible values, including zero, one, or all of
-  them. This is a `Set<Enum>` (or an `EnumSet<Tag>`): a support ticket can be tagged `BUG` *and*
-  `SECURITY` at the same time, or `DOCS` alone, or nothing yet. A movie can be `Comedy` and
-  `Romance` and `Drama` simultaneously.
-
-The two are easy to mix up because scikit-learn represents both as arrays of numbers, and because
-both extend the binary case you already know: "is it class A or not" (binary) becomes "which one
-of N classes is it" (multi-class) or "which subset of N labels applies" (multi-label). But the
-*shape of the target* is different — one label per row (a 1-D array) versus several independent
-yes/no answers per row (a 2-D array) — and that difference changes which model API you call,
-which metrics make sense, and how you read a "good" score. Get the shape wrong and scikit-learn
-either throws (best case — Section 4 shows the exact error) or trains something that quietly
-answers the wrong question.
+The two shapes are easy to mix up in code because scikit-learn represents both as plain arrays of
+numbers, and because both extend the binary case you already know from the previous chapter: "is
+it class A or not" becomes "which *one* of N classes is it" (multi-class) or "which *subset* of N
+labels applies" (multi-label). The *shape of the target array* is the only thing that tells them
+apart — one label per row (a 1-D array) versus several independent yes/no columns per row (a 2-D
+array) — and that difference changes which model API you call, which metrics make sense, and how
+you're allowed to read a "good" score. Get the shape wrong and scikit-learn either throws (best
+case — Section 4 shows the exact error) or trains something that quietly answers the wrong
+question.
 
 This chapter covers one worked dataset for each shape: **digits** (multi-class — which digit is
 this?) and a synthetic **ticket-tagging** dataset (multi-label — which tags apply?). Both use
@@ -93,6 +116,20 @@ value out of N, every time.
    confident. `OneVsRestClassifier(estimator)` does exactly this, wrapping any binary classifier
    (verified signature:
    [source: NOTE-9-classification-metrics-apis](../../research/NOTE-9-classification-metrics-apis.md)).
+
+```mermaid
+flowchart LR
+    X["64 pixel features<br/>per digit"] --> A["native softmax<br/>ONE joint model"]
+    X --> B["OneVsRestClassifier<br/>10 INDEPENDENT binary models"]
+    A --> AOUT["10 scores, jointly normalised<br/>to sum to 1 -- softmax"]
+    B --> B0["is it a 0?"]
+    B --> B1["is it a 1?"]
+    B --> BDOTS["... 8 more,<br/>one per remaining digit"]
+    AOUT --> PRED["predict: highest score"]
+    B0 --> PRED2["predict: whichever model<br/>is most confident"]
+    B1 --> PRED2
+    BDOTS --> PRED2
+```
 
 Here's the detail worth knowing, because it's easy to assume `LogisticRegression()` alone does
 OvR by default — it doesn't, as of the version pinned in this chapter. Checked directly against
@@ -172,6 +209,45 @@ is this model's weakest class even in the balanced case, which is worth remember
 Section 4's pitfall demo, where digit 8 gets deliberately made rare on top of that existing
 weakness.
 
+### So which number do you trust?
+
+`classification_report` just handed you one accuracy figure for a 10-way problem: 96.2%. Before
+you ship a single aggregate number like that to a dashboard, ask the question a Java engineer
+already asks about any rolled-up metric: **is this hiding a component that's actually broken?**
+An `OrderService` reporting 96% overall uptime could still mean one downstream dependency is down
+100% of the time and just isn't called often enough to move the aggregate — the number looks fine
+and the outage is invisible inside it.
+
+Averaged classification metrics have exactly this failure mode, and this chapter's own data proves
+it. Section 4 below reruns this exact digits dataset with digit `8` made artificially rare — 14
+examples instead of 174, a stand-in for a fraud pattern or defect code you've only seen a handful
+of times — and lands here:
+
+```text
+digit 8 (3 test examples):  recall 0.333, F1 0.500 -- 2 of 3 misclassified
+macro F1:                   0.933
+micro F1:                   0.978
+weighted F1:                0.977
+```
+
+Two of those three numbers — micro and weighted — round to "97-98%, ship it." The third — macro —
+drops nearly five points to catch the *exact same model* failing on the *exact same class*. All
+three numbers describe the same set of predictions; the only thing that changes between them is
+how much vote a nearly-invisible class gets. That gap isn't a quirk of this dataset — it's the
+entire reason three different averages exist. Work out why it happens, and the definitions below
+stop being three formulas to memorize and become three answers to three different questions.
+
+```mermaid
+flowchart TD
+    RARE["a class with very few test samples<br/>(digit 8: 3 of 410 rows)"] --> BAD["model is bad at it<br/>(recall 0.333, F1 0.500)"]
+    BAD --> MACRO["macro F1: every class gets<br/>an equal 1-in-10 vote"]
+    BAD --> WEIGHTED["micro / weighted F1: votes<br/>scaled by class size"]
+    MACRO --> MDROP["weak class drags the average down<br/>macro F1 = 0.933"]
+    WEIGHTED --> WHIDE["weak class is under 1% of the weight<br/>micro/weighted F1 = 0.977-0.978"]
+    MDROP --> QUESTION{"which number goes<br/>on the slide?"}
+    WHIDE --> QUESTION
+```
+
 ### Macro, micro, and weighted F1
 
 `classification_report` gives one F1 per class, then three different **averages** across all 10
@@ -203,6 +279,34 @@ print(classification_report(y_test, pred_softmax,
    macro avg      0.962     0.962     0.962       450
 weighted avg      0.963     0.962     0.962       450
 ```
+
+In plain language, before any notation: **macro** = "pretend every class is equally important, no
+matter how many examples it has." **micro** = "melt every class's right/wrong counts into one
+global pool, then score once." **weighted** = "like macro, but scale each class's vote by how
+common that class actually is" — the same divergence the discovery above just walked through.
+
+Formally: for $K$ classes, let $TP_k$, $FP_k$, $FN_k$ be the true positives, false positives, and
+false negatives for class $k$ (treating "is it class $k$?" as its own yes/no question), and let
+$n_k$ — the *support*, exactly the column `classification_report` already prints — be how many
+test rows truly belong to class $k$. Per-class precision, recall, and F1 are the ordinary binary
+formulas:
+
+$$P_k=\frac{TP_k}{TP_k+FP_k} \qquad R_k=\frac{TP_k}{TP_k+FN_k} \qquad F1_k=\frac{2\,P_k R_k}{P_k+R_k}$$
+
+$$F1_{macro}=\frac{1}{K}\sum_{k=1}^{K}F1_k \qquad\qquad F1_{weighted}=\frac{1}{\sum_k n_k}\sum_{k=1}^{K}n_k\cdot F1_k$$
+
+$$P_{micro}=\frac{\sum_k TP_k}{\sum_k(TP_k+FP_k)} \qquad R_{micro}=\frac{\sum_k TP_k}{\sum_k(TP_k+FN_k)} \qquad F1_{micro}=\frac{2\,P_{micro}R_{micro}}{P_{micro}+R_{micro}}$$
+
+Macro treats $F1_k$ from a 3-sample class the same as $F1_k$ from a 180-sample class — one term
+each in a plain average. Weighted multiplies each $F1_k$ by its $n_k$ before averaging, so a
+180-sample class outweighs a 3-sample class 60-to-1. Micro doesn't average per-class F1 scores at
+all — it pools every class's $TP$/$FP$/$FN$ into one bucket *first*, which is exactly why a tiny
+class's mistakes get drowned out by every other class's correct predictions before an F1 is ever
+computed
+([source: scikit-learn User Guide, "Precision, recall and F-measures"](https://scikit-learn.org/stable/modules/model_evaluation.html#precision-recall-and-f-measures),
+checked 2026-09-03 — confirms these macro/micro/weighted definitions and that "if all labels are
+included, 'micro'-averaging in a multiclass setting will produce precision, recall and F that are
+all identical to accuracy," matching the table below).
 
 `f1_score(y_true, y_pred, average=...)` accepts (verified,
 [NOTE-9](../../research/NOTE-9-classification-metrics-apis.md)):
@@ -296,6 +400,18 @@ idea* as `OneVsRestClassifier` from Section 2 — independent per-class binary m
 to labels that aren't mutually exclusive, so there's no "pick the most confident one" step; every
 tag's classifier votes independently and any number of them can say "yes."
 
+```mermaid
+flowchart LR
+    Y["Y target: (2000, 6)<br/>one 0/1 column per tag"] --> C1["classifier for BUG<br/>yes / no"]
+    Y --> C2["classifier for FEATURE<br/>yes / no"]
+    Y --> C3["classifier for DOCS<br/>yes / no"]
+    Y --> CDOTS["... 3 more,<br/>one per remaining tag"]
+    C1 --> OUT["combine independently --<br/>any number of 'yes' votes allowed"]
+    C2 --> OUT
+    C3 --> OUT
+    CDOTS --> OUT
+```
+
 ```python
 from sklearn.multioutput import MultiOutputClassifier
 
@@ -347,11 +463,12 @@ Two metrics exist specifically for the multi-label shape (verified,
 [NOTE-9](../../research/NOTE-9-classification-metrics-apis.md)):
 
 - **`hamming_loss(Y_true, Y_pred)`** — the average fraction of *individual tags* that are wrong
-  per ticket (a false positive or a false negative on any one tag counts). It's a soft,
-  per-decision error rate.
+  per ticket (a false positive or a false negative on any one tag counts). Plain-language gloss:
+  *how noisy are the individual tag decisions* — a soft, per-decision error rate.
 - **`accuracy_score(Y_true, Y_pred)`** on a 2-D indicator target computes **subset accuracy** —
   the fraction of tickets where *every single tag* is exactly right, nothing extra, nothing
-  missing. It's an all-or-nothing per-ticket score.
+  missing. Plain-language gloss: *did we get the whole ticket right* — an all-or-nothing
+  per-ticket score.
 
 ```python
 from sklearn.metrics import hamming_loss, accuracy_score
@@ -377,8 +494,10 @@ means the ticket goes to the wrong queue regardless of how many other tags were 
 
 ### Averaging can hide a genuinely weak class
 
-Section 2 showed macro, micro, and weighted F1 agreeing almost exactly — because the digits
-dataset is balanced. Real classification problems usually aren't. Rebuild the same digits dataset
+This is the experiment §2 previewed before it even defined macro, micro, and weighted F1 — here's
+where those spoiler numbers actually come from. Section 2 showed macro, micro, and weighted F1
+agreeing almost exactly on the balanced digits dataset — real classification problems usually
+aren't balanced. Rebuild the same digits dataset
 with digit `8` made artificially rare — **across the whole population**, not just the training
 split, mirroring a defect code or fraud pattern you've only seen a handful of times:
 
@@ -553,3 +672,10 @@ solver (`'lbfgs'`) trains multiclass problems as a single joint multinomial/soft
 than defaulting to one-vs-rest — was verified directly against the installed scikit-learn 1.9.0
 docstring (quoted in Section 2) rather than assumed from memory, since it's a specific "library X
 does Y by default" claim the existing notes don't state explicitly.
+
+**Restyle pass (2026-09-03):** this revision adds a cold-open story (Java `enum` vs `Set<Enum>`),
+four Mermaid diagrams, and LaTeX formulas for macro/micro/weighted F1 (grounded against the
+scikit-learn User Guide's precision-recall-f-measures page, cited inline in Section 2) to match
+the house storytelling/visualisation style. No code, dataset, or artefact was modified — every
+`python` block, artefact reference, and reported number is unchanged from the original gated run
+referenced above.
