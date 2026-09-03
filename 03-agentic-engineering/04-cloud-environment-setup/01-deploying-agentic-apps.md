@@ -12,39 +12,101 @@ traces to [research/NOTE-AGENT-5-cloud.md](../../research/NOTE-AGENT-5-cloud.md)
 [research/NOTE-18-managed-platforms.md](../../research/NOTE-18-managed-platforms.md) — nothing is
 asserted from memory.
 
+## The API key that was never supposed to leave your laptop
+
+Every agent this course has built so far — [SPEC-AGENT-2](../../specs/SPEC-AGENT-2-mcp-database-query-layer.md)'s
+MCP database server, [SPEC-AGENT-3](../../specs/SPEC-AGENT-3-rag-over-pdfs.md)'s RAG pipeline over
+PDFs, [SPEC-AGENT-4](../../specs/SPEC-AGENT-4-invoice-agent.md)'s invoice-extraction agent, and
+[SPEC-AGENT-5](../../specs/SPEC-AGENT-5-elders-tribunal.md)'s multi-agent Elders Tribunal — ran the
+same way every time: as a script, on your machine, with exactly one caller (you) and exactly one
+copy of every credential, sitting in a `.env` file only your own filesystem could read.
+
+Pick up that MCP server for a second and ask the question this chapter is about: what happens the
+moment you actually try to ship it? Four assumptions that were free on localhost stop being free the
+instant a stranger's HTTP request has to reach it:
+
+1. **State.** The SQLite file and the numpy array of embeddings sat next to the script, on disk,
+   forever — because the process never restarted. A production container *does* restart: redeployed
+   on every push, rescheduled after a crash, replaced by a fresh instance under load. Anything
+   written only to local disk is gone the moment that happens.
+2. **Secrets.** The `.env` file worked because you were the only reader. A container image gets
+   pushed to a registry; a rushed `git commit` can go public. Anyone who can pull the image, or read
+   the repo, can read a key baked into either one.
+3. **Cold starts.** `python app.py` was either running or it wasn't — you started it once and left
+   it. A managed runtime may start your container from nothing for the first request after a quiet
+   spell, or spin up ten more copies at once under a burst of traffic. "Always warm" was never a
+   property you were relying on; it just happened to be true, by accident, because there was only
+   ever one caller.
+4. **Cost.** One person calling the LLM a handful of times an hour costs pennies. A hundred
+   concurrent users, each triggering the Elders Tribunal's multi-round debate
+   ([SPEC-AGENT-5](../../specs/SPEC-AGENT-5-elders-tribunal.md)), multiplies that same per-call cost
+   by request volume *and* by however many LLM calls one user-facing "answer" secretly contains.
+
+None of this is a flaw in the agent itself — the MCP tool boundary, the RAG retrieval loop, the LLM
+call are all unchanged. What breaks is everything wrapped around it: where it runs, where its data
+lives, where its secrets come from, and who's watching it once real traffic hits it. Here's the
+one-sentence version, the kind you could repeat at dinner: **production doesn't change what your
+agent does — it changes where every piece of it lives, and who's allowed to see it.**
+
+```mermaid
+flowchart LR
+    LOCAL["python app.py, on your laptop --<br/>one caller, one copy of every secret"] --> BREAK{"ship it --<br/>what breaks first?"}
+    BREAK -->|"container restarts,<br/>rescheduled, scaled out"| STATE["local-disk state<br/>vanishes"]
+    BREAK -->|"image pushed to a registry,<br/>repo can go public"| SECRETS["baked-in .env<br/>key leaks"]
+    BREAK -->|"runtime starts your<br/>container from zero"| COLD["cold-start<br/>latency"]
+    BREAK -->|"many callers, many<br/>LLM calls each"| COST["token + infra<br/>cost multiplies"]
+    STATE --> FIX["this chapter --<br/>where each piece lives now"]
+    SECRETS --> FIX
+    COLD --> FIX
+    COST --> FIX
+```
+
+For a Java engineer, naming the concept makes the shift instantly familiar: it's the exact same move
+as taking a Spring Boot app that runs `mvn spring-boot:run` on a laptop and turning it into a
+service with a `Dockerfile`, a `DATABASE_URL` environment variable instead of `localhost:5432`, and
+credentials pulled from a vault instead of `application.properties`.
+
 ## 1. What & why — from localhost to production
 
-Every agentic app you've built so far in this course — the MCP database server
-([SPEC-AGENT-2](../../specs/SPEC-AGENT-2-mcp-database-query-layer.md)), the RAG pipeline over PDFs
-([SPEC-AGENT-3](../../specs/SPEC-AGENT-3-rag-over-pdfs.md)), the invoice-extraction agent
-([SPEC-AGENT-4](../../specs/SPEC-AGENT-4-invoice-agent.md)), the multi-agent Elders Tribunal
-([SPEC-AGENT-5](../../specs/SPEC-AGENT-5-elders-tribunal.md)) — ran as a script or a local process:
-a SQLite file on disk, a numpy array of embeddings in memory, an API key read from a `.env` file
-only you could see. Production changes every one of those assumptions at once. The database has to
-survive a process restart and be reachable from wherever the container runs. The vector store has to
-hold more than ten documents and be reachable over the network, not imported as a local module. The
-API key has to live somewhere a deployed container can fetch it without ever being checked into
-source control or baked into an image layer. And the container itself has to be *somewhere* — a
-managed runtime that can be reached over HTTPS, scaled, restarted, and observed.
-
-For a Java engineer, this is the exact same shift as taking a Spring Boot app that runs `mvn
-spring-boot:run` on a laptop and turning it into a service with a `Dockerfile`, a `DATABASE_URL`
-environment variable instead of `localhost:5432`, and credentials pulled from a vault instead of
-`application.properties`. Nothing about the *application logic* changes — the same MCP tool
-boundary, the same RAG retrieval loop, the same LLM call. What changes is everything wrapped around
-it: where it runs, where its data lives, where its secrets come from, and who's watching it once
-real traffic hits it.
+Restated precisely, the four breakages above come down to this: the database has to survive a
+process restart and be reachable from wherever the container runs; the vector store has to hold more
+than ten documents and be reachable over the network, not imported as a local module; the API key
+has to live somewhere a deployed container can fetch it without ever being checked into source
+control or baked into an image layer; and the container itself has to be *somewhere* — a managed
+runtime that can be reached over HTTPS, scaled, restarted, and observed.
 
 This chapter does four things, each grounded against current (2026) vendor documentation
-(NOTE-AGENT-5): maps the agentic stack — container runtime, hosted LLM, vector store, secret
-manager — to its managed-service name on each of GCP, AWS, and Azure (Section 2); walks one
-concrete reference deployment end to end, on GCP, because "AlloyDB with pgvector for RAG SQL-native
-vector search on GCP" and Cloud Run both have unusually good current documentation
-(NOTE-AGENT-5's recommendation) (Section 3); reasons about the three things that quietly break a
-production agent — cost, latency, observability (Section 4); and lays out the guardrails a
-security-minded engineer adds before letting any of this touch real users or real data (Section 5).
+(NOTE-AGENT-5):
+
+```mermaid
+flowchart LR
+    S1["1 What & why<br/>◀ you are here"] --> S2["2 Service mapping"]
+    S2 --> S3["3 Reference deployment"]
+    S3 --> S4["4 Cost / latency /<br/>observability"]
+    S4 --> S5["5 Guardrails"]
+    S5 --> S6["6 Pitfalls"]
+```
+
+- **Section 2** maps the agentic stack — container runtime, hosted LLM, vector store, secret
+  manager — to its managed-service name on each of GCP, AWS, and Azure.
+- **Section 3** walks one concrete reference deployment end to end, on GCP, because "AlloyDB with
+  pgvector for RAG SQL-native vector search on GCP" and Cloud Run both have unusually good current
+  documentation (NOTE-AGENT-5's recommendation).
+- **Section 4** reasons about the three things that quietly break a production agent — cost,
+  latency, observability.
+- **Section 5** lays out the guardrails a security-minded engineer adds before letting any of this
+  touch real users or real data.
 
 ## 2. Service mapping — the same four pieces, different names per cloud
+
+```mermaid
+flowchart LR
+    S1["1 What & why"] --> S2["2 Service mapping<br/>◀ you are here"]
+    S2 --> S3["3 Reference deployment"]
+    S3 --> S4["4 Cost / latency /<br/>observability"]
+    S4 --> S5["5 Guardrails"]
+    S5 --> S6["6 Pitfalls"]
+```
 
 Every agentic stack in this course needs exactly four managed pieces once it leaves your laptop: a
 place to run the container, a hosted LLM to call, a place to store vectors for RAG, and a place to
@@ -65,6 +127,32 @@ Verified live against each vendor's current documentation
 and Azure service names verified against AWS's and Microsoft's own documentation, per NOTE-AGENT-5's
 evidence trail.)*
 
+The same table, redrawn as a picture — one column per cloud, the arrow always reading container →
+managed runtime → secret fetch → vector store / hosted LLM, the exact shape Section 3 walks end to
+end for GCP:
+
+```mermaid
+flowchart TB
+    subgraph GCP["Google Cloud"]
+        GC["container image"] --> GR["Cloud Run<br/>(serverless runtime)"]
+        GR -->|"IAM-scoped read"| GS["Secret Manager"]
+        GR --> GV["Cloud SQL / AlloyDB<br/>+ pgvector"]
+        GR --> GL["Vertex Generative API<br/>(Gemini)"]
+    end
+    subgraph AWS["AWS"]
+        AC["container image"] --> AR["ECS/Fargate or Lambda<br/>(serverless runtime)"]
+        AR -->|"IAM-scoped read"| AS["Secrets Manager"]
+        AR --> AV["RDS / Aurora<br/>+ pgvector"]
+        AR --> AL["Amazon Bedrock"]
+    end
+    subgraph AZ["Azure"]
+        ZC["container image"] --> ZR["Container Apps<br/>(serverless runtime)"]
+        ZR -->|"IAM-scoped read"| ZS["Key Vault"]
+        ZR --> ZV["Azure DB for<br/>PostgreSQL + pgvector"]
+        ZR --> ZL["Azure OpenAI Service"]
+    end
+```
+
 Two read-throughs a Java engineer will recognise immediately:
 
 - **The runtime row is the most familiar one.** Cloud Run, Fargate, and Container Apps are all
@@ -83,6 +171,29 @@ Two read-throughs a Java engineer will recognise immediately:
   *shape* to move from a local pgvector file to Cloud SQL/RDS/Azure Postgres — only the connection
   string does.
 
+### Which managed runtime do you actually reach for?
+
+So which box in that diagram's top row is the right one for a given agent? The table above already
+names the fork: a long-running HTTP server that answers chat requests all day wants a
+"give us a container, we keep it warm and scale it" runtime; an agent that only wakes up when
+something happens — a queue message, a scheduled job — wants an event-triggered function instead.
+Put that as a decision, not just a table row:
+
+```mermaid
+flowchart TD
+    Q{"does your agent serve continuous<br/>HTTP chat traffic, or wake for short,<br/>event-triggered bursts (e.g. a queue message)?"}
+    Q -->|"continuous HTTP<br/>traffic"| CONT["reach for an always-listening<br/>container runtime:<br/>Cloud Run / ECS-Fargate / Container Apps"]
+    Q -->|"short, event-triggered<br/>bursts"| EVENT["reach for a serverless function:<br/>AWS Lambda"]
+    CONT --> WHICH{"which cloud does your<br/>team already run on?"}
+    WHICH -->|"GCP"| RUN["Cloud Run --<br/>near-zero cold start"]
+    WHICH -->|"AWS"| FARGATE["ECS / Fargate --<br/>long-running containers"]
+    WHICH -->|"Azure"| CAPPS["Container Apps --<br/>serverless Kubernetes"]
+```
+
+Every worked example this course has built so far — the MCP server, the RAG API, the invoice agent —
+is the left branch: a process that answers requests as they arrive, not one that wakes for a queue
+message. That's why Section 3's reference deployment picks Cloud Run, not Lambda.
+
 The separate managed-ML-platform layer this course also touches —
 [NOTE-18](../../research/NOTE-18-managed-platforms.md)'s Vertex AI / Azure ML / SageMaker mapping
 for *training* jobs — is a different concern from the four rows above: NOTE-18 covers where you
@@ -94,14 +205,23 @@ also needs that SDK for anything beyond a plain HTTPS call to the hosted LLM end
 
 ## 3. A reference deployment — GCP: Cloud Run + Cloud SQL (pgvector) + Secret Manager
 
+```mermaid
+flowchart LR
+    S1["1 What & why"] --> S2["2 Service mapping"]
+    S2 --> S3["3 Reference deployment<br/>◀ you are here"]
+    S3 --> S4["4 Cost / latency /<br/>observability"]
+    S4 --> S5["5 Guardrails"]
+    S5 --> S6["6 Pitfalls"]
+```
+
 NOTE-AGENT-5 recommends GCP for the one worked reference deployment in this chapter, specifically
 because Cloud Run's and AlloyDB's current docs are unusually clear to teach from — not because GCP
 is objectively "the right cloud" (Section 2's mapping table exists precisely because all three are
 viable, and the choice in practice comes down to your team's existing infrastructure and expertise,
-per NOTE-AGENT-5's own recommendation). The three pieces wire together exactly the way Section 1
-described: a container that can be reached over HTTPS, a Postgres instance holding vectors, and a
-secret store the container reads from at startup — never a key baked into the image or checked into
-git.
+per NOTE-AGENT-5's own recommendation). The three pieces wire together exactly the way the cold
+open's diagram named: a container that can be reached over HTTPS, a Postgres instance holding
+vectors, and a secret store the container reads from at startup — never a key baked into the image
+or checked into git.
 
 ![Reference production architecture: a client sends an HTTPS request to a Cloud Run agent API (FastAPI) with rate limiting and input validation at the edge; the API calls Cloud SQL with pgvector for RAG retrieval and the Vertex Generative API for the hosted LLM; Secret Manager feeds it credentials at startup over a dashed line; the API exports spans to Cloud Trace over a dotted line; and any side-effecting tool call the model requests is routed through a human-in-the-loop approval queue, in red, before it reaches an external system.](artefacts/agentic_architecture_diagram.png)
 
@@ -139,9 +259,11 @@ baked into the deployment (NOTE-AGENT-5, citing the
 gcloud secrets create llm-api-key --data-file=- <<< "your-api-key-here"
 ```
 
-Grant only the Cloud Run service account read access to that one secret — the least-privilege move
-a Java engineer would recognise from scoping a database credential to exactly the schema a service
-needs, not the whole instance:
+**Why this way — least privilege.** Grant only the Cloud Run service account read access to that one
+secret, not the whole project. It's the same move a Java engineer would recognise from scoping a
+database credential to exactly the schema a service needs, rather than the whole instance: a
+compromised service account should be able to read one secret, not every secret Secret Manager
+holds.
 
 ```bash
 gcloud secrets add-iam-policy-binding llm-api-key \
@@ -149,11 +271,12 @@ gcloud secrets add-iam-policy-binding llm-api-key \
   --role=roles/secretmanager.secretAccessor
 ```
 
-Inside the running container, the API fetches that secret once at startup — not on every request,
-which is exactly what the dashed "IAM-scoped secret read" arrow in Figure 1 shows (NOTE-AGENT-5's
-Python shape for this call, `google-cloud-secretmanager`'s
-`SecretManagerServiceClient.access_secret_version`, reference only — no live GCP project exists in
-this sandbox to run it against):
+**Why this way — fetch once, not per request.** Inside the running container, the API fetches that
+secret once at startup — not on every request, which is exactly what the dashed "IAM-scoped secret
+read" arrow in Figure 1 shows. A per-request fetch would add a network round trip to every single
+call for a value that never changes between requests (NOTE-AGENT-5's Python shape for this call,
+`google-cloud-secretmanager`'s `SecretManagerServiceClient.access_secret_version`, reference only —
+no live GCP project exists in this sandbox to run it against):
 
 ```python
 from google.cloud import secretmanager
@@ -204,14 +327,27 @@ not a template to copy into a pipeline unmodified.
 
 ## 4. Cost, latency, and observability
 
-**Cost has two independent meters, and they don't move together.** Infrastructure cost (Cloud Run
-vCPU-seconds, Cloud SQL instance-hours, Secret Manager's per-secret and per-access fees) behaves the
-way every cloud bill you've seen before behaves — proportional to provisioned capacity and request
-volume. **Token cost is a separate meter entirely**, billed per input and output token by the LLM
-provider, and it scales with something infrastructure billing doesn't see at all: how much text you
-put in the prompt. [theory.md §2](../01-theory/01-theory.md) already named this for a single LLM call —
-every retrieved RAG chunk, every turn of conversation history, every system-prompt instruction is a
-line item. A production deployment multiplies that per-call cost by request volume, and the Elders
+```mermaid
+flowchart LR
+    S1["1 What & why"] --> S2["2 Service mapping"]
+    S2 --> S3["3 Reference deployment"]
+    S3 --> S4["4 Cost / latency /<br/>observability<br/>◀ you are here"]
+    S4 --> S5["5 Guardrails"]
+    S5 --> S6["6 Pitfalls"]
+```
+
+Three questions a security- and budget-minded engineer has to be able to answer before real traffic
+hits the deployment from Section 3: what does this actually cost, how slow is it, and how would you
+find out *why* a given answer went wrong? Each one splits into two parts that don't move together.
+
+**Cost has two independent meters.** Infrastructure cost (Cloud Run vCPU-seconds, Cloud SQL
+instance-hours, Secret Manager's per-secret and per-access fees) behaves the way every cloud bill
+you've seen before behaves — proportional to provisioned capacity and request volume.
+**Token cost is a separate meter entirely**, billed per input and output token by the LLM provider,
+and it scales with something infrastructure billing doesn't see at all: how much text you put in the
+prompt. [theory.md §2](../01-theory/01-theory.md) already named this for a single LLM call — every
+retrieved RAG chunk, every turn of conversation history, every system-prompt instruction is a line
+item. A production deployment multiplies that per-call cost by request volume, and the Elders
 Tribunal pattern from [SPEC-AGENT-5](../../specs/SPEC-AGENT-5-elders-tribunal.md) multiplies it
 again: several elder agents, each holding their own LLM call across multiple debate rounds, means
 the token bill for one user-facing "answer" is the sum of every one of those calls, not one call's
@@ -253,24 +389,34 @@ across a microservice call chain rather than trying to debug from the final resp
 
 ## 5. Guardrails — the checklist a security-minded engineer runs before shipping
 
-Everything in this section is grounded in NOTE-AGENT-5's "Guardrails for production" list. None of
-it is optional once real users, and real side effects, are in play.
+```mermaid
+flowchart LR
+    S1["1 What & why"] --> S2["2 Service mapping"]
+    S2 --> S3["3 Reference deployment"]
+    S3 --> S4["4 Cost / latency /<br/>observability"]
+    S4 --> S5["5 Guardrails<br/>◀ you are here"]
+    S5 --> S6["6 Pitfalls"]
+```
 
-**Secrets never leave the secret manager.** Section 3's `--secret=LLM_API_KEY=llm-api-key:latest`
+Everything in this section is grounded in NOTE-AGENT-5's "Guardrails for production" list. None of
+it is optional once real users, and real side effects, are in play — four checks, in the order
+you'd actually run them:
+
+**1 — Secrets never leave the secret manager.** Section 3's `--secret=LLM_API_KEY=llm-api-key:latest`
 flag is the whole point: the key is fetched by the container's own IAM identity, at runtime, and
 never appears in an image layer, a log line, or a `git commit`. This is the same discipline as never
 committing a database password to a Spring `application.properties` file — except an LLM API key
 that leaks is worse in one specific way: it isn't just a data-access risk, it's a *spending* risk,
 because whoever holds the key can run up your token bill until you notice and revoke it.
 
-**Rate-limit every LLM call.** Vertex, Bedrock, and Azure OpenAI all enforce their own quotas
+**2 — Rate-limit every LLM call.** Vertex, Bedrock, and Azure OpenAI all enforce their own quotas
 (requests-per-minute, tokens-per-minute) at the API level (NOTE-AGENT-5) — but a rate limiter *in
 front of your own API* (Figure 1's "rate limit + input validation at the edge" box) does two more
 things the vendor quota alone doesn't: it protects your token budget from a single caller looping or
 retrying aggressively, and it fails your request cleanly and cheaply before it ever reaches the
 expensive LLM call, rather than after.
 
-**Defend against prompt injection at the input boundary.** NOTE-AGENT-5's guidance is direct:
+**3 — Defend against prompt injection at the input boundary.** NOTE-AGENT-5's guidance is direct:
 validate and sanitise user input before it ever reaches the LLM. This matters most, and differently,
 for the RAG and MCP patterns this course already built: a RAG pipeline
 ([SPEC-AGENT-3](../../specs/SPEC-AGENT-3-rag-over-pdfs.md)) retrieves *external* text — a PDF, a web
@@ -287,10 +433,10 @@ retrieved/external content from trusted system instructions, and treat anything 
 *do* as a request to be checked, never as a command to execute unquestioned — which is exactly what
 the next guardrail is for.
 
-**Human-in-the-loop for anything side-effecting.** This is the guardrail Figure 1 draws in red, and
-the one this chapter emphasises most, because it is the one that actually bounds the *blast radius*
-of everything above going wrong at once. NOTE-AGENT-5's own framing is direct: if the agent can
-write to a database or call an external API, critical operations need human approval before they
+**4 — Human-in-the-loop for anything side-effecting.** This is the guardrail Figure 1 draws in red,
+and the one this chapter emphasises most, because it is the one that actually bounds the *blast
+radius* of everything above going wrong at once. NOTE-AGENT-5's own framing is direct: if the agent
+can write to a database or call an external API, critical operations need human approval before they
 run. Concretely, for
 this course's own worked examples: [SPEC-AGENT-2](../../specs/SPEC-AGENT-2-mcp-database-query-layer.md)'s
 MCP server was deliberately built **read-only** — `list_tables`, `describe_table`, and a filtered
@@ -307,13 +453,22 @@ sent, a payment initiated — cannot be silently undone the way a bad *read* can
 
 ## 6. Pitfalls
 
-**Leaking keys.** The most common way this happens is not a hacked secret manager — it's a
+```mermaid
+flowchart LR
+    S1["1 What & why"] --> S2["2 Service mapping"]
+    S2 --> S3["3 Reference deployment"]
+    S3 --> S4["4 Cost / latency /<br/>observability"]
+    S4 --> S5["5 Guardrails"]
+    S5 --> S6["6 Pitfalls<br/>◀ you are here"]
+```
+
+**1 — Leaking keys.** The most common way this happens is not a hacked secret manager — it's a
 `--allow-unauthenticated` Cloud Run flag left in from a demo, an API key pasted into a log statement
 for debugging and never removed, or a key committed to a public repo's `.env` file during a rushed
 fix. Section 5's rule — secrets fetched by IAM identity, never baked in or logged — is defence
 against the boring, common case, not just the sophisticated one.
 
-**Unbounded token cost.** Section 4 already separated the two cost meters; the failure mode is
+**2 — Unbounded token cost.** Section 4 already separated the two cost meters; the failure mode is
 deploying without a per-request or per-user token budget and discovering the bill only at the end of
 the month. A single retry loop with no cap, a multi-agent debate pattern like
 [SPEC-AGENT-5](../../specs/SPEC-AGENT-5-elders-tribunal.md) run with no round limit, or a RAG
@@ -321,14 +476,14 @@ pipeline that stuffs the full top-k retrieved set into every prompt regardless o
 (theory.md §2's "over-stuffing" pitfall) are all silent cost multipliers that produce no error, no
 alert, and no signal until someone reads the invoice.
 
-**No tracing.** Skipping Section 4's observability step doesn't fail loudly either — the agent keeps
-answering requests, just as a service without logging keeps serving requests. What's missing only
-becomes visible the first time an answer is wrong and there's no way to reconstruct which retrieved
-chunk, which tool call, or which of several LLM calls in a multi-agent chain actually produced it.
-Wire up tracing (Cloud Trace/X-Ray/Azure Monitor, per Section 4) before the first real user, not
-after the first real incident.
+**3 — No tracing.** Skipping Section 4's observability step doesn't fail loudly either — the agent
+keeps answering requests, just as a service without logging keeps serving requests. What's missing
+only becomes visible the first time an answer is wrong and there's no way to reconstruct which
+retrieved chunk, which tool call, or which of several LLM calls in a multi-agent chain actually
+produced it. Wire up tracing (Cloud Trace/X-Ray/Azure Monitor, per Section 4) before the first real
+user, not after the first real incident.
 
-**Trusting agent side effects.** The single most important guardrail in this chapter, restated as
+**4 — Trusting agent side effects.** The single most important guardrail in this chapter, restated as
 its own failure mode: any production deployment that lets an LLM's tool call execute a
 database write, an external API call, or any other irreversible action *without* the human-in-the-loop
 gate from Section 5 is one confidently-wrong model response away from an incident that can't be
@@ -344,17 +499,18 @@ a shortcut and starts being the actual risk.
 Moving an agentic app to production changes *where* four things live — the container runtime, the
 hosted LLM, the vector store, and secrets — never the application logic built in
 [SPEC-AGENT-2](../../specs/SPEC-AGENT-2-mcp-database-query-layer.md) through
-[SPEC-AGENT-5](../../specs/SPEC-AGENT-5-elders-tribunal.md) (Section 1). All three major clouds offer
-the same four managed pieces under different names, and the vector-store row is close to portable
-by default because it's "just Postgres" everywhere (Section 2). This chapter's one concrete reference
-deployment — Cloud Run + Cloud SQL with pgvector + Secret Manager (Figure 1, Section 3) — is a
-pattern, not a template to copy verbatim; real production IaC belongs in each vendor's own Terraform
-docs. Cost splits into an infrastructure meter and a separate, request-volume-scaling token meter;
-latency splits into infra cold-start and hosted-LLM time-to-first-token; and neither is visible after
-the fact without tracing wired up from day one (Section 4). And the guardrails — secrets never
-leaving the secret manager, rate limits in front of the LLM call, input sanitisation against prompt
-injection, and above all a human-in-the-loop gate on every side-effecting tool call — are what keep
-a production agent's mistakes small and reversible instead of silent and permanent (Section 5).
+[SPEC-AGENT-5](../../specs/SPEC-AGENT-5-elders-tribunal.md) (cold open, Section 1). All three major
+clouds offer the same four managed pieces under different names, and the vector-store row is close
+to portable by default because it's "just Postgres" everywhere (Section 2). This chapter's one
+concrete reference deployment — Cloud Run + Cloud SQL with pgvector + Secret Manager (Figure 1,
+Section 3) — is a pattern, not a template to copy verbatim; real production IaC belongs in each
+vendor's own Terraform docs. Cost splits into an infrastructure meter and a separate,
+request-volume-scaling token meter; latency splits into infra cold-start and hosted-LLM
+time-to-first-token; and neither is visible after the fact without tracing wired up from day one
+(Section 4). And the guardrails — secrets never leaving the secret manager, rate limits in front of
+the LLM call, input sanitisation against prompt injection, and above all a human-in-the-loop gate on
+every side-effecting tool call — are what keep a production agent's mistakes small and reversible
+instead of silent and permanent (Section 5).
 
 This closes the Agentic Engineering track's Cloud Environment Setup section. **Production
 Considerations** picks up from here with a deeper look at the same cost/latency concerns under
@@ -377,3 +533,10 @@ executed in this sandbox, since no GCP project or credentials exist here; the sn
 extent of what "runnable" means for reference code in a GROUNDED-CONCEPTUAL chapter per its spec.
 The only code actually executed and reproduced for this chapter is
 `code/agentic_architecture_diagram.py`, run with `.venv/Scripts/python.exe`.
+
+**Restyle note (2026-09-03):** this pass restructured the chapter into the house storytelling/visual
+style (cold open framed around the MCP server's own localhost assumptions, numbered guardrail/pitfall
+steps, six recurring "you are here" section maps, a cross-cloud architecture Mermaid diagram, a
+managed-runtime decision diagram, and three "why this way" asides). No fact, version, URL, citation
+date, table cell, or code/CLI snippet changed; `code/agentic_architecture_diagram.py` and
+`artefacts/agentic_architecture_diagram.png` were not touched.
