@@ -2,17 +2,73 @@
 
 *Data Science · Worked Examples · SPEC-DS-1*
 
-You already do hypothesis testing. Every time a CI run goes red once in twenty runs, you ask
-"is this test actually flaky, or did I just get unlucky this one time?" You don't have a formal
-name for that instinct, but it's the same instinct statisticians use to compare two groups of
-numbers. This chapter puts a name and a number on it: **the null hypothesis**, **the p-value**,
-and **effect size** — the three ideas you need before you can look at two distributions and say
-something more precise than "these seem different."
+## The lady who could taste the milk
+
+One afternoon in 1920s Cambridge, a colleague of the statistician Ronald Fisher poured herself a
+cup of tea and refused to drink it: she said she could tell, just by taste, whether the milk had
+gone into the cup before the tea or after. The men at the table were sure this was nonsense — tea
+is tea. Fisher, being Fisher, didn't argue about it. He designed an experiment.
+
+He gave her eight cups — four milk-first, four tea-first, in random order — and asked her to sort
+them. If she was just guessing, she'd get some right and some wrong by luck alone, the same way a
+flaky test sometimes passes even when the code underneath it is broken. The question Fisher
+actually needed to answer wasn't "did she get most of them right" — it was **"if she genuinely
+couldn't tell the difference, how surprising would this exact result be?"** That question, and the
+machinery Fisher built to answer it, is the entire subject of this chapter. The lady — phycologist
+Muriel Bristol — sorted all eight cups correctly
+([source: Wikipedia, "Lady tasting tea"](https://en.wikipedia.org/wiki/Lady_tasting_tea), checked
+2026-09-03), a result Fisher calculated has only a 1-in-70 chance of happening by pure guessing.
+
+Walk through what Fisher actually did, step by step — it's the whole chapter in miniature:
+
+**Step 1 — assume the boring explanation is true.** Start by assuming she can't actually tell the
+difference. That assumption is the **null hypothesis**: under it, every cup she sorts correctly is
+just luck.
+
+**Step 2 — design a test that produces a number, not a vibe.** Eight cups, four-and-four, randomly
+ordered. However many she gets right is a count you can compute odds for — "seems pretty good at
+tea" isn't something you can reason about precisely.
+
+**Step 3 — work out what luck alone would produce.** If she's purely guessing, there are
+$\binom{8}{4}=70$ ways to pick which four cups she calls "milk-first," and exactly 1 of those 70
+ways matches the truth on all eight cups. A perfect score by pure chance has probability
+$1/70 \approx 1.4\%$.
+
+**Step 4 — run the real experiment and compare.** Muriel Bristol sorted all eight cups correctly —
+the single most extreme outcome possible, and one that only had a 1.4% chance of happening if she
+were just guessing.
+
+**Step 5 — decide what "surprising enough" means, then judge.** 1.4% is small enough that Fisher
+rejected the null hypothesis — "no ability to tell the difference" — in favor of the alternative:
+she really could taste it.
+
+```mermaid
+flowchart LR
+    A["Step 1<br/>assume the boring explanation<br/>(null hypothesis)"] --> B["Step 2<br/>design a test that<br/>produces a number"]
+    B --> C["Step 3<br/>work out what luck<br/>alone would produce"]
+    C --> D["Step 4<br/>run the real experiment,<br/>compare to luck"]
+    D --> E["Step 5<br/>decide: surprising enough<br/>to reject the null?"]
+    E -.->|"this chapter runs the same loop<br/>on penguin flipper lengths"| A
+```
+
+That 1.4% is, in modern terms, a **p-value** — and "the lady tasting tea" is the origin story
+statisticians still reach for when they explain what a p-value actually means. Fisher's 1935 book,
+*The Design of Experiments*, is where the null hypothesis first appears as a formal, testable idea
+([source: Wikipedia, "Lady tasting tea"](https://en.wikipedia.org/wiki/Lady_tasting_tea), checked
+2026-09-03; book title and year confirmed via
+[Wikipedia, "The Design of Experiments"](https://en.wikipedia.org/wiki/The_Design_of_Experiments),
+checked 2026-09-03).
+
+This chapter runs the exact same loop — assume the boring explanation, design a test, work out
+what luck alone would produce, compare, decide — on a question you can't settle by eye: do two
+penguin species really have different flipper lengths, or does it just look that way in a
+smallish sample?
 
 ## 1. What & why
 
-In Java, "this build is flaky" is a hypothesis you test by running the suite many times and
-counting failures. Data science formalizes that same move:
+The tea-tasting loop maps directly onto vocabulary you already use every day. In Java, "this build
+is flaky" is a hypothesis you test by running the suite many times and counting failures. Data
+science formalizes that same move:
 
 - **Null hypothesis (H0)** — the boring, default explanation: "there is no real difference; what
   I'm seeing is just sampling noise." Think of it as the *presumption of innocence* in a
@@ -26,9 +82,31 @@ counting failures. Data science formalizes that same move:
   That second gap is why this chapter also covers **effect size**.
 
 A courtroom never *proves* innocence — it only says the evidence wasn't strong enough to convict.
-Hypothesis testing works the same way: you never "prove" H0 true, you just fail to reject it. And
-just like a flaky-test investigation, the answer depends entirely on how much evidence (how much
-data) you collected — which is exactly the trap in the Pitfalls section below.
+Hypothesis testing works the same way: you never "prove" H0 true, you just fail to reject it.
+
+```mermaid
+flowchart TD
+    START["collect evidence<br/>(the data)"] --> TEST{"compute a p-value:<br/>how surprising is this evidence<br/>if H0 were true?"}
+    TEST -->|"p small (e.g. below 0.05)"| REJECT["reject H0<br/>('convict' -- evidence against<br/>'no real difference' is strong)"]
+    TEST -->|"p not small"| FAIL["fail to reject H0<br/>('not guilty' -- NOT the same<br/>as 'innocent': just not enough<br/>evidence to convict)"]
+```
+
+And just like a flaky-test investigation, the answer depends entirely on how much evidence (how
+much data) you collected — which is exactly the trap in the Pitfalls section below.
+
+Here's where this chapter sits if you picture the data science process end to end — it lives in
+the "make sense of the data before you build anything" stage, right after you've loaded it and
+right before you'd start engineering features or training a model:
+
+```mermaid
+flowchart LR
+    BU["Business<br/>Understanding"] --> DC["Data<br/>Collection"]
+    DC --> CLEAN["Data<br/>Cleaning"]
+    CLEAN --> EDA["EDA &amp; Hypothesis<br/>Testing<br/>&#9664; this chapter"]
+    EDA --> FE["Feature<br/>Engineering"]
+    FE --> MT["Model<br/>Training"]
+    MT --> ME["Model<br/>Evaluation"]
+```
 
 ## 2. The dataset: Palmer Penguins
 
@@ -172,12 +250,55 @@ fig.savefig("flipper_length_boxplot_by_species.png", dpi=150)
 
 ![Boxplot of flipper length by species](artefacts/flipper_length_boxplot_by_species.png)
 
-Gentoo penguins are obviously bigger-flippered than the other two. Adelie and Chinstrap overlap a
-lot more — which makes them the more interesting pair to actually *test*, rather than eyeball.
+Gentoo penguins are obviously bigger-flippered than the other two — their box doesn't even overlap
+the other species' boxes, so no test is needed to believe that gap is real. Adelie and Chinstrap
+are a different story: their boxes overlap substantially. Stare at that overlap for a second and
+ask yourself the honest question — **would you bet money those two species are really
+different-flippered, or could that gap just be noise from measuring 151 particular Adelie birds
+and 68 particular Chinstrap birds, out of every Adelie and Chinstrap that has ever existed?**
+Eyeballing a boxplot can't settle that. That's exactly the ambiguity a hypothesis test is built to
+resolve — and exactly the pair worth actually testing, rather than eyeballing.
 
 ## 4. A concrete question → a test
 
+Which test you reach for depends entirely on the *shape* of the question — how many variables, and
+whether they're numbers or categories:
+
+```mermaid
+flowchart TD
+    Q{"what shape is the question?"}
+    Q -->|"one numeric variable,<br/>two independent groups<br/>e.g. flipper length: Adelie vs Chinstrap"| TT["two-sample t-test<br/>scipy.stats.ttest_ind"]
+    Q -->|"two categorical variables<br/>e.g. species vs island"| CS["chi-square test of independence<br/>scipy.stats.chi2_contingency"]
+    Q -->|"one numeric variable,<br/>three or more groups"| OTHER["ANOVA -- generalizes<br/>the t-test to 3+ groups,<br/>not covered in this chapter"]
+```
+
+This chapter's two questions land on the first two branches.
+
 ### 4.1 "Does flipper length differ between Adelie and Chinstrap?" → t-test
+
+The tempting shortcut is to just subtract the two group averages and call it a day. But a raw
+"Adelie averages about 190mm, Chinstrap about 196mm" tells you nothing about whether that ~6mm gap
+is a real species difference or just the particular 151-and-68 birds that got measured. You need a
+number that answers the harder question: **"if the two species truly had identical flipper
+lengths, how surprising would a gap this size be, given how much natural bird-to-bird variation
+there already is inside each species?"**
+
+That's exactly what a **two-sample t-test** computes. In plain language: it compares the size of
+the gap between the two group means to the amount of "noise" inside each group, and expresses the
+result as a single number, $t$ — a big $|t|$ means the gap is large relative to the noise; a small
+$|t|$ means the gap is unremarkable next to how much groups naturally wobble.
+
+$$t = \frac{\bar{x}_1 - \bar{x}_2}{\sqrt{\dfrac{s_1^2}{n_1} + \dfrac{s_2^2}{n_2}}}$$
+
+Reading every symbol in plain language: $\bar x_1, \bar x_2$ are the two group averages (Adelie's
+mean flipper length, Chinstrap's mean flipper length); $s_1^2, s_2^2$ are each group's *own*
+variance — how spread out that one species' measurements are (using each group's own variance,
+instead of pooling them into one shared number, is exactly what makes this **Welch's** t-test
+rather than the older Student's version — more on that below); $n_1, n_2$ are the two sample sizes.
+The whole formula is "the gap between the means" divided by "how much wobble you'd expect the gap
+to have, just from sampling" — the same shape as a z-score
+([source: Wikipedia, "Welch's t-test"](https://en.wikipedia.org/wiki/Welch%27s_t-test), checked
+2026-09-03).
 
 This is a **two independent samples, one numeric variable** question — exactly what a two-sample
 t-test answers. In `scipy.stats`, that's `ttest_ind`:
@@ -208,12 +329,26 @@ distributions just because they're both APIs.
 `result` is a `TtestResult` namedtuple: `.statistic` is the t-statistic, `.pvalue` is what you
 came for, `.df` is the degrees of freedom. Reading it: with 151 Adelie and 68 Chinstrap
 penguins, mean flipper length is 189.95mm vs 195.82mm, and `p = 6.0e-08` — far below any
-conventional threshold (0.05, 0.01). **If there were truly no difference between the species,
-seeing a gap this large by chance alone would happen about 6 times in 100 million samples.**
-That's strong evidence against H0.
+conventional threshold (0.05, 0.01).
+
+```mermaid
+flowchart LR
+    P["p = 6.05e-08"] --> ASK{"what does this<br/>number actually mean?"}
+    ASK -->|"correct reading"| RIGHT["IF the two species truly had<br/>identical flipper lengths, a gap<br/>this large would occur about<br/>6 times in 100 million samples"]
+    ASK -->|"common misreading"| WRONG1["WRONG: 'there's a 6e-08<br/>chance H0 is true'"]
+    ASK -->|"common misreading"| WRONG2["WRONG: 'the species differ<br/>by a huge amount'<br/>(that's effect size -- section 5)"]
+```
+
+**If there were truly no difference between the species, seeing a gap this large by chance alone
+would happen about 6 times in 100 million samples.** That's strong evidence against H0 — Fisher's
+same move from the tea cups, just with a t-statistic standing in for "how many cups sorted
+correctly."
 
 ### 4.2 "Is species associated with island?" → chi-square test
 
+A different shape of question, a different felt ambiguity: if species and island genuinely had
+nothing to do with each other, would you expect a contingency table this lopsided — or does the
+pattern below only look suspicious because you're staring at one particular sample of 342 birds?
 This is a **two categorical variables** question — the right tool is a chi-square test of
 independence on a contingency table (a cross-tab, same shape as a pivot table in a spreadsheet):
 
@@ -260,6 +395,14 @@ you compute both by hand
 **Cohen's d** (for two-group numeric comparisons) is the mean difference, standardized by the
 pooled standard deviation — "how many standard deviations apart are these two group means?":
 
+$$d = \frac{\bar x_1 - \bar x_2}{s_{\text{pooled}}}, \qquad s_{\text{pooled}} = \sqrt{\frac{(n_1-1)s_1^2 + (n_2-1)s_2^2}{n_1+n_2-2}}$$
+
+In plain language: $\bar x_1 - \bar x_2$ is the same raw gap between means the t-test used; the
+pooled standard deviation $s_{\text{pooled}}$ blends both groups' spread into a single "typical
+wobble" ruler, and dividing by it converts "6mm" into "how many rulers wide is that gap" — a number
+you can compare across completely different measurements
+([source: NOTE-4-effect-sizes](../../research/NOTE-4-effect-sizes.md), checked 2026-09-02):
+
 ```python
 import numpy as np
 
@@ -287,6 +430,14 @@ substantially different flipper lengths.
 
 **Cramér's V** (for two categorical variables) rescales the chi-square statistic into a 0–1
 range so it's comparable across differently-sized tables:
+
+$$V = \sqrt{\frac{\chi^2}{n \cdot \min(r-1,\, c-1)}}$$
+
+Plain language: $\chi^2$ is the chi-square statistic you already computed; $n$ is the total number
+of penguins in the table; $r$ and $c$ are the number of rows and columns (species and islands);
+$\min(r-1, c-1)$ is just a scaling factor so the result always lands between 0 and 1, no matter how
+big the table is
+([source: NOTE-4-effect-sizes](../../research/NOTE-4-effect-sizes.md), checked 2026-09-02):
 
 ```python
 def cramers_v(chi2_stat, n, rows, cols):
@@ -328,6 +479,12 @@ caring about*. Section 6 shows exactly how far apart those two questions can dri
 This is the pitfall most Java engineers haven't internalized, because it doesn't have a direct
 testing analogy: **with enough samples, a p-value can be tiny even when the real difference is
 trivial.** p-values are sensitive to sample size in a way effect sizes are not.
+
+```mermaid
+flowchart LR
+    N["increase sample size N"] --> P["p-value keeps shrinking --<br/>any nonzero gap eventually<br/>becomes 'significant'"]
+    N -.->|"effect size does NOT<br/>depend on N"| D["Cohen's d stays flat --<br/>the true gap size<br/>never changed"]
+```
 
 Take `bill_depth_mm` between Adelie and Chinstrap — on the real sample sizes (151 vs 68), the test
 finds *nothing* interesting:
@@ -394,7 +551,9 @@ a small or sparse table.
 ## 7. Recap & what's next
 
 - A **null hypothesis** is the boring default ("no real difference") that a test tries to find
-  evidence against — same shape as a courtroom's presumption of innocence.
+  evidence against — same shape as a courtroom's presumption of innocence, and the same move
+  Fisher made when he assumed the lady couldn't tell tea-first from milk-first before he let the
+  data argue otherwise.
 - **`scipy.stats.ttest_ind`** compares means of two numeric groups; **`scipy.stats.chi2_contingency`**
   tests association between two categorical variables. Both return namedtuple-like results
   (`.statistic`, `.pvalue`, plus test-specific fields) — verified against scipy 1.18.1
