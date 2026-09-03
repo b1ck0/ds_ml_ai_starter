@@ -426,7 +426,308 @@ serving `.ipynb` files from the current directory using the active venv's interp
   one most DS teams follow) is to graduate that logic into a `.py` script or module — the notebook
   did its job as a worksheet, and the script is now the artefact that runs reliably.
 
-## 6. Pitfalls
+## 6. Python for Java developers — a 20-minute on-ramp
+
+`verify_env.py` (Section 3.4) already proved every import below works from the venv you just
+built — nothing new to install here. Before the next chapter loads a real dataset, spend twenty
+minutes on the syntax and mental-model differences that trip up an experienced Java engineer the
+first time they open a `.py` file or a notebook cell. This is not a Python tutorial — it is the
+minimum bridge from "I write Java for a living" to "I can read and trust a pandas/numpy snippet."
+
+| Java construct | Python equivalent | What actually changes |
+|---|---|---|
+| static, compile-time type checking | dynamic typing, checked at run time | `x = 42; x = "42"` is legal — the name is just a label rebound to whatever object comes next |
+| `{ }` block delimiters | indentation defines the block | consistent indentation (4 spaces, this book's convention) is not a style choice, it is syntax |
+| primitives (`int`, `double`) + boxed wrapper objects | everything is an object, no primitives | `type(5)`, `type(5.0)`, even `type(print)` all return real objects with real methods |
+| `ArrayList<T>` | `list` | ordered, mutable, growable — the closest cousin |
+| `HashMap<K,V>` | `dict` | hash-based lookup, and ordered by insertion since Python 3.7 |
+| `HashSet<T>` | `set` | unique elements; iteration order is unspecified, same as Java's `HashSet` |
+| an immutable `record` / a fixed-size array | `tuple` | fixed-size, immutable, often used as a lightweight multi-value return |
+| `stream().filter().map().collect(toList())` | a comprehension: `[... for ... if ...]` | one expression instead of a chained builder |
+| `String.format(...)` / `"%s".formatted(x)` | an f-string: `f"{x}"` | the expression is embedded directly inside the string literal |
+| `null` | `None` | a real singleton object — `type(None)` is `NoneType`, not a typeless pointer |
+| `interface` + `implements` (nominal typing) | duck typing — "if it has the method, call it" | no interface declaration required; checked at call time, not compile time |
+| a Maven/Gradle module's classpath | `venv` (Section 2 of this chapter) | already built above — listed here only for completeness |
+
+### 6.1 The core mental-model shifts
+
+**Dynamic typing and `None`.** A Python variable is a name bound to an object, not a typed storage
+slot — the same name can point at an `int`, then a `str`, then `None`, one after another, and the
+interpreter only complains when you *use* the value in a way its current type doesn't support
+(dividing a string, calling `.quack()` on an `int`). `None` is Python's `null`, with one difference
+worth internalising: `None` is a real object of its own type (`NoneType`), not the absence of a
+type, so `type(None)` never throws the way dereferencing a Java `null` does.
+
+```python
+def describe(value):
+    return f"{value!r} is a {type(value).__name__}"
+
+x = 42
+print(describe(x))
+x = "now I am a string"
+print(describe(x))
+x = None
+print(describe(x))
+print(x is None)
+```
+
+```text
+42 is a int
+'now I am a string' is a str
+None is a NoneType
+True
+```
+
+That snippet also shows an **f-string** (`f"{value!r} is a ..."`) — Python's answer to
+`String.format`, but the expression sits directly inside the `{}` inside the literal instead of
+being passed as a separate argument. `!r` requests the value's `repr()` (its "debug" rendering,
+quotes and all for a string) rather than its plain `str()`.
+
+**Duck typing instead of `interface`.** Java requires a class to declare `implements Quackable`
+before you can call `.quack()` on it through that interface — the compiler checks the contract
+ahead of time. Python checks nothing ahead of time: if the object has a `.quack()` method, the call
+succeeds, full stop, no declared relationship between the two classes required.
+
+```python
+class Duck:
+    def quack(self):
+        return "Quack!"
+
+class Dog:
+    def quack(self):
+        return "Woof (but I will pretend)"
+
+def make_it_quack(thing):
+    # no interface, no "implements Quackable" -- Python only cares that .quack() exists
+    return thing.quack()
+
+for creature in [Duck(), Dog()]:
+    print(make_it_quack(creature))
+```
+
+```text
+Quack!
+Woof (but I will pretend)
+```
+
+This is powerful and dangerous in equal measure: powerful because you never write boilerplate
+interfaces just to satisfy a type checker; dangerous because a typo'd method name fails at *call*
+time, potentially deep inside a long-running script, instead of at compile time. There is no
+free lunch here — it is a real trade-off, not a strictly better deal than Java's.
+
+**Indentation as blocks, and functions as ordinary objects.** There is no `{ }` — the block *is* the
+indentation, and Python enforces it as a syntax error if you get it wrong (mixing tabs and spaces,
+or a dedent that doesn't match any enclosing block, both refuse to run). The second half of "everything
+is an object" that surprises Java engineers fastest: a `def` creates a function *object*, and that
+object can be returned, stored in a variable, or passed around exactly like an `int` or a `str` —
+there is no `Runnable`/`Function<T,R>` wrapper ceremony required.
+
+```python
+def make_multiplier(factor):
+    def multiply(n):
+        return n * factor
+    return multiply
+
+double = make_multiplier(2)
+triple = make_multiplier(3)
+print(double(21))
+print(triple(21))
+print(type(double))
+```
+
+```text
+42
+63
+<class 'function'>
+```
+
+`make_multiplier` returns a *closure* — `multiply` still remembers `factor` after `make_multiplier`
+has already returned, the same idea as a Java lambda capturing an effectively-final local variable,
+just without needing to declare a functional interface first.
+
+**Collections, and comprehensions instead of streams.** Python's four built-in collection types map
+onto four familiar `java.util` interfaces (see the table above), and a **comprehension** is Python's
+one-line equivalent of a `.stream().filter().map().collect(...)` chain — the loop, the filter, and
+the accumulation are all expressed in a single readable expression instead of a builder chain.
+
+```python
+employees = [
+    {"name": "Ana", "team": "platform", "years": 6},
+    {"name": "Bo", "team": "data", "years": 2},
+    {"name": "Cy", "team": "platform", "years": 9},
+]
+
+# a list comprehension: employees.stream().filter(...).map(...).collect(toList()) in one line
+senior_platform = [e["name"] for e in employees if e["team"] == "platform" and e["years"] >= 5]
+print(senior_platform)
+
+# a dict comprehension: building a HashMap<String, Integer> inline
+years_by_name = {e["name"]: e["years"] for e in employees}
+print(years_by_name)
+
+# a set: like java.util.HashSet, duplicates collapse automatically -- but note the sort below
+teams = {e["team"] for e in employees}
+print(sorted(teams))  # a set's own iteration order is unspecified, exactly like HashSet's -- sort before printing
+
+# a tuple: fixed-size and immutable -- closer to a Java record's fields than to a List
+point = (3, 4)
+print(point, type(point))
+```
+
+```text
+['Ana', 'Cy']
+{'Ana': 6, 'Bo': 2, 'Cy': 9}
+['data', 'platform']
+(3, 4) <class 'tuple'>
+```
+
+### 6.2 numpy: the ndarray is the workhorse
+
+Every numeric library in this course sits on top of one data structure: the numpy **`ndarray`**, an
+n-dimensional, fixed-type array. Think "a `double[]` array whose loops run in a compiled C loop
+instead of a `Stream<Double>`" — same contiguous-memory idea Java gives you with a primitive array,
+except the vectorised operations (`+`, `*`, `.sum()`, …) are implemented in C and applied to the
+*whole array at once*, with no per-element bytecode dispatch. That is the entire reason numpy is
+fast: a pure-Python loop pays Python's per-iteration interpreter overhead 2,000,000 times; a
+vectorised numpy call pays it once, for the whole array.
+
+```python
+import time
+import numpy as np
+
+n = 2_000_000
+data = list(range(n))
+arr = np.arange(n)
+
+start = time.perf_counter()
+squared_loop = [x * x for x in data]
+loop_time = time.perf_counter() - start
+
+start = time.perf_counter()
+squared_vec = arr * arr
+vec_time = time.perf_counter() - start
+
+print(f"pure-Python list comprehension: {loop_time:.4f}s")
+print(f"numpy vectorized (arr * arr):   {vec_time:.4f}s")
+print(f"numpy is {loop_time / vec_time:.1f}x faster")
+```
+
+```text
+pure-Python list comprehension: 0.1036s
+numpy vectorized (arr * arr):   0.0032s
+numpy is 32.2x faster
+```
+
+(Exact numbers vary by machine and by what else is running — this was measured on the machine that
+wrote this chapter, against the pinned `numpy==2.5.2` from Section 3.1. The *shape* of the result —
+one to two orders of magnitude faster — is the point, not the precise multiplier.)
+
+The other numpy idea worth twenty minutes: **broadcasting**. When you combine arrays of compatible
+shapes, numpy "stretches" the smaller one across the larger one with no explicit loop — the
+vectorised equivalent of Java's implicit primitive widening, but across whole array dimensions
+instead of a single scalar. `axis` tells a reducing operation (`.sum()`, `.mean()`, …) which
+direction to collapse: `axis=0` walks down the rows, producing one result per column; `axis=1` walks
+across the columns, producing one result per row.
+
+```python
+import numpy as np
+
+# a small "table": 3 rows (samples), 4 columns (features) -- like a tiny result set
+table = np.arange(12).reshape(3, 4)
+print(table)
+
+# axis=0 walks DOWN the rows (one result per column); axis=1 walks ACROSS the columns (one result per row)
+print("column sums (axis=0):", table.sum(axis=0))
+print("row sums    (axis=1):", table.sum(axis=1))
+
+# broadcasting: a length-4 vector is "stretched" across every row of the (3,4) table, no explicit loop
+per_column_offset = np.array([100, 200, 300, 400])
+print(table + per_column_offset)
+```
+
+```text
+[[ 0  1  2  3]
+ [ 4  5  6  7]
+ [ 8  9 10 11]]
+column sums (axis=0): [12 15 18 21]
+row sums    (axis=1): [ 6 22 38]
+[[100 201 302 403]
+ [104 205 306 407]
+ [108 209 310 411]]
+```
+
+### 6.3 pandas: a typed table you query in-process
+
+A pandas **`DataFrame`** is a table — rows and named, typed columns — held in memory and queried
+with Python expressions instead of SQL. Each column on its own is a **`Series`**: a numpy array with
+a label attached, the way a single column of a `ResultSet` is still typed but now also carries its
+row index around with it. Boolean-mask **filtering** is the pandas equivalent of a SQL `WHERE`
+clause or `Stream.filter`: you build a same-shaped array of `True`/`False`, and indexing the
+DataFrame with it keeps only the `True` rows.
+
+```python
+import pandas as pd
+
+employees = pd.DataFrame({
+    "name":  ["Ana", "Bo", "Cy", "Dan"],
+    "team":  ["platform", "data", "platform", "data"],
+    "years": [6, 2, 9, 4],
+})
+print(employees)
+
+# boolean-mask filtering -- the pandas equivalent of a SQL WHERE or Stream.filter
+senior = employees[employees["years"] >= 5]
+print(senior)
+
+# a single column is a Series: one typed, indexed column -- not a bare list
+print(employees["years"].mean())
+```
+
+```text
+  name      team  years
+0  Ana  platform      6
+1   Bo      data      2
+2   Cy  platform      9
+3  Dan      data      4
+  name      team  years
+0  Ana  platform      6
+2   Cy  platform      9
+5.25
+```
+
+**`groupby`** is pandas' `GROUP BY` — or, in Java Streams terms,
+`employees.stream().collect(groupingBy(Employee::getTeam, averagingInt(Employee::getYears)))`,
+minus the boilerplate collector construction:
+
+```python
+import pandas as pd
+
+employees = pd.DataFrame({
+    "name":  ["Ana", "Bo", "Cy", "Dan"],
+    "team":  ["platform", "data", "platform", "data"],
+    "years": [6, 2, 9, 4],
+})
+
+# SELECT team, AVG(years) FROM employees GROUP BY team
+# or: employees.stream().collect(groupingBy(Employee::getTeam, averagingInt(Employee::getYears)))
+avg_years_by_team = employees.groupby("team")["years"].mean()
+print(avg_years_by_team)
+```
+
+```text
+team
+data        3.0
+platform    7.5
+Name: years, dtype: float64
+```
+
+That is the on-ramp: dynamic typing and `None` instead of `null`, indentation instead of `{ }`,
+duck typing instead of declared interfaces, comprehensions instead of stream chains, and two data
+structures — numpy's vectorised `ndarray` and pandas' queryable `DataFrame` — that replace loops
+over `ArrayList`/`ResultSet` with whole-array and whole-table operations. The next chapter
+(SPEC-DS-1) starts using all five of these ideas immediately, on a real dataset.
+
+## 7. Pitfalls
 
 - **Global install instead of venv install.** Running `pip install pandas` with no venv activated
   installs into the machine's global Python, silently — pip gives no warning that you meant to
@@ -453,7 +754,7 @@ serving `.ipynb` files from the current directory using the active venv's interp
   active (`(.venv)` vs `(.venv-ml)` in the prompt, or `python -c "import sys; print(sys.executable)"`)
   before running `pip install` or a script.
 
-## 7. Recap & what's next
+## 8. Recap & what's next
 
 - A **virtual environment** (`venv`) is Python's answer to "isolated classpath per project" —
   something Java gets from Maven/Gradle modules by default and Python has to opt into explicitly.
