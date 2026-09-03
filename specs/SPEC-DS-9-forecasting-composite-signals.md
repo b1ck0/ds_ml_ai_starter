@@ -19,7 +19,10 @@ and autoregressive models — using composite SYNTHETIC signals so the structure
 
 ## Scope
 In: the four composite synthetic signals below; time-based splitting; ACF/PACF; AR/ARIMA + lag-feature regression; walk-forward back-testing; detrending/normalisation.
-Out: Prophet/deep forecasting (mention + link), multivariate/exogenous forecasting (mention).
+Out: Prophet, multivariate/exogenous forecasting (mention). (Deep forecasting was later brought IN
+scope via a 2026-09-03 enrichment: §6 now trains a small runnable LSTM on one signal and compares it
+honestly against the ARIMA/lag-regression baselines — on this clean synthetic signal the neural model
+does not beat the simple lag regression, which is the teaching point.)
 
 ## The signals (build them exactly)
 For amplitude A and length N, with noise/wiggle = 10% of A:

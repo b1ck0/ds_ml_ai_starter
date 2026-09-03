@@ -690,9 +690,299 @@ forecast a signal whose cycle length isn't a clean multiple of the lags you engi
 explicit `seasonal_order=(...,s)` parameter — which fits the period, rather than assuming you
 guessed the right lags — becomes the more robust choice.
 
-## 6. Pitfalls
+## 6. A neural take — an LSTM on the same signal
 
-### 6.1 A random split on time-ordered data
+Every model in Sections 4–5 came from statistics, not deep learning: ARIMA, a lag-feature
+`LinearRegression`, a `polyfit` detrend. That's deliberate, not an oversight — but it leaves an
+obvious question sitting on the table for a reader who already knows PyTorch or TensorFlow exist:
+where does a *neural* sequence model fit into any of this? This section answers it directly, on
+the same data, so the comparison to Sections 4–5's numbers is apples-to-apples rather than a
+separate demo on a separate dataset.
+
+One sentence for dinner: **an LSTM turns forecasting into "read the window, remember what
+mattered, predict the next value" — and on a signal this small and this clean, that extra
+machinery mostly buys you a longer training run for a number the 12-lag regression already had.**
+
+```mermaid
+flowchart LR
+    S["raw series<br/>(240 months)"] --> W["sliding window<br/>(12 months: t-12 .. t-1)"]
+    W --> L["LSTM cell<br/>(hidden state carried<br/>across all 12 steps)"]
+    L --> P["prediction<br/>(month t)"]
+    P -.->|"slide the window<br/>forward one month"| W
+```
+
+### 6.1 Forecasting as supervised learning on a sliding window
+
+Section 4.1's lag-feature regression already did the hard conceptual work here: `lag_1` …
+`lag_12` are just "the 12 months before this one," laid out as 12 separate columns so
+`LinearRegression` can take a flat weighted sum of them. An LSTM wants the *same* 12 numbers, but
+kept in order as a **sequence** instead of flattened into columns — because unlike linear
+regression, an LSTM's whole point is to notice that month `t-1` came right after month `t-2`, not
+just that both happen to be inputs.
+
+If you've ever hand-rolled a streaming aggregator over a bounded window — a ring buffer, or an
+`ArrayDeque<Double>` you push the newest reading onto and evict the oldest from — this is the same
+shape: push the newest month in, evict the oldest, and whatever's left in the buffer is one
+training example's input. `make_windows` below does exactly that with NumPy slicing instead of a
+manual deque, and it's built from the same trend-plus-noise signal Sections 2–4 already analysed —
+`signal_2_linear_noise` — reproduced bit-for-bit from the same seed so nothing new is being
+compared against:
+
+```python
+import numpy as np
+
+RNG_SEED = 42
+N = 240
+A = 100.0
+WIGGLE = 0.10 * A
+WINDOW = 12  # 12 past months predict the 13th
+
+
+def make_signal_2_linear_noise(n: int = N, amplitude: float = A, wiggle: float = WIGGLE,
+                                seed: int = RNG_SEED) -> np.ndarray:
+    """Reproduces forecasting_signals.py's signal_2_linear_noise. noise_2 is the FIRST array
+    drawn from a freshly-seeded rng in both scripts, so the two arrays are bit-for-bit
+    identical -- verified by running both and diffing the output."""
+    rng = np.random.default_rng(seed)
+    t = np.arange(n)
+    linear_trend = 50.0 + amplitude * (t / (n - 1))  # 50 -> 150 over 20 years
+    noise_2 = rng.normal(0.0, wiggle, n)
+    return linear_trend + noise_2
+
+
+def make_windows(series: np.ndarray, window: int = WINDOW) -> tuple[np.ndarray, np.ndarray]:
+    """Slide a length-`window` buffer over the series: X[i] = the `window` months strictly
+    before target i, y[i] = the value AT target i. Reshaped to (n_windows, window, 1) -- the
+    (batch, seq_len, input_size) shape torch.nn.LSTM's batch_first=True expects."""
+    X, y = [], []
+    for i in range(window, len(series)):
+        X.append(series[i - window:i])
+        y.append(series[i])
+    X = np.asarray(X, dtype=np.float32).reshape(-1, window, 1)
+    y = np.asarray(y, dtype=np.float32).reshape(-1, 1)
+    return X, y
+```
+
+The split stays exactly as disciplined as every other split in this chapter: windows are cut by
+time, not shuffled, and the last 48 months — the same 20% Section 1.2 held out — become the test
+set, with everything before it as train. The scaler (mean/std used to normalise the LSTM's inputs)
+is fit on the train prefix only, per Section 7.2's rule below (this chapter's own pitfall,
+applied here too): a real forecaster standing at month
+192 could not have known the held-out months' mean or spread either, so neither can this model at
+training time.
+
+### 6.2 The LSTM cell: a tiny state machine
+
+A plain RNN cell has one problem that gets worse the longer the sequence runs: everything it
+"remembers" has to be squeezed through the same repeated multiplication, and gradients flowing
+back through many repeated multiplications by small numbers shrink toward zero — the **vanishing
+gradient problem**, the same failure mode NOTE-ML-2 documents for sigmoid/tanh stacked across many
+layers ([source: NOTE-ML-2-nn-theory](../../research/NOTE-ML-2-nn-theory.md), checked 2026-09-02).
+An **LSTM** (Long Short-Term Memory) fixes this the way a Java engineer would recognise
+immediately if the problem were phrased as "how do I carry state across many stream elements
+without it decaying": give the cell a *second*, mostly-additive channel — the **cell state** — and
+three learned **gates** that decide, at every step, how much of the old cell state to keep, how
+much of the new input to write in, and how much of the (possibly long-ago) memory to expose as
+output right now
+([source: NOTE-ML-3-architectures](../../research/NOTE-ML-3-architectures.md), checked
+2026-09-02).
+
+Think of the cell as a small hand-rolled state machine: a class with two private fields —
+`hiddenState` and `cellState` — and one method, `step(input)`, called once per element of the
+stream. Each call reads the current input plus both fields, and three learned gates (each just a
+small neural layer, sigmoid-activated so their output is a "how much" between 0 and 1) decide how
+much of the old cell state survives, how much of the new input gets written in, and how much of
+the result gets exposed as this step's output — then it returns the updated `(hiddenState,
+cellState)` pair. Run `step` 12 times, once per month in the window, and the final `hiddenState` is
+the network's entire summary of everything it saw across all 12 months — that single vector is
+what gets handed to the prediction head.
+
+Written out as equations — verified directly against the installed `torch.nn.LSTM`'s own
+docstring (torch 2.14.0, checked 2026-09-03; this exact gate formulation is not one of NOTE-ML-3's
+prose-level facts, so, per this chapter's own convention for `KNeighborsRegressor` in Section 1.2,
+it was confirmed against the live installed library rather than assumed):
+
+$$
+\begin{aligned}
+i_t &= \sigma(W_{ii} x_t + b_{ii} + W_{hi} h_{t-1} + b_{hi}) \\
+f_t &= \sigma(W_{if} x_t + b_{if} + W_{hf} h_{t-1} + b_{hf}) \\
+g_t &= \tanh(W_{ig} x_t + b_{ig} + W_{hg} h_{t-1} + b_{hg}) \\
+o_t &= \sigma(W_{io} x_t + b_{io} + W_{ho} h_{t-1} + b_{ho}) \\
+c_t &= f_t \odot c_{t-1} + i_t \odot g_t \\
+h_t &= o_t \odot \tanh(c_t)
+\end{aligned}
+$$
+
+In plain language: $i_t$ (the **input gate**) decides how much of this month's value to write into
+memory; $f_t$ (the **forget gate**) decides how much of last month's memory to keep; $o_t$ (the
+**output gate**) decides how much of memory to expose right now; $g_t$ is "the candidate new
+information," and $\odot$ is elementwise multiplication — "how much," not "which direction." The
+cell state update $c_t = f_t \odot c_{t-1} + i_t \odot g_t$ is *additive* in $c_{t-1}$ rather than
+another repeated matrix multiplication, which is precisely what keeps gradients from vanishing
+across a 12-step window the way a plain RNN's would.
+
+`torch.nn.LSTM`'s constructor signature — `LSTM(input_size, hidden_size, num_layers=1, bias=True,
+batch_first=False, dropout=0.0, bidirectional=False, proj_size=0, ...)`, also read directly from
+the installed 2.14.0 docstring — implements exactly this per layer, per time step, so building the
+model is three lines: one `nn.LSTM` layer, and a `nn.Linear` head on the final hidden state,
+`h_n[-1]`, to turn the 32-number summary back into one predicted value:
+
+```python
+import torch
+from torch import nn
+
+HIDDEN_SIZE = 32
+
+
+class TinyLSTM(nn.Module):
+    """One LSTM layer over the 12-month window, then a linear head on the final hidden state.
+    `forward` returns `(output, (h_n, c_n))`; `h_n[-1]` is the last layer's hidden state after
+    the last time step -- everything the network "remembers" about the whole 12-month window,
+    compressed into one 32-number vector."""
+
+    def __init__(self, hidden_size: int = HIDDEN_SIZE):
+        super().__init__()
+        self.lstm = nn.LSTM(input_size=1, hidden_size=hidden_size, num_layers=1,
+                             batch_first=True)
+        self.head = nn.Linear(hidden_size, 1)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        _, (h_n, _) = self.lstm(x)
+        return self.head(h_n[-1])
+```
+
+For a Java engineer, `nn.Module` is the closest thing PyTorch has to an interface contract: extend
+it, declare the layers you own as fields in `__init__` (PyTorch finds their trainable parameters by
+walking those fields automatically — no manual registration, similar to how a DI container
+discovers `@Autowired` fields by reflection), and implement `forward` the way you'd implement a
+single abstract method.
+
+### 6.3 Training it, and reading the result honestly
+
+Training is a plain gradient-descent loop — no framework magic beyond `loss.backward()` computing
+every gradient via autograd (PyTorch's own reverse-mode autodiff, the same backpropagation-by-chain-rule
+NOTE-ML-2 documents, just applied automatically instead of by hand):
+
+```python
+EPOCHS = 300
+LEARNING_RATE = 0.01
+
+torch.manual_seed(42)
+model = TinyLSTM()
+optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
+loss_fn = nn.MSELoss()
+
+loss_history = []
+for epoch in range(1, EPOCHS + 1):
+    model.train()
+    optimizer.zero_grad()
+    pred = model(X_train_t)
+    loss = loss_fn(pred, y_train_t)
+    loss.backward()
+    optimizer.step()
+    loss_history.append(loss.item())
+```
+
+Run against the 180 training windows (months 12–191), the loss drops fast for the first ~30 epochs
+and then creeps down slowly for the rest of the run:
+
+```text
+epoch    1  train MSE (standardised units) = 0.98133
+epoch   50  train MSE (standardised units) = 0.16057
+epoch  100  train MSE (standardised units) = 0.15357
+epoch  150  train MSE (standardised units) = 0.14830
+epoch  200  train MSE (standardised units) = 0.14217
+epoch  250  train MSE (standardised units) = 0.13309
+epoch  300  train MSE (standardised units) = 0.11568
+
+LSTM one-step-ahead RMSE (last 48 months, single time-respecting split): 13.1803
+```
+
+![Line chart of TinyLSTM training loss (mean squared error, standardised units, log-scaled y-axis) against epoch number, for signal_2_linear_noise with a 12-month window: loss falls sharply from about 1.0 to about 0.2 in the first 20 epochs, oscillates briefly, then decreases slowly and steadily from about 0.16 to about 0.12 over the remaining 280 epochs](artefacts/lstm_forecast_loss_curve.png)
+
+That log-scaled curve is the "show the artefact" half of this section: real numbers, falling, on
+real (if standardised) units — not a hand-wave that "the network learns." The forecast itself, read
+against the 48 held-out months, tells the more useful story:
+
+![Line chart comparing actual values (black, solid, with markers) to the LSTM's one-step-ahead forecast (green, dashed) for the last 48 months of signal_2_linear_noise: the actual series swings noisily between roughly 115 and 170, while the LSTM forecast stays in a much narrower band around 128-135, tracking the general level but missing essentially all of the month-to-month swings](artefacts/lstm_forecast_vs_actual.png)
+
+The forecast line is almost flat next to the actual data's swings — the LSTM learned the *level*
+of the series (roughly where the trend sits by month 200) but did not, and could not, predict the
+noise riding on top of it, because that noise is independently drawn white noise by construction
+(Section 1.1) — nothing in the training data carries any information about it. That's not a bug in
+the model; it is, in fact, the textbook-correct behaviour, and it's exactly what Sections 4.2–4.3's
+ARIMA and lag-regression forecasts do too, for the same reason.
+
+| Model | Mean RMSE on `signal_2_linear_noise` | Evaluation | Cost to get this number |
+|---|---|---|---|
+| ARIMA(1,1,0), `trend='t'` (Section 4.3) | 14.12 | 5-fold walk-forward backtest | statsmodels MLE fit per fold, well under a second total |
+| 12-lag `LinearRegression` (Section 4.3) | 10.40 | 5-fold walk-forward backtest | closed-form fit, milliseconds |
+| TinyLSTM, 12-month window, 32 hidden units (this section) | 13.18 | single time-respecting split | 300 full-batch epochs, a few seconds on CPU, no GPU needed |
+
+Read that table carefully rather than just reading off "13.18 beats 14.12": the LSTM's number comes
+from *one* time-respecting split, not the 5-fold walk-forward backtest the other two rows report —
+the honest comparison is "roughly the same ballpark," not "beats ARIMA." The injected noise's own
+standard deviation is `WIGGLE = 10.0` — the practical floor no model can beat on this signal, since
+that's the size of the part nothing can predict. The 12-lag regression already sits close to that
+floor. The LSTM landing a few points above it, after two hundred times the code and a training loop
+Sections 4–5 didn't need, is the honest headline of this section.
+
+### 6.4 When the extra machinery earns its place
+
+None of this means neural sequence models are a bad idea — it means this particular signal doesn't
+need one. A clean, low-dimensional, single-frequency composite signal like the four this chapter
+builds is exactly the case classical time-series statistics was designed for: ARIMA and a
+hand-built lag-feature table both already encode the right inductive bias (linear trend, one
+12-month cycle) directly into the model, so there's very little left for a neural network to
+discover on its own — and discovering it costs a training loop, a random seed, a chosen
+architecture, and a GPU-or-patience decision that a `LinearRegression.fit()` call never asks for.
+
+An LSTM (or, for longer sequences, a Transformer — Section 4 of
+[Network Architectures](../../02-machine-learning/01-theory/02-architectures.md) covers both, plus
+why transformers have displaced RNNs for most new sequence work) earns its complexity when the
+signal stops looking like this chapter's synthetic examples: many correlated input series instead
+of one, patterns that shift across regimes instead of a fixed trend and a fixed period, non-linear
+interactions between lags that no `polyfit` or fixed-order AR term can express, or enough training
+data that the network can actually learn structure statistics has to be told by hand. If you're
+staring at one wobbling line with an obvious trend and an obvious cycle, reach for Section 4's
+tools first and only bring in a neural model once a classical baseline has demonstrably run out of
+room to improve — the same "back-test and compare, every time" discipline Section 5's recommendation
+table already argued for two model families; it applies just as much to a third.
+
+For the neural-network mechanics this section leaned on without re-deriving — what a gate actually
+is, backpropagation, why vanishing gradients happen at all, the general architecture-selection
+question of "which network shape fits which data shape" — see
+[Neural Network Fundamentals](../../02-machine-learning/01-theory/01-neural-network-fundamentals.md)
+and [Network Architectures](../../02-machine-learning/01-theory/02-architectures.md) in the Machine
+Learning subject; this section only needed enough of that theory to explain one worked example.
+
+---
+
+**Environment for this section (separate from the rest of this chapter):** the code above runs in
+a different virtual environment (`.venv-ml`) from `forecasting_signals.py`, because it needs
+`torch` and does not need `statsmodels`:
+
+```text
+torch==2.14.0 (CPU build)
+numpy==2.5.2
+scikit-learn==1.9.0
+matplotlib==3.11.1
+Python 3.12+
+```
+
+Pinned and verified against PyPI on 2026-09-02
+([source: NOTE-ML-1-torch-install](../../research/NOTE-ML-1-torch-install.md)); numpy/scikit-learn/matplotlib
+versions reused from [NOTE-2-package-versions](../../research/NOTE-2-package-versions.md) and
+[NOTE-5-sklearn-core-apis](../../research/NOTE-5-sklearn-core-apis.md), confirmed installed at
+exactly these versions in `.venv-ml` by running `pip show` there, 2026-09-03. `signal_2_linear_noise`
+is reproduced from the same `RNG_SEED=42` as `forecasting_signals.py` and verified bit-for-bit
+identical across the two separate environments. Full source:
+[`code/lstm_forecast.py`](code/lstm_forecast.py); run it with `.venv-ml`'s Python, not the main
+chapter environment's.
+
+## 7. Pitfalls
+
+### 7.1 A random split on time-ordered data
 
 Covered in full in Section 1: `train_test_split`'s default `shuffle=True`, or a plain (non-time)
 `KFold`, lets the model train on rows that come after the row it's being tested on. Section 1.2's bar
@@ -701,7 +991,7 @@ size of the gap isn't the point; the *direction* always is. **For time-ordered d
 `TimeSeriesSplit` (or an explicit chronological holdout) — never `train_test_split`'s default or a
 shuffled `KFold`.**
 
-### 6.2 Fitting the scaler (or imputer) on the whole series
+### 7.2 Fitting the scaler (or imputer) on the whole series
 
 The temporal twin of [the split chapter's Section 3 leak](04-train-valid-holdout-split.md#3-the-leakage-demo-fit-on-the-whole-dataset-get-an-optimistic-score):
 fitting a `StandardScaler` on the *entire* series before splitting means its mean and standard
@@ -743,7 +1033,7 @@ mechanism and the fix are identical: **fit every preprocessing step — scaler, 
 A `Pipeline` doesn't automatically know about time order, so this discipline still has to be applied
 by hand: fit on `series[:train_end]`, never on `series` as a whole.**
 
-### 6.3 Forecasting far beyond the trend's validity
+### 7.3 Forecasting far beyond the trend's validity
 
 A model trained on a trend is only trustworthy for extrapolating a *short* distance past its training
 data — how short depends on the trend shape. `signal_4_quadratic_noise`'s polynomial fit (Section 4.3)
@@ -771,7 +1061,7 @@ fitting procedure knows or cares that the real-world process it's modelling almo
 backtest (Section 4) — a model that backtests well one year out is not evidence it's safe to forecast
 ten years out, especially for a non-linear trend.**
 
-## 7. Recap & what's next
+## 8. Recap & what's next
 
 - Time-ordered rows are not independent, so [the split chapter's](04-train-valid-holdout-split.md)
   `shuffle=True` default leaks the future into training. Section 1.2 showed the honest error running
@@ -793,8 +1083,15 @@ ten years out, especially for a non-linear trend.**
   on three of four signals here — a reminder that "the more sophisticated model" isn't automatically
   the better one; back-test and compare, every time.
 - Watch for three forecasting-specific pitfalls beyond the split itself: fitting a scaler/imputer on
-  the whole series (Section 6.2), and extrapolating a trend model far past where it was validated
-  (Section 6.3) — a quadratic trend in particular grows without bound.
+  the whole series (Section 7.2), and extrapolating a trend model far past where it was validated
+  (Section 7.3) — a quadratic trend in particular grows without bound.
+- **A neural sequence model (Section 6)** frames forecasting as supervised learning on a sliding
+  window and trains a small `torch.nn.LSTM` on `signal_2_linear_noise`, landing at RMSE 13.18 — in
+  the same neighbourhood as, not clearly better than, Section 4.3's ARIMA (14.12) and lag-regression
+  (10.40) baselines on this signal. The honest takeaway: a clean, low-dimensional synthetic signal
+  like this chapter's four is exactly the case classical time-series statistics was built for: earn
+  the neural model's extra complexity with messier, higher-dimensional, or regime-shifting data
+  first, not by default.
 
 This chapter closes out the "trend, split, and validate honestly" thread that started with
 [train/validation/holdout](04-train-valid-holdout-split.md) and continued through
@@ -869,3 +1166,35 @@ verbatim; only prose structure, headings, and section order changed. New claim a
 [Wikipedia, "Box–Jenkins method"](https://en.wikipedia.org/wiki/Box%E2%80%93Jenkins_method) (checked
 2026-09-03) — not one of NOTE-12's tabulated facts, since it's historical framing rather than an API
 or metric definition, but cited inline per the style guide's "inline authoritative citation" allowance.
+
+**Enrichment note (2026-09-03): Section 6, "A neural take — an LSTM on the same signal," added.**
+This chapter's original scope (SPEC-DS-9) explicitly listed "Prophet/deep forecasting (mention +
+link)" under Out of scope. This addition was requested directly by the owner as a deliberate,
+separately-scoped enrichment — the chapter had no deep-learning angle at all, and the owner wanted
+one added on the same data rather than as a new chapter. Flagging here because it goes beyond
+SPEC-DS-9's written scope; **the architect should update SPEC-DS-9's Out of scope line** (or record
+this as an approved scope amendment) so the spec and the shipped chapter stay consistent per the
+Definition of Done's "anything cut from the spec is recorded in the spec's Out of scope, not
+silently dropped" rule — the same rule in reverse, since this is something *added* past what was
+scoped out.
+
+Three judgment calls made writing Section 6, beyond what NOTE-ML-1/-2/-3 covered directly:
+
+1. **Separate virtual environment.** `.venv-ml` (which has `torch==2.14.0` but not `statsmodels`)
+   is not the same environment `forecasting_signals.py` runs in. Rather than add a ~250 MB CPU
+   torch wheel to the rest of this chapter's dependency set, Section 6's code lives in its own file
+   (`code/lstm_forecast.py`) with its own Environment block, and reproduces `signal_2_linear_noise`
+   from scratch (same seed, verified bit-for-bit identical) instead of importing
+   `forecasting_signals.py`, since that module's own imports (`statsmodels`) are not installed in
+   `.venv-ml`.
+2. **`torch.nn.LSTM`'s gate equations are not one of NOTE-ML-3's tabulated facts** (NOTE-ML-3 covers
+   LSTM/GRU gating at the block-diagram level, explicitly flagging "full gate equations … technical
+   detail; block-level intuition sufficient" as out of its own scope). The exact equations in
+   Section 6.2 were instead read directly from the installed `torch==2.14.0` docstring
+   (`nn.LSTM.__doc__`) and verified to match — the same "confirm against the live environment"
+   convention this chapter already used for `KNeighborsRegressor`'s signature in Section 1.2.
+3. **Signal choice.** `signal_2_linear_noise` (linear trend + real white noise) was chosen over
+   `signal_1_linear_sine` (which Section 4.3 already fits to near-zero RMSE, because it has zero
+   injected noise) specifically so the LSTM-vs-classical comparison has a real noise floor to reason
+   about, rather than comparing against an edge case where classical models happen to reconstruct
+   the signal exactly.
