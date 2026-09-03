@@ -64,6 +64,21 @@ The book is taught as a **story**, one idea at a time, with a picture on nearly 
   it (with the current step highlighted) at each section boundary, so the reader never loses the thread.
 - **Historical timelines** where a field evolved (e.g. CNNs: LeNet → AlexNet → VGG → ResNet →
   EfficientNet), each entry naming *what it introduced* and *why*.
+- **Open with the origin story when there is one.** A short, grounded historical hook (Galton coining
+  "regression" from fathers' and sons' heights; Ashenfelter's wine equation; Fisher's lady tasting tea;
+  the 1981 Nobel visual-cortex work behind CNNs) makes an abstract idea concrete and memorable. Research
+  it and cite it — don't invent history.
+- **Problem-first discovery — introduce the problem, then let the reader solve it.** Show a naive
+  attempt *failing first*, with a concrete bad number, so the reader feels why it's wrong; then derive
+  the fix so it lands as *their* idea, not a definition handed down. Every technique must earn its place
+  by solving a problem the reader just watched fail. Ask the question on the page ("so how do we know
+  which feature matters?") before you answer it.
+- **Iterate visibly toward "perfection."** When a method improves in steps, show the metric moving each
+  time (error 50% → 30% → 20% → 10%) and pin every improvement to the single change that caused it — the
+  reader should watch the model get better, not be told it did.
+- **Simple "why we do it this way" asides.** Whenever a convention appears (scale features, split before
+  fitting, one-hot vs ordinal), give the one-line reason with a tiny concrete example of what breaks if
+  you don't — never "because that's the standard."
 
 **Visualise constantly — prefer GitHub-native, theme-aware formats (no external tooling):**
 - **Mermaid** for flow, sequence, timeline, mindmap, state, and block/architecture diagrams — fenced as
