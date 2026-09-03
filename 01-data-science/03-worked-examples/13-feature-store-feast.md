@@ -2,35 +2,70 @@
 
 *Data Science · Worked Examples · SPEC-DS-13*
 
-DS-5 ([Regression: NYC Taxi](05-regression-nyc-taxi.md)) and DS-6
-([Classification: Titanic](06-classification-titanic.md)) both built a feature matrix once, in a
-notebook, and fed it straight into `fit()`. That's fine for a one-off model. It falls apart the
-moment the same model needs to run twice — once offline, to produce the training set, and once
-online, to answer a live prediction request in milliseconds — because now two different pieces of
-code have to compute the *same* feature, and they will eventually disagree. This chapter is about
-the tool built specifically to stop that from happening: a **feature store**, worked through with
-[Feast](https://github.com/feast-dev/feast), on a small, fully local, fully reproducible example.
+## The model that trained perfectly and shipped broken
+
+Picture a driver risk-scoring model for a delivery app. One of its features is `conv_rate` — a
+driver's accepted-trip rate, the fraction of offered trips they actually complete. It's a genuinely
+predictive number: a driver who accepts almost everything behaves very differently from one who
+cherry-picks the easy trips.
+
+Training builds `conv_rate` in a nightly batch job: a SQL query against the data warehouse,
+`accepted_trips / offered_trips`, averaged over the trailing 30 days, joined onto every historical
+training row. It works. The model trains, validates well on a holdout set, and looks ready to ship.
+
+Serving needs the *same* `conv_rate`, but live — a driver opens the app, and something has to answer
+"will this driver likely complete this trip?" in single-digit milliseconds, with no data warehouse
+anywhere in the loop. So a different engineer, on a different team, months later, writes a small
+Python function that reads a live events cache and computes... `accepted_trips / offered_trips` —
+but over *the current calendar month*, because "trailing 30 days" meant re-implementing a rolling
+window against a cache that doesn't naturally support one, and "this calendar month" was one line of
+code. Same column name. Same underlying idea. A quietly different number.
+
+```mermaid
+flowchart TB
+    subgraph TRAIN["training pipeline -- batch job, runs once a night"]
+        T1["warehouse: driver_trips table"] --> T2["SQL: accepted / offered,<br/>trailing 30 days"]
+        T2 --> T3["conv_rate written into<br/>every training row"]
+    end
+    subgraph SERVE["serving pipeline -- hand-rolled, written months later"]
+        S1["live events cache"] --> S2["Python: accepted / offered,<br/>current calendar month"]
+        S2 --> S3["conv_rate returned to<br/>the live API call"]
+    end
+    T3 -.->|"same column name,<br/>same driver, same moment --<br/>a DIFFERENT number"| MODEL["the SAME trained model"]
+    S3 -.-> MODEL
+    MODEL --> BAD["scores every live request<br/>on a feature definition<br/>it never actually trained on"]
+```
+
+Nobody sees an exception. Nothing crashes. The model just quietly scores worse in production than it
+did in validation — and because both pipelines call their output `conv_rate`, there's no obvious
+place to even look. This is **train/serve skew**: the same *name*, computed by two different pieces
+of code that drift apart, silently, the moment either one changes without the other.
+
+Here's the one-sentence version you could repeat at dinner: **if training and serving don't run the
+exact same code to compute a feature, they will eventually disagree, and nothing will tell you.**
 
 If you've ever maintained a REST DTO and its corresponding JPA entity by hand and watched them drift
 out of sync after six months of "quick" changes on one side only, you already understand the failure
-mode this chapter exists to prevent — just applied to features instead of fields.
+mode — just applied to features instead of fields. DS-5 ([Regression: NYC
+Taxi](05-regression-nyc-taxi.md)) and DS-6 ([Classification: Titanic](06-classification-titanic.md))
+both built a feature matrix once, in a notebook, and fed it straight into `fit()`. That's fine for a
+one-off model. It falls apart the moment the same model has to run twice — once offline to build a
+training set, once online to answer a live request — because that's exactly the setup the story above
+just watched fail. This chapter is about the tool built specifically to prevent it: a **feature
+store**, worked through with [Feast](https://github.com/feast-dev/feast), on a small, fully local,
+fully reproducible example whose whole design is "define the feature once, read it from two places."
 
 ## 1. What & why — train/serve skew
 
-Say you're scoring delivery drivers for a "likely to complete this trip" model. Training needs a
-column like `conv_rate` (the driver's historical accepted-trip rate) computed for thousands of
-historical rows, each timestamped to when the *training example* happened — a batch job, run once,
-reading from a data warehouse. Serving needs the *same* `conv_rate`, for *one* driver, computed fresh,
-returned in single-digit milliseconds as part of a live API call.
-
-Two different systems end up computing "the same" feature: a batch SQL/Spark job for training, and
-some hand-rolled online lookup (a cache, a microservice, an inline computation) for serving. They are
-never actually the same code. Column names drift (`conv_rate` vs. `conversion_rate`), a `NULL`-handling
-rule differs, a rolling window is "30 days" in one and "last calendar month" in the other, a unit
-changes. The model was trained on one definition and is scored in production against a *silently
-different* one. This is **train/serve skew**, and it is one of the most common causes of a model that
-validates beautifully offline and then quietly underperforms — or actively misbehaves — once it's live,
-with no exception thrown anywhere to tell you why.
+The cold open used `conv_rate` and a driver-scoring model, but the failure mode is general. Two
+different systems end up computing "the same" feature: a batch SQL/Spark job for training, and some
+hand-rolled online lookup (a cache, a microservice, an inline computation) for serving. They are
+never actually the same code. Column names drift (`conv_rate` vs. `conversion_rate`), a
+`NULL`-handling rule differs, a rolling window is "30 days" in one and "last calendar month" in the
+other, a unit changes. The model was trained on one definition and is scored in production against a
+*silently different* one — and that's one of the most common causes of a model that validates
+beautifully offline and then quietly underperforms, or actively misbehaves, once it's live, with no
+exception thrown anywhere to tell you why.
 
 The fix a feature store provides: **define each feature exactly once**, and hand both the training
 path and the serving path the same SDK to fetch it, so there is only ever one implementation to drift
@@ -49,6 +84,15 @@ completed *today*, minutes since their last trip, the last five clicks on a prod
 minutes, not days, actively hurts prediction quality, and only the *current* value is ever needed for
 serving.
 
+Two everyday versions of the same split, no ML involved: your bank's monthly statement is a **slow**
+feature — a batch job closes the books once a month and the number sits still until the next close.
+The balance your banking app shows you *right now* is a **fast** feature — same underlying data (your
+transactions), recomputed continuously, and only the latest value is ever useful. Nobody would build a
+live "current balance" screen by re-running the monthly-statement job on every tap, and nobody should
+build a live model-serving feature by re-running a nightly batch query on every request either. That
+mismatch in latency budget, not any difference in the data itself, is the whole reason offline and
+online stores exist as separate things.
+
 Feast keeps these on two physically different stores behind one API, per
 [NOTE-17-feast-api.md](../../research/NOTE-17-feast-api.md) (verified against Feast 0.66.0 on
 2026-09-02):
@@ -64,7 +108,22 @@ Feast keeps these on two physically different stores behind one API, per
 A JVM analogy: the offline store is like an audit-log table you replay to reconstruct state as of any
 past point in time; the online store is a `ConcurrentHashMap<EntityId, LatestValue>` you look up by
 key. Same underlying data, two access patterns, two very different latency budgets — and Feast is the
-one client library that knows how to talk to both, keyed off the exact same feature definitions.
+one client library that knows how to talk to both, keyed off the exact same feature definitions:
+
+```mermaid
+flowchart LR
+    DEF["ONE FeatureView<br/>defined once, in one file"] --> OFF["offline store<br/>(Parquet -- full history)"]
+    DEF --> ON["online store<br/>(SQLite here --<br/>Redis/DynamoDB in production)"]
+    OFF --> HIST["get_historical_features()<br/>training"]
+    ON --> ONLINE["get_online_features()<br/>serving"]
+```
+
+This is the fix from the cold open, drawn as a picture: instead of two hand-written implementations
+that can drift (the SQL job and the Python cache lookup), there is one **feature view** — Feast's name
+for a named, versioned group of features that share a source and an **entity** (the thing you're
+looking features up *for*; here, a driver, keyed by `driver_id` — the primary key every lookup takes
+as a parameter, the way a Java service parameterises a repository call by an entity's id). Section 3
+defines both for real.
 
 Crucially, "slow vs. fast" is a property of *how the feature is computed and refreshed*, not of which
 store holds it — both `driver_stats` (slow) and `driver_activity` (fast) in this chapter's demo end up
@@ -73,6 +132,19 @@ how short a staleness window is tolerable, which is why each `FeatureView` below
 `ttl` (time-to-live) — Section 3.
 
 ## 3. Feast setup — repo, entity, feature views, offline + online stores
+
+Six steps get from "nothing defined" to "both training and serving can fetch a feature." This section
+and the next walk through all six, in order, on real captured output — one file, one command, then
+four function calls:
+
+```mermaid
+flowchart LR
+    S1["Step 1<br/>feature_store.yaml<br/>declare the two stores"] --> S2["Step 2<br/>feature_definitions.py<br/>Entity + FeatureView<br/>(the ONE definition)"]
+    S2 --> S3["Step 3<br/>feast apply<br/>register it"]
+    S3 --> S4["Step 4<br/>store.materialize()<br/>offline -> online copy"]
+    S4 --> S5["Step 5<br/>get_historical_features()<br/>training rows"]
+    S4 --> S6["Step 6<br/>get_online_features()<br/>live request"]
+```
 
 ### Environment
 
@@ -107,7 +179,7 @@ confirmed in NOTE-17). One entity, `driver`, keyed by `driver_id`, with two feat
 - `driver_activity` — **fast**: `trips_today` and `minutes_since_last_trip`, several rows per driver
   on the final day, standing in for a frequently-updated live counter.
 
-### 3.2 `feature_store.yaml` — where the two stores live
+### 3.2 `feature_store.yaml` — where the two stores live (Step 1)
 
 Every Feast repo has exactly one of these, declaring the offline provider, the online store backend,
 and where the registry (the catalog of every entity/feature view ever applied) is kept:
@@ -128,7 +200,7 @@ confirmed as installable and runnable — no cloud account, no Docker, nothing b
 otherwise (a newer key-encoding format is becoming mandatory; observed directly when first running
 `feast apply` without it, then fixed).
 
-### 3.3 `feature_definitions.py` — the ONE definition (LO1)
+### 3.3 `feature_definitions.py` — the ONE definition (Step 2, LO1)
 
 This is the file that matters most in the whole chapter. `feast apply` scans it and registers
 everything it finds; `get_historical_features()` and `get_online_features()` both read *these exact*
@@ -205,7 +277,7 @@ driver_activity_fv = FeatureView(
 stale for this *particular* feature" per feature view, independently of how the offline/online split
 itself works.
 
-### 3.4 Registering it — `feast apply`
+### 3.4 Registering it — `feast apply` (Step 3)
 
 Run from the directory containing `feature_store.yaml` (`code/feast_demo/feature_repo/`):
 
@@ -300,11 +372,12 @@ wrote 40 rows -> .../feature_repo/data/driver_activity.parquet
       1005 2026-09-02 19:00:00+00:00   0.428687        14.087789 2026-09-02 19:00:00+00:00
 ```
 
-### 4.2 `materialize()` — copying offline into online
+### 4.2 `materialize()` — copying offline into online (Step 4)
 
-Materialization is the bridge in the architecture diagram below: it reads a time window from the
-offline store and writes, per entity, whichever row is *most recent* into the online store —
-overwriting whatever was there before.
+**Materialize, in one line:** copy whatever's newest in the offline store into the online store,
+overwriting whatever was there before. It's the bridge in the architecture diagram below: it reads a
+time window from the offline store and writes, per entity, whichever row is *most recent* into the
+online store.
 
 ```python
 def run_materialize(store: FeatureStore) -> None:
@@ -322,12 +395,14 @@ runs on a schedule (Airflow, a cron job, an orchestrator step) — every few min
 nightly for slow ones — via `materialize_incremental()`, which picks up from wherever the last run
 left off instead of re-scanning the whole window each time.
 
-### 4.3 `get_historical_features()` — point-in-time-correct training rows (LO3)
+### 4.3 `get_historical_features()` — point-in-time-correct training rows (Step 5, LO3)
 
-This is the retrieval call training code uses, and its defining behaviour is the **point-in-time
-join**: you hand it an `entity_df` of `(driver_id, event_timestamp)` pairs — one per training
-example — and for *every row*, Feast attaches whichever feature value was the most recently known
-**as of that row's own timestamp**, never a value from after it
+**Point-in-time join, in one line:** attach to each training row only the feature value that was
+already known at that row's own timestamp — never one from later. This is the retrieval call
+training code uses, and that join is its defining behaviour: you hand it an `entity_df` of
+`(driver_id, event_timestamp)` pairs — one per training example — and for *every row*, Feast attaches
+whichever feature value was the most recently known **as of that row's own timestamp**, never a value
+from after it
 ([NOTE-17-feast-api.md](../../research/NOTE-17-feast-api.md), confirmed against the official Feast
 docs). That per-row timestamp bound is exactly what prevents point-in-time leakage: a training example
 dated ten days ago cannot see a feature value that was only computed yesterday.
@@ -379,7 +454,18 @@ join on `driver_id` and grab whatever's latest" implementation would have handed
 example. `get_historical_features()` never does that; the join key is `(entity, time)`, not just
 `entity`.
 
-### 4.4 `get_online_features()` — the serving path (LO3)
+Drawn out for the ten-days-ago row specifically, using the real numbers above:
+
+```mermaid
+flowchart TB
+    ROW["entity_df row:<br/>driver_id=1001<br/>event_timestamp = 2026-08-23 (NOW minus 10 days)"] --> SCAN["scan driver_stats history<br/>for driver_id=1001"]
+    SCAN --> F1["2026-08-23 value: conv_rate=0.8805<br/>(at or before the row's timestamp -- allowed)"]
+    SCAN --> F2["2026-09-02 value: conv_rate=0.8749<br/>(after the row's timestamp -- excluded, it's the future)"]
+    F1 --> PICK["keep the most recent<br/>ALLOWED value"]
+    PICK --> OUT["attached conv_rate = 0.8805<br/>to this training row"]
+```
+
+### 4.4 `get_online_features()` — the serving path (Step 6, LO3)
 
 The other retrieval call, used by whatever process answers live prediction requests. No timestamp
 argument at all — just the entity you're scoring *right now*:
@@ -425,6 +511,8 @@ paths, and this script proves it by calling both against the identically-registe
 
 ### 4.5 The train/serve-skew punchline
 
+This is the fix promised in the cold open, made concrete: two different retrieval calls, the same
+underlying `FeatureView` definition. Watch how close the numbers land instead of drifting apart.
 Driver 1001's `conv_rate`, "as of now," retrieved two ways:
 
 ```text
