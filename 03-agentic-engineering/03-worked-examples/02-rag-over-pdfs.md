@@ -2,22 +2,68 @@
 
 *Agentic Engineering · Worked Examples · SPEC-AGENT-3*
 
-[`theory.md`](../01-theory/01-theory.md) (SPEC-AGENT-1) named the fix and drew the pipeline: **chunk → embed
-→ store** offline, **query → embed → search → augment → generate** online. The previous chapter,
-[`mcp-database-query-layer.md`](01-mcp-database-query-layer.md) (SPEC-AGENT-2), gave an agent its first
-kind of external capability — structured rows, behind a narrow, typed tool boundary. This chapter
-gives it a second kind: unstructured text, behind the same discipline. A PDF handbook is not a
-database — there is no `SCHEMA` dict, no `SELECT ... WHERE`, no exact match to ask for. What it has
-instead is *meaning*, and the tool for finding "the paragraph that's actually about this question"
-is exactly what Section 3 of `theory.md` covered: embeddings, cosine similarity, and a vector index.
+## The three-page handbook that won't stay three pages
 
-This chapter builds all of it, for real, over a real (if synthetic) three-page engineering handbook:
+Say you want an LLM to answer questions about your team's engineering handbook — "how long is
+on-call," "what's the API rate limit," "how long do we keep logs." The obvious first move, the one
+almost everyone tries before learning any new vocabulary at all, needs zero new machinery: open the
+PDF, copy every page of text, paste the whole thing into the prompt above your question, and let the
+model read it.
+
+For this chapter's sample handbook — three pages, six short sections — that actually works. The whole
+document is a few hundred words, nowhere near any model's context window (`theory.md` Section 2
+measured exactly what that window is and why it's a hard architectural ceiling, not a soft
+suggestion). So "just paste it all in" isn't *wrong* here. It's just not a strategy — it's a shortcut
+that happens to fit inside a document small enough to get away with it.
+
+A real engineering handbook is not three pages. It's dozens of pages, or a wiki with hundreds of
+them, edited by a dozen different people — and "paste the whole thing into every prompt" stops
+working long before you'd ever run out of context window: every token you paste is a token you pay
+for, on *every single question*, whether or not it has anything to do with the answer, and it's a
+token the model has to read past to find the one paragraph that actually matters. Scaling the naive
+approach up doesn't fail with a clean error message — it fails quietly, by getting slower, more
+expensive, and easier for the model to lose the thread in.
+
+So the question this chapter actually answers isn't "how do I get text out of a PDF" — that part is
+one function call (Section 2). It's: **out of everything in this document, how do I find only the
+passage that's actually relevant to this question, and hand the model just that — instead of
+everything?** That's retrieval, the R in RAG, and [`theory.md`](../01-theory/01-theory.md)
+(SPEC-AGENT-1) already named the fix and drew the pipeline: **chunk → embed → store** offline,
+**query → embed → search → augment → generate** online. The previous chapter,
+[`mcp-database-query-layer.md`](01-mcp-database-query-layer.md) (SPEC-AGENT-2), gave an agent its
+first kind of external capability — structured rows, behind a narrow, typed tool boundary. This
+chapter gives it a second kind: unstructured text, behind the same discipline. A PDF handbook is not
+a database — there is no `SCHEMA` dict, no `SELECT ... WHERE`, no exact match to ask for. What it has
+instead is *meaning*, and the tool for finding "the paragraph that's actually about this question" is
+exactly what Section 3 of `theory.md` covered: embeddings, cosine similarity, and a vector index.
+
+This chapter builds all of it, for real, over the real (if synthetic) three-page handbook above:
 parse the PDF, chunk it, embed every chunk with a small local model, retrieve the top-k chunks for a
 question by cosine similarity, and — only at the very last step, and only if you provide an API
 key — generate a prose answer that cites which chunks it came from. Everything through retrieval runs
 on a CPU with no key at all; **that is the actual point of this chapter**, not a simplification for
 teaching purposes. RAG's retrieval half is honest, inspectable, ordinary code. Only the final "write
-me a sentence" step needs an LLM.
+me a sentence" step needs an LLM. One sentence to keep, the kind you could repeat at dinner:
+**retrieval isn't a workaround for a small context window — it's how you avoid making the model read
+the whole library every time it wants one page.**
+
+Here's the map this chapter re-visits at every section boundary — every node names the real function
+or file that does that step, not an abstraction:
+
+```mermaid
+flowchart LR
+    PDF["acme_handbook.pdf<br/>3 pages"] -->|"pdfplumber<br/>Section 2"| CHUNK["chunk_page<br/>100w / 20w overlap"]
+    CHUNK -->|"Section 2"| EMBED["embed_chunks<br/>all-MiniLM-L6-v2"]
+    EMBED -->|"Section 3"| INDEX[("index/<br/>embeddings.npy + chunks.jsonl")]
+    INDEX -->|"Section 4"| RETRIEVE["top_k<br/>cosine search"]
+    RETRIEVE -->|"Section 5"| AUGMENT["assemble_context<br/>+ prompt template"]
+    AUGMENT -->|"Section 5, key-gated"| GENERATE["Claude Messages API<br/>or no-key fallback"]
+```
+
+Everything left of `index/` runs **offline**, once per document. Everything right of it runs
+**online**, once per question. The offline/online split is the whole reason retrieval scales where
+"paste the whole document" doesn't: you pay the embedding cost once, up front, no matter how many
+questions get asked afterward.
 
 ## 1. What & why — a PDF is not a database
 
@@ -38,6 +84,17 @@ with stemming and ranking on top. An embedding index answers a different questio
 documents contain these words" but "which documents mean something close to this." Two passages that
 share almost no vocabulary can still embed close together if they're about the same thing — and two
 passages that share a lot of vocabulary can embed far apart if they're not.
+
+```mermaid
+flowchart LR
+    Q1["SQL query:<br/>entity=orders,<br/>filters: status is shipped"] --> EXACT{"exact match"}
+    EXACT -->|"yes or no --<br/>nothing in between"| ROWS["matching rows"]
+    Q2["natural-language question:<br/>'What's the on-call<br/>rotation policy?'"] --> SEM{"semantic search<br/>over chunk embeddings"}
+    SEM -->|"closest-meaning passage,<br/>even with few shared words"| CHUNKS["top-k chunks"]
+```
+
+Same shape of problem — "find me the thing that answers this" — two structurally different answers,
+because one caller's question has a column to filter on and the other's doesn't.
 
 ## 2. Parse + chunk the sample PDF
 
@@ -126,9 +183,23 @@ def chunk_page(text: str, page_num: int, start_id: int, size: int, overlap: int)
 ```
 
 `step = size - overlap` is the whole trick: each new window starts `step` words after the previous
-one started, so the last `overlap` words of one chunk are the first `overlap` words of the next. That
-is what keeps a fact from vanishing off both sides of a chunk boundary — Section 6 shows what happens
-when `overlap=0`. Full file: [code/rag_pdf/ingest.py](code/rag_pdf/ingest.py). Real run:
+one started, so the last `overlap` words of one chunk are the first `overlap` words of the next. With
+`size=100, overlap=20`, `step=80` — chunk 1 starts at word 81 of page 1, twenty words before chunk 0
+runs out:
+
+```mermaid
+flowchart LR
+    W0["chunk 0<br/>words 1-100"] --> W1["chunk 1<br/>words 81-180"]
+    W1 --> W2["chunk 2<br/>words 161-238<br/>page 1 ends early: 78 words"]
+    W0 -.->|"words 81-100<br/>shared by both"| W1
+    W1 -.->|"words 161-180<br/>shared by both"| W2
+```
+
+That is what keeps a fact from vanishing off both sides of a chunk boundary — **why we do it this
+way**: without the overlap, a sentence that happens to straddle word 100/101 gets its first half in
+chunk 0 and its second half in chunk 1, and neither chunk alone contains the whole fact. Section 6
+shows exactly what happens when `overlap=0`. Full file: [code/rag_pdf/ingest.py](code/rag_pdf/ingest.py).
+Real run:
 
 ```text
 .venv-agent/Scripts/python.exe "Agentic Engineering/Worked Examples/code/rag_pdf/ingest.py"
@@ -170,20 +241,48 @@ def embed_chunks(chunks: list[Chunk], model: SentenceTransformer) -> np.ndarray:
     return embeddings.astype(np.float32)
 ```
 
-`normalize_embeddings=True` is the detail worth pausing on: it makes every output vector unit length
-(`‖v‖ = 1`). Cosine similarity is normally `(a·b) / (‖a‖ ‖b‖)` — but when both vectors already have
-unit length, the denominator is `1`, so cosine similarity collapses to a plain dot product. Section 4's
-`embeddings @ query_vector` relies on exactly this identity to score every chunk against a query in one
-matrix-vector multiply, with no explicit division anywhere.
+In plain language, cosine similarity asks one question: **how much do these two vectors point in the
+same direction, ignoring how long either one is?** 1.0 means "identical direction," 0 means "unrelated,"
+-1 means "opposite." The general formula divides by each vector's length precisely to cancel length
+out of the answer — two vectors pointing the same way should score 1.0 whether they're long or short:
+
+$$\cos(\mathbf{a}, \mathbf{b}) = \frac{\mathbf{a} \cdot \mathbf{b}}{\lVert \mathbf{a} \rVert \, \lVert \mathbf{b} \rVert}$$
+
+($\mathbf{a} \cdot \mathbf{b}$ = the dot product, "multiply matching components and add them up";
+$\lVert \mathbf{a} \rVert$ = the vector's length, read "the norm of a" — the same identity `theory.md`
+Section 3, Step 5 cites from `representations.md`, SPEC-ML-3.)
+
+`normalize_embeddings=True` is the detail worth pausing on: it rescales every output vector to unit
+length ($\lVert \mathbf{v} \rVert = 1$) before it's ever compared to anything. Once both vectors already
+have length 1, the denominator above is just $1 \times 1 = 1$, and the formula collapses to a plain dot
+product — no division left to do at all:
+
+$$\cos(\mathbf{a}, \mathbf{b}) = \mathbf{a} \cdot \mathbf{b} \quad \text{when } \lVert \mathbf{a} \rVert = \lVert \mathbf{b} \rVert = 1$$
+
+Section 4's `embeddings @ query_vector` relies on exactly this identity to score every chunk against a
+query in one matrix-vector multiply, with no explicit division anywhere — **why we do it this way**:
+normalizing once at embedding time turns every later similarity computation from "divide by two norms"
+into "just multiply," which is both cheaper and simpler to get right than re-normalizing on every query.
 
 ### The "store" — a local numpy index instead of pgvector
 
 NOTE-AGENT-2 names two ways to run vector search: **pgvector** (a PostgreSQL extension — `CREATE
 EXTENSION vector`, a `<=>` cosine-distance operator, ordinary SQL — the production-shaped option,
 which SPEC-AGENT-0 stands up as this project's local vector store) and **local FAISS or plain numpy**
-for development, testing, or a genuinely small corpus. Nine chunks is about as small a corpus as
-exists, and this chapter's environment has no running Postgres/pgvector instance to reach — so
-`ingest.py` writes the embeddings to a plain `.npy` array and the chunk records to a `.jsonl` file:
+for development, testing, or a genuinely small corpus.
+
+```mermaid
+flowchart LR
+    EMB["9 embeddings<br/>384-dim each"] --> CHOICE{"where do they live?"}
+    CHOICE -->|"production-shaped,<br/>SPEC-AGENT-0"| PGV[("pgvector<br/>Postgres extension")]
+    CHOICE -->|"this chapter:<br/>9 rows, no Postgres to reach"| NPY[("index/embeddings.npy<br/>+ chunks.jsonl")]
+    PGV --> FLAT["same math either way --<br/>a Flat, exact cosine scan"]
+    NPY --> FLAT
+```
+
+Nine chunks is about as small a corpus as exists, and this chapter's environment has no running
+Postgres/pgvector instance to reach — so `ingest.py` writes the embeddings to a plain `.npy` array
+and the chunk records to a `.jsonl` file:
 
 ```python
 def save_index(chunks: list[Chunk], embeddings: np.ndarray, index_dir: Path = INDEX_DIR) -> None:
@@ -218,6 +317,20 @@ def top_k(
     scores = embeddings @ query_vec
     top_idx = np.argsort(-scores)[:k]
     return [(chunks[i], float(scores[i])) for i in top_idx]
+```
+
+`embeddings @ query_vector` is Section 3's dot-product identity doing the actual ranking: one matrix
+times one vector scores all nine chunks against the question at once. Here's what that scoring looks
+like for one of the four questions below — the cleanest of the four, so the mechanism is easy to see
+before Section 4's own caveat about reading these numbers complicates it:
+
+```mermaid
+flowchart LR
+    Q(["query embedding:<br/>'What is the rate limit for<br/>the public fleet-status API?'"])
+    Q -->|"cos=0.7618"| C6["chunk 6, page 3<br/>API Rate Limits section"]
+    Q -->|"cos=0.4831"| C7["chunk 7, page 3<br/>rate-limit reset details"]
+    Q -->|"cos=0.3927"| C0["chunk 0, page 1<br/>handbook title / intro"]
+    Q -.->|"cos even lower"| REST["... 6 other chunks"]
 ```
 
 Full file: [code/rag_pdf/retrieve.py](code/rag_pdf/retrieve.py). Real run, four natural-language
@@ -309,12 +422,15 @@ Question: {question}
 ```
 
 Every fact the model is *allowed* to use is labelled with a chunk id and page number before it ever
-reaches the prompt — that labelling is what makes the eventual answer "grounded" instead of a plain
-chat completion: the model is instructed to answer only from the supplied context and to say so if the
-context doesn't cover the question, rather than filling the gap from its own training data (Section 6
-covers what happens if you skip that instruction). Then the key gate, mirroring the exact
-three-check pattern SPEC-AGENT-2's `llm_client.py` established (no key → stop; key but no model id →
-stop; key and model but package missing → stop; only then call):
+reaches the prompt — **why we do it this way**: it's the same discipline as a stack trace citing
+`file:line` instead of just "something threw." Without the label, "grounded" would just be a claim; with
+it, every sentence the model produces can be checked against the exact chunk it came from. That labelling
+is what makes the eventual answer "grounded" instead of a plain chat completion: the model is instructed
+to answer only from the supplied context and to say so if the context doesn't cover the question, rather
+than filling the gap from its own training data (Section 6 covers what happens if you skip that
+instruction). Then the key gate, mirroring the exact three-check pattern SPEC-AGENT-2's `llm_client.py`
+established (no key → stop; key but no model id → stop; key and model but package missing → stop; only
+then call):
 
 ```python
 # ...continuing inside answer.py's main() (full context in the file itself):
@@ -327,6 +443,24 @@ def _no_key_gate(api_key: str | None) -> bool:
         )
         return True
     return False
+```
+
+The whole augment-then-gate flow in one picture:
+
+```mermaid
+sequenceDiagram
+    participant R as retrieve.py
+    participant A as answer.py
+    participant G as no-key gate
+    participant C as Anthropic Messages API
+
+    R->>A: top-3 chunks + scores
+    A->>A: assemble_context(hits) -- label every fact with chunk id + page
+    A->>A: build PROMPT_TEMPLATE(context, question)
+    A->>G: ANTHROPIC_API_KEY set?
+    G-->>A: no -- print full context, stop
+    A->>C: yes -- messages.create(model, prompt)
+    C-->>A: generated, cited answer
 ```
 
 Full file: [code/rag_pdf/answer.py](code/rag_pdf/answer.py). Real, captured run with no key set —
@@ -407,6 +541,19 @@ same two facts land in *adjacent, non-overlapping* chunks instead of one:
 [0.5799] chunk 20 (page 2): If the primary on-call engineer does not acknowledge a page within ten minutes, the incident automatically escalates to the secondary
 ```
 
+```mermaid
+flowchart TD
+    subgraph WIDE["100 words / 20 overlap -- Section 4's config"]
+        WC4["chunk 4<br/>both facts, one chunk"] --> WOK["top-1 alone answers<br/>the whole question"]
+    end
+    subgraph NARROW["20 words / 0 overlap -- this pitfall's config"]
+        NC18["chunk 18<br/>'rotation is one week long'"]
+        NC19["chunk 19<br/>'every six weeks'"]
+        NC18 -.->|"adjacent, not merged"| NC19
+        NC19 --> NBAD["top-1 alone answers only half;<br/>need top-2 for both facts"]
+    end
+```
+
 Both facts still make the top-3 here — but if a pipeline retrieved only the top-1 (chunk 19, "every six
 weeks"), the answer to "how long does the rotation last" would be silently missing, even though the
 document plainly states it two sentences earlier. Wider overlap is precisely the fix: it's what let
@@ -422,6 +569,19 @@ looking reasonable is not the same as the answer actually being present in what 
 #2 [0.4859] chunk 28: minute, so bursts near a minute boundary are still capped correctly. 6. Logging & Data Retention Application logs from the
 #3 [0.3947] chunk 32: logs requires a documented business justification and sign-off from the data protection lead, logged in the access-request system.
 #4 [0.3532] chunk 29: fleet-control service are retained for 30 days in hot storage and then moved to cold storage for an additional 11
+```
+
+```mermaid
+flowchart LR
+    RANK1["#1 chunk 30<br/>0.6238 -- '12 months' only"]
+    RANK2["#2 chunk 28<br/>0.4859 -- section heading, no numbers"]
+    RANK3["#3 chunk 32<br/>0.3947 -- access-request process"]
+    RANK4["#4 chunk 29<br/>0.3532 -- the real 30-day / 11-month split"]
+    K3["k=3 cutoff"]
+    RANK1 --> K3
+    RANK2 --> K3
+    RANK3 --> K3
+    K3 -.->|"chunk 29 never<br/>crosses the cutoff"| RANK4
 ```
 
 The chunk holding the actual "30 days... 11 months" numbers ranks **#4** — one place outside a
