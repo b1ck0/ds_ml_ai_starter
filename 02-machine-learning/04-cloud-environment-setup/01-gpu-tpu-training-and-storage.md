@@ -9,16 +9,71 @@ console output: where you'd normally see a job status or a printed number, the t
 documented behaviour instead of inventing one. The one piece of code that actually runs is the
 workflow diagram generator in `code/`.
 
+## The 62-second model, and the one that won't fit
+
+Earlier in this book, a small CNN learned to read handwritten digits. 206,922 parameters, three
+epochs, trained on nothing but a laptop's CPU — wall-clock time **under 62 seconds**
+([source: image-classification-mnist.md](../03-worked-examples/01-computer-vision/01-image-classification-mnist.md),
+this project's own gated run log). You could rerun that on a coffee break.
+
+Later in this book, a different chapter loads `HuggingFaceTB/SmolLM-135M-Instruct` — 135 million
+parameters, about **650 times** the MNIST model's size — and it *also* runs fine on a laptop CPU:
+2.3 seconds to load and start generating
+([source: llm-text-generation.md](../03-worked-examples/03-llms/02-llm-text-generation.md), this
+project's own gated run log). So did the wall move? No — look closer at what that chapter actually
+does with the model: it **generates text from weights someone else already trained.** It never runs
+a single backward pass. Inference on a laptop CPU stays cheap almost all the way up the size curve;
+what doesn't stay cheap is *training* — computing millions of gradients and updating millions of
+weights, repeated for every batch, for every epoch, over a real dataset.
+
+Now picture actually training a model that size — not loading pretrained weights, but fitting them
+from scratch or fine-tuning them for real, over a real corpus, for enough epochs to matter. Every
+matrix multiply in that 62-second MNIST run was already stretching a CPU's handful of general-purpose
+cores about as far as this book's toy examples go. A production-scale vision or language model runs
+one or two more orders of magnitude past that again, over a dataset that itself may not fit on your
+laptop's disk. That combination — a training loop too slow to finish in a useful time, over data too
+big to hold locally — is the wall this chapter is about.
+
+Here's the one-line version, the kind you could repeat at dinner: **you only leave the laptop when
+the clock or the disk forces you to — never because a bigger tool feels more serious.**
+
+```mermaid
+flowchart LR
+    subgraph LAPTOP["on your laptop CPU"]
+        MNIST["MNIST CNN<br/>206,922 params<br/>trains in 62s"]
+        SMOL["SmolLM-135M-Instruct<br/>135M params<br/>*inference* in 2.3s"]
+    end
+    MNIST -.->|"~650x bigger,<br/>but still just inference"| SMOL
+    SMOL -->|"now TRAIN a model<br/>this size or bigger,<br/>for real, over a real dataset"| WALL{"clock wall or<br/>disk wall?"}
+    WALL -->|"CPU epochs would take<br/>days to months"| GPU_TPU["move training to a<br/>GPU / TPU accelerator"]
+    WALL -->|"dataset doesn't fit<br/>on local disk"| BLOB["stream data from<br/>cloud blob storage"]
+    GPU_TPU --> FIX["this chapter"]
+    BLOB --> FIX
+```
+
+Two clarifying labels before going further, since both show up constantly from here on:
+
+- **GPU** (graphics processing unit) — a chip built to do thousands of small arithmetic operations
+  at once. Originally for rendering video-game frames, reused for ML because a neural network's
+  forward/backward pass is the same shape of workload: the same operation, repeated over an enormous
+  grid of numbers, in parallel.
+- **Blob storage** — cloud *object* storage: a flat bucket of named files ("objects"), read as a
+  byte stream over the network. Not a filesystem you mount — closer to a key-value store where the
+  value happens to be a file.
+
+Section 2 defines the third term, **TPU**, once you've seen why it's a genuinely different kind of
+chip rather than just "Google's GPU."
+
 ## 1. What & why — the compute/data wall
 
 Every model you've trained so far in this curriculum ran on the CPU build of PyTorch/TensorFlow on
 your own machine ([NOTE-ML-1](../../research/NOTE-ML-1-torch-install.md):
 `pip install torch==2.14.0 torchvision==0.29.0 torchaudio==2.14.0 --index-url
 https://download.pytorch.org/whl/cpu`). That's not a toy setup — MNIST-scale image classification,
-a small transformer, a text classifier fine-tune all finish in minutes on a laptop CPU. Keep using
-it as long as it works; it's free and it's simpler.
+a small transformer, a text classifier fine-tune all finish in minutes on a laptop CPU, as the cold
+open just showed. Keep using it as long as it works; it's free and it's simpler.
 
-Two things push you off the laptop:
+Two things push you off the laptop — the same two the cold open's diagram named:
 
 - **The model doesn't fit the time budget.** A CPU can do the same floating-point matrix multiplies
   a GPU/TPU does — just roughly one to two orders of magnitude slower per step, because a CPU has a
@@ -34,7 +89,7 @@ Two things push you off the laptop:
 This is the same trade-off a Java engineer already knows from switching a batch job from a laptop
 script to a provisioned cluster: you pay for managed compute and you accept operational overhead
 (quotas, IAM, network egress) in exchange for a job finishing in hours instead of weeks, or fitting
-in memory at all. It is **not** a trade you make by default — Section 5 comes back to exactly when
+in memory at all. It is **not** a trade you make by default — Section 7 comes back to exactly when
 it's worth it.
 
 ## 2. GPU vs TPU — when each wins
@@ -45,10 +100,11 @@ difference has practical consequences for which one to reach for.
 
 A **GPU** (NVIDIA T4/L4/A100/H100/H200, across all three clouds) is a general-purpose massively
 parallel processor: thousands of smaller cores, a mature and very wide software ecosystem (CUDA,
-cuDNN, every ML framework), and the ability to run arbitrary custom kernels. A **TPU** (Google's
-Tensor Processing Unit) is Google's purpose-built ASIC for ML: its core is a **128×128 systolic
-array** called the Matrix Multiply Unit (MXU), paired with high-bandwidth on-chip memory, built
-specifically to execute the giant matrix operations training is made of
+cuDNN, every ML framework), and the ability to run arbitrary custom kernels. A **TPU** (Tensor
+Processing Unit — Google's own chip, purpose-built for exactly the matrix multiplication a neural
+net needs, and not much else) is Google's purpose-built ASIC for ML: its core is a **128×128
+systolic array** called the Matrix Multiply Unit (MXU), paired with high-bandwidth on-chip memory,
+built specifically to execute the giant matrix operations training is made of
 [source: Cloud TPU introduction](https://docs.cloud.google.com/tpu/docs/intro-to-tpu) (checked
 2026-09-02).
 
@@ -62,6 +118,13 @@ rule:
   uses TensorFlow ops that aren't available on Cloud TPU, or is a medium-to-large model where you
   need the flexibility of a mature, general-purpose kernel ecosystem rather than an XLA-compiled,
   matrix-multiply-shaped graph.
+
+```mermaid
+flowchart TD
+    Q{"is the workload dominated by<br/>large matrix multiplies, training for<br/>weeks/months, and running on Google Cloud?"}
+    Q -->|"yes"| TPU["reach for a TPU<br/>purpose-built MXU --<br/>most efficient at exactly this shape,<br/>less forgiving outside it"]
+    Q -->|"no: custom ops, TF ops<br/>Cloud TPU can't run,<br/>or you're not on Google Cloud"| GPU["reach for a GPU<br/>general-purpose --<br/>widest framework/kernel ecosystem"]
+```
 
 For a Java engineer's mental model: a GPU is the JVM of accelerators — general-purpose, huge
 ecosystem, runs almost anything you throw at it, at a small efficiency cost. A TPU is closer to a
@@ -87,6 +150,25 @@ against each vendor's current documentation (checked 2026-09-02):
 | **Managed training service** | Vertex AI custom training jobs — `CustomTrainingJob` / `CustomJob` in the `google-cloud-aiplatform` SDK, pinned `==2.1.0` ([NOTE-18](../../research/NOTE-18-managed-platforms.md); [source: PyPI](https://pypi.org/project/google-cloud-aiplatform/), checked 2026-09-02) | SageMaker Training — the unified `ModelTrainer` class (SDK v3), which now replaces the older per-framework `Estimator` classes (`PyTorch`, `TensorFlow`, `HuggingFace`, `XGBoost`, …) [source: SageMaker checkpointing guide](https://docs.aws.amazon.com/sagemaker/latest/dg/model-checkpoints-enable.html) (checked 2026-09-02) | Azure ML jobs — `command()` submitted via `MLClient` (Python SDK v2, `azure-ai-ml`) [source: Train ML models](https://learn.microsoft.com/en-us/azure/machine-learning/how-to-train-model?view=azureml-api-2) (checked 2026-09-02) |
 | **GPU accelerators** | NVIDIA T4, L4, A100 (40/80GB), H100 80GB, H200 141GB — set via `accelerator_type` / `accelerator_count` on the worker pool spec [source: Vertex AI compute config](https://docs.cloud.google.com/vertex-ai/docs/training/configure-compute) (checked 2026-09-02) | EC2 P4d (8×A100), P5 (8×H100 80GB, NVSwitch), P5e/P5en (H200) [source: EC2 accelerated computing](https://aws.amazon.com/ec2/instance-types/accelerated-computing/); [P5 in SageMaker](https://aws.amazon.com/about-aws/whats-new/2025/08/p5-instance-nvidia-h100-gpu-sagemaker-training-processing-jobs/) (checked 2026-09-02) | NC-series (H100 NVL, single-GPU/no-InfiniBand tier) and ND-series (H100 SXM5 with NVLink + InfiniBand, up to 8 GPUs/VM; H200 in preview) [source: NC-family](https://learn.microsoft.com/en-us/azure/virtual-machines/sizes/gpu-accelerated/nc-family), [ND-family](https://learn.microsoft.com/en-us/azure/virtual-machines/sizes/gpu-accelerated/nd-family) (checked 2026-09-02) |
 | **Custom ML silicon (non-GPU)** | Cloud TPU v5e / v6e — `ct5lp-hightpu-{1,4,8}t` machine types, `tpuTopology`; requires JAX ≥0.4.6, TensorFlow ≥2.15, or PyTorch ≥2.1 [source: Training with TPU accelerators](https://docs.cloud.google.com/vertex-ai/docs/training/training-with-tpu-vm) (checked 2026-09-02) | Trainium (Trn1/Trn2, training-optimised) and Inferentia (Inf1/Inf2, inference-optimised) — usable from SageMaker with the same `ModelTrainer`/estimator surface, e.g. `ml.trn1.32xlarge` [source: EC2 accelerated computing](https://aws.amazon.com/ec2/instance-types/accelerated-computing/) (checked 2026-09-02) | none — Azure's accelerator story is GPU-only; no Azure-specific training ASIC ships in Azure ML today (checked 2026-09-02, absence confirmed against the same Azure VM sizing docs above) |
+
+The same table, redrawn as a picture — one column per cloud, the arrow always reading storage →
+managed training service → accelerator hardware:
+
+```mermaid
+flowchart TB
+    subgraph GCP["Google Cloud"]
+        GCS["Cloud Storage (GCS)"] --> VERTEX["Vertex AI custom<br/>training job"]
+        VERTEX --> GACC["NVIDIA GPUs<br/>or Cloud TPU v5e/v6e"]
+    end
+    subgraph AWS["AWS"]
+        S3["S3"] --> SM["SageMaker Training<br/>(ModelTrainer)"]
+        SM --> AACC["EC2 P4d/P5 GPUs<br/>or Trainium"]
+    end
+    subgraph AZ["Azure"]
+        BLOB["Blob Storage"] --> AML["Azure ML job<br/>(command + MLClient)"]
+        AML --> ZACC["NC/ND-series GPUs<br/>(no Azure-specific ASIC)"]
+    end
+```
 
 **A naming note carried over from the sibling Data Science chapter:** Google rebranded Vertex AI to
 "Gemini Enterprise Agent Platform" in 2026, but the underlying services, SDK, and API surface named
@@ -114,8 +196,22 @@ accelerators, give it these inputs, keep what it writes" — with a different SD
 docs, both checked 2026-09-02), followed by the equivalent shape on AWS and Azure so you can
 recognise it wherever you land.
 
-The dataset lives in a GCS bucket, sharded (Section 5 explains why); the job streams it in, trains,
-and writes checkpoints to a second GCS prefix as it goes — the exact loop Figure 1 draws.
+The dataset lives in a GCS bucket, **sharded** — split into many moderate-sized files instead of one
+giant one, so multiple workers can read it in parallel; Section 5 explains why that matters. The job
+streams it in, trains, and writes a **checkpoint** — a snapshot of the model's current weights, saved
+mid-training so a restarted job can resume instead of starting from zero — to a second GCS prefix as
+it goes. That's the exact loop Figure 1 draws, and the flow below walks the same loop as a sequence
+of steps before the code does:
+
+```mermaid
+flowchart LR
+    S1["Step 1<br/>init SDK +<br/>staging bucket"] --> S2["Step 2<br/>define the job<br/>(container + script)"]
+    S2 --> S3["Step 3<br/>run against a GPU/TPU,<br/>point at blob-storage in/out"]
+    S3 --> TRAIN["training loop streams<br/>sharded data from blob storage"]
+    TRAIN --> CKPT["writes a checkpoint<br/>every N steps"]
+    CKPT -->|"job completes"| DONE["final model<br/>lands in blob storage"]
+    CKPT -.->|"preempted or crashes --<br/>restart resumes here"| S3
+```
 
 ![Cloud GPU/TPU training workflow: object/blob storage feeds an accelerator training job, which writes checkpoints back to object/blob storage, with a dashed feedback path showing a restarted or preempted job resuming from the last checkpoint. Google Cloud, AWS, and Azure service names are labelled under each stage.](artefacts/training_workflow_diagram.png)
 
@@ -181,7 +277,8 @@ model = job.run(
 
 That `--resume-from-latest` flag is doing real work: it's the training script's own responsibility
 to check the checkpoint prefix on startup and resume if a checkpoint exists, rather than assuming a
-clean start. Section 6 explains why that's not optional.
+clean start — exactly the dashed loop back to Step 3 in the diagram above. Section 6 explains why
+that's not optional.
 
 **For a TPU instead of a GPU**, the worker pool spec swaps `accelerator_type`/`accelerator_count`
 for a TPU `machine_type` and a topology — e.g. `machine_type="ct5lp-hightpu-4t"` with
@@ -259,6 +356,14 @@ immediately: it's a throughput problem, and the fix is the same one you'd reach 
 large file into a service — **don't load it all into memory, and don't read it as one giant
 sequential blob either.**
 
+```mermaid
+flowchart LR
+    DS["full dataset --<br/>too big for local disk"] --> SHARD["split into shards<br/>(tens-hundreds of MB each)"]
+    SHARD --> PAR["many parallel readers<br/>stream from blob storage"]
+    PAR --> QUEUE["decode / augment / batch<br/>on CPU worker processes"]
+    QUEUE --> ACC["accelerator --<br/>fed continuously, never idle"]
+```
+
 - **Sharding.** Instead of one enormous file, the dataset is split into many moderate-sized files
   (commonly tens to hundreds of MB each — think a `.tfrecord`, WebDataset `.tar`, or Parquet shard
   per few thousand examples) sitting in the bucket. Shards can be listed, shuffled, and read in
@@ -295,17 +400,18 @@ sequential blob either.**
 - **Forgetting to checkpoint.** Spot/preemptible accelerator instances — the cheapest way to rent
   GPUs/TPUs — can be reclaimed by the cloud provider mid-job with little notice. A job that isn't
   periodically writing resumable checkpoints back to object storage (the right-hand loop in Figure
-  1) loses all progress on reclaim and starts over from zero. This is the single most common way
-  cloud training costs balloon: reruns of jobs that should have resumed instead of restarted.
+  1, and the dashed edge in Section 4's step diagram) loses all progress on reclaim and starts over
+  from zero. This is the single most common way cloud training costs balloon: reruns of jobs that
+  should have resumed instead of restarted.
 
 ## 7. When do you actually need this — honestly
 
 For a cost-conscious engineer: **not as often as the marketing implies.** The worked examples
 earlier in this curriculum — MNIST classification, a small text classifier fine-tune, the
 transformer-internals walkthrough — all run acceptably on the CPU build from
-[NOTE-ML-1](../../research/NOTE-ML-1-torch-install.md), on a laptop, for free. Reach for a cloud
-accelerator when at least one of these is concretely true, not because a bigger tool feels more
-serious:
+[NOTE-ML-1](../../research/NOTE-ML-1-torch-install.md), on a laptop, for free, exactly as the cold
+open showed. Reach for a cloud accelerator when at least one of these is concretely true, not
+because a bigger tool feels more serious:
 
 - The model is large enough, or the dataset large enough, that a CPU run's wall-clock time is
   measured in days rather than minutes, and that time actually costs you something (a deadline, an
@@ -326,15 +432,15 @@ week of laptop time into an afternoon — not by being the default starting poin
 
 - CPU training (this curriculum's default so far) breaks down on wall-clock time or dataset size,
   not because it's the "wrong" tool — a GPU/TPU only pays for itself once one of those two walls is
-  actually hit (Section 1, Section 7).
+  actually hit (cold open, Section 1, Section 7).
 - GPUs are general-purpose and framework-flexible; TPUs are a purpose-built matrix-multiply ASIC
   (128×128 systolic array MXU) that wins on large, long-running, matrix-dominated training and is
   Google-only (Section 2, grounded against
   [Cloud TPU introduction](https://docs.cloud.google.com/tpu/docs/intro-to-tpu)).
 - The same three ingredients — object storage, a managed training service, accelerator hardware —
-  exist under different names on every cloud (Section 3's table); the training-job *shape* (object
-  storage in → accelerator compute → object storage out, Figure 1) is identical everywhere even
-  though the SDK classes differ (Section 4).
+  exist under different names on every cloud (Section 3's table and diagram); the training-job
+  *shape* (object storage in → accelerator compute → object storage out, Figure 1 and Section 4's
+  step flow) is identical everywhere even though the SDK classes differ (Section 4).
 - Efficient training at scale is a data-loading problem as much as a compute problem: shard the
   dataset, stream it instead of downloading it whole, and keep the pipeline fast enough to keep the
   accelerator fed (Section 5).
@@ -365,3 +471,11 @@ rather than assumed. The `NVIDIA_TESLA_K80` accelerator shown in some cached/old
 examples for `CustomTrainingJob` was deliberately **not** reused here — K80 is an old generation;
 Section 4's snippet uses `NVIDIA_TESLA_T4`, a currently supported type per the Vertex AI
 compute-config docs.
+
+**Restyle note (2026-09-03):** this pass restructured the chapter into the house storytelling/visual
+style (cold open, numbered steps, plain-language glosses for GPU/TPU/blob storage/checkpoint/
+sharding, five Mermaid diagrams) per the style guide. No fact, version, URL, citation date, table
+cell, or code snippet changed; `code/training_workflow_diagram.py` and
+`artefacts/training_workflow_diagram.png` were not touched. The two new cold-open figures (206,922
+MNIST params / 62s; 135M-param SmolLM / 2.3s load) are cross-references to this project's own
+already-gated chapters, not new external claims.

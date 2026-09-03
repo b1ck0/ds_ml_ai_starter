@@ -2,24 +2,45 @@
 
 *Machine Learning · Worked Examples · LLMs · SPEC-ML-11*
 
-Every service you've ever written has a fixed interface: a method signature, a REST endpoint schema,
-a message contract. You change behavior by changing code and redeploying. An instruction-tuned LLM
-flips that around — the "interface" is natural language, and you change behavior by changing the
-**text you send it**, with no redeploy at all. [transformer-internals.md](01-transformer-internals.md)
-(SPEC-ML-10) built the mechanism — attention, residuals, LayerNorm, a stack of transformer blocks —
-from scratch, on tensors small enough to print. [text-generation.md](../02-natural-language/02-text-generation.md)
-(SPEC-ML-9) showed the next-token loop that turns those blocks into a text generator, using
-`distilgpt2`, a model that was never taught to follow instructions. This chapter closes the gap: a
-real, small, **instruction-tuned** model, prompted the way you'd actually use one — and an honest
-look at exactly where that stops working, which is where the next subject, Agentic Engineering,
-picks up.
+## From a block you built to a model you talk to
 
-The mental model worth carrying through this whole chapter: **the prompt is the program.** Not a
-metaphor — literally the only input you control. There's no separate "configuration" layer, no
-method overload, no compiled contract the runtime enforces for you. Get the prompt wrong and the
-model doesn't throw an exception; it just generates something else, fluently and without complaint.
-That's the central engineering challenge this chapter sets up, and the one Agentic Engineering spends
-a whole subject solving.
+[transformer-internals.md](01-transformer-internals.md) (SPEC-ML-10) ended with one transformer
+block, assembled from scratch, correct on tensors small enough to print by hand.
+[text-generation.md](../02-natural-language/02-text-generation.md) (SPEC-ML-9) stacked enough of
+those blocks into `distilgpt2` and ran the next-token loop that turns them into a text generator —
+but `distilgpt2` was never taught to follow an instruction. Ask it a question and it just keeps
+writing whatever text statistically follows your words; it has no notion that you asked it anything.
+
+This chapter loads a model that *was* taught that: `HuggingFaceTB/SmolLM-135M-Instruct`, a
+135-million-parameter instruction-tuned model small enough to run on a laptop CPU. Same transformer
+blocks underneath — same attention, same residual connections, same causal mask from SPEC-ML-10 —
+but you talk to this one. Ask it something and it tries to answer, not just continue.
+
+Here's the mental-model shift that makes this chapter different from every prior one in this
+subject: **you don't retrain it, you instruct it.** Every service you've ever shipped has a fixed
+interface — a method signature, a REST schema, a message contract — and you change its behavior by
+changing code and redeploying. An instruction-tuned LLM inverts that: there's no separate
+"configuration" layer, no method overload, no compiled contract the runtime enforces for you. The
+only lever you have is the text you send it, and you pull that lever on every single call, with no
+redeploy at all. One sentence you could repeat at dinner: **the prompt is the program.**
+Plain-language gloss: a **prompt** is just the literal text you send the model on one call — every
+word of it is "the code," there's no config file behind it.
+
+Get the prompt wrong and the model doesn't throw an exception — it just generates something else,
+fluently and without complaint. That's the central engineering challenge this chapter sets up, and
+it's also, honestly, where this chapter is headed: watch the model fail. It will hallucinate. It
+will get today's date wrong. It will lose the thread once a conversation runs past a fixed token
+budget. Those failures aren't bugs to patch out of this chapter — they're the concrete reason the
+next subject in this book, Agentic Engineering, exists at all. Section 5 makes that failure
+undeniable with real output; the diagram below is the map for the whole chapter, and it's the same
+map Section 5 closes on.
+
+```mermaid
+flowchart LR
+    B["a transformer block<br/>SPEC-ML-10<br/>attention + LayerNorm,<br/>one block, by hand"] --> M["a stack of blocks<br/>= a text generator<br/>SPEC-ML-9, distilgpt2<br/>predicts, never answers"]
+    M --> A["an instruction-tuned model<br/>SPEC-ML-11, this chapter<br/>SmolLM-135M-Instruct<br/>prompted like an assistant"]
+    A -.->|"limits: hallucination,<br/>knowledge cutoff,<br/>finite context -- Section 5"| NEXT["Agentic Engineering<br/>RAG · tools · MCP"]
+```
 
 Everything below runs from [`llm_generate.py`](code/llm_generate.py), and every claim about the
 model, its license, its context window, or its tokenizer API traces to
@@ -71,6 +92,15 @@ tokenizer's chat template is the (de)serializer, and different model families us
 formats. Feed a model text formatted for a different model's chat template and you get plausible-looking
 garbage, because it was never trained to parse that shape.
 
+```mermaid
+flowchart LR
+    MSG["messages list<br/>[role, content] turns<br/>-- your actual code"] --> TPL["tokenizer.apply_chat_template()<br/>wraps each turn in<br/>&lt;|im_start|&gt; / &lt;|im_end|&gt;"]
+    TPL --> TOK["tokenizer.encode()<br/>text -> token ids"]
+    TOK --> GEN["model.generate()<br/>same next-token loop<br/>as SPEC-ML-9/10"]
+    GEN --> DEC["tokenizer.decode()<br/>token ids -> text"]
+    DEC --> REPLY["the assistant's reply"]
+```
+
 ## 2. Running the model — zero-shot vs. few-shot
 
 [`llm_generate.py`](code/llm_generate.py)'s `load_model()` loads the tokenizer and model once and
@@ -107,11 +137,26 @@ chapter builds toward in Section 3.
 
 ### Zero-shot vs. few-shot, same question
 
-"Zero-shot" means you ask for the task with no worked examples — you trust the instruction-tuning
-alone to produce the right shape of answer. "Few-shot" means you show the model a couple of solved
-examples first, as prior turns in the same conversation, before asking your real question — you're
-using the model's in-context learning (attending back over the earlier turns, per SPEC-ML-10's
-attention mechanism) to demonstrate the expected format directly, rather than only describing it.
+Two ways to ask for the same task. Plain-language gloss: **zero-shot** means you ask with no worked
+examples — you trust the instruction-tuning alone to produce the right shape of answer.
+Plain-language gloss: **few-shot** means you show the model a couple of solved examples first, as
+prior turns in the same conversation, before asking your real question — you're using the model's
+in-context learning (attending back over the earlier turns, per SPEC-ML-10's attention mechanism) to
+demonstrate the expected format directly, rather than only describing it.
+
+```mermaid
+flowchart TB
+    subgraph ZS["zero-shot -- 1 chat turn"]
+        direction LR
+        ZQ["user: classify this review<br/>(no worked examples)"] --> ZA["model must infer the<br/>expected shape from the<br/>instruction alone"]
+    end
+    subgraph FS["few-shot -- 5 chat turns"]
+        direction LR
+        FE1["user: example 1<br/>assistant: Negative"] --> FE2["user: example 2<br/>assistant: Positive"]
+        FE2 --> FQ["user: classify this review<br/>(the real question)"]
+        FQ --> FA["model has 2 worked<br/>examples in context to copy"]
+    end
+```
 
 `section_2_zero_shot_vs_few_shot()` asks the identical sentiment-classification question both ways.
 Zero-shot is one chat turn:
@@ -160,6 +205,11 @@ more on this pattern in Section 5), but they visibly pulled the *start* of the r
 demonstrated shape. That's in-context learning working, partially, at a scale where "partially" is
 the honest word.
 
+Plain-language gloss: **hallucination** is the model stating something fabricated as if it were
+fact, with full grammatical confidence — nothing in its architecture distinguishes a true statement
+from a merely fluent one. That second, contradictory `Negative:` line above is a small hallucination
+in miniature; Section 5 shows what it looks like at full scale.
+
 ## 3. The context window — a finite token budget, not a soft guideline
 
 Every LLM has a maximum number of tokens it can attend over in a single forward pass — prompt tokens
@@ -168,6 +218,20 @@ plus generated tokens combined. For SmolLM-135M-Instruct that ceiling is `max_po
 NOTE-ML-8-transformer-and-llm.md. This is not a rate limit or a pricing tier — it's an architectural
 fact: the model's attention computation (SPEC-ML-10, Section 2) has shapes sized for sequences up to
 this length, and the model was never trained on anything longer.
+
+Plain-language gloss: the **context window** is the total number of tokens the model can "see" at
+once — every word of your prompt, plus every word it generates back, sharing one fixed-size window.
+It is a budget, not a suggestion: spend past it and something has to give.
+
+```mermaid
+flowchart TB
+    TOTAL["context window = 2048 tokens<br/>(prompt + generated output, shared)"]
+    TOTAL --> SPLIT{"how the 2048-token<br/>budget gets spent"}
+    SPLIT --> OUT["reserved for output<br/>e.g. 100 tokens"]
+    SPLIT --> PROMPT["left over for the prompt<br/>2048 - 100 = 1948 tokens"]
+    PROMPT -.->|"this section's long prompt<br/>encodes to 2221 tokens<br/>-- already OVER budget"| TRUNC["truncation=True, max_length=2048<br/>silently drops the tail"]
+    TRUNC --> FIT["fits in 2048 tokens,<br/>but content is missing"]
+```
 
 ### Text isn't tokens — count them
 
@@ -375,8 +439,10 @@ Every model in this chapter is, mechanically, a next-token predictor: given ever
 a probability distribution over the vocabulary, sample or pick greedily, repeat (SPEC-ML-9). There is
 no fact database wired in, no retrieval step, no notion of "I don't know" baked into the architecture
 — fluency and correctness are two completely different properties, and only one of them is what the
-model was trained to optimize for. `section_5_limits()` asks three questions this specific 135M-parameter
-model cannot possibly answer correctly, and reads exactly what comes back:
+model was trained to optimize for. So what happens when you ask a fluent next-token predictor
+something it has no way to know? Don't take it on faith — run it and read exactly what comes back.
+`section_5_limits()` asks three questions this specific 135M-parameter model cannot possibly answer
+correctly, and reads exactly what comes back:
 
 ```python
 questions = [
@@ -415,9 +481,9 @@ Read each one for what it actually reveals:
   the question even is*: "a global event that takes place every four years" (the Ballon d'Or is
   annual, not a four-year event — that description matches something else the model's training data
   associated with award-shaped questions) trailing into an unfinished sentence that never names a
-  winner. **Knowledge cutoff** means the model's training data has a real end date, but this output
-  shows something more specific: past that cutoff, the model doesn't reliably know that it doesn't
-  know — it produces text shaped like an answer regardless.
+  winner. Plain-language gloss: **knowledge cutoff** means the model's training data has a real end
+  date, but this output shows something more specific: past that cutoff, the model doesn't reliably
+  know that it doesn't know — it produces text shaped like an answer regardless.
 - **"What is the current version of the transformers Python library?"** — this is the one that should
   land hardest for this reader specifically. This very chapter's Environment section states the
   installed, verified version: `transformers==5.16.1` (per NOTE-ML-8-transformer-and-llm.md, checked
@@ -432,6 +498,16 @@ structural consequence of what a decoder-only LLM *is*: a fluent next-token pred
 dated training snapshot and no built-in way to consult anything outside its own weights. Every model
 in this family — the 135M-parameter one here, and every large hosted model — shares this shape of
 limitation. **This is precisely the gap the Agentic Engineering subject exists to close**:
+
+```mermaid
+flowchart LR
+    LIM["this chapter's 3 failures<br/>wrong date, incoherent<br/>award answer, no real<br/>version number"] --> WHY["why: no fact database,<br/>no retrieval, no clock --<br/>only a frozen, dated<br/>training snapshot"]
+    WHY --> RAG["RAG: retrieve real text,<br/>put it IN the prompt"]
+    WHY --> TOOL["tools / function calling:<br/>let the model ask code<br/>to run and report back"]
+    RAG --> MCP["MCP: a standard way to<br/>wire retrieval + tools<br/>to a model-driven agent"]
+    TOOL --> MCP
+    MCP --> NEXT["Agentic Engineering<br/>(next subject)"]
+```
 
 - **RAG (retrieval-augmented generation)** — before generating, retrieve relevant, current text (a
   document, a database row, this chapter's own installed-version fact) and put it *in the prompt*, so
