@@ -90,12 +90,22 @@ Every subject folder is organised under the same five sections:
   - Semantic segmentation — COCO + torchvision.
   - Metrics — mAP, mAR, IoU, and other important ones.
 - **Natural Language**
-  - Text classification — RoBERTa.
-  - Text generation — (note: RoBERTa is encoder-only; researcher to confirm the right generative
-    model, e.g. a GPT-family / seq2seq model, and correct the plan).
+  - Text classification — pretrained DistilBERT checkpoint, inference only (SPEC-ML-8).
+  - Text generation — distilgpt2, a decoder model (SPEC-ML-9).
+  - Fine-tuning a transformer — train DistilBERT end to end on dair-ai/emotion (6-way emotion
+    classification): explicit PyTorch loop + the HF `Trainer`, loss/accuracy curves, save/reload,
+    inference (SPEC-ML-13).
+  - Text & NLP metrics — classification, generation (BLEU/ROUGE/BERTScore), and retrieval/similarity
+    metrics for text (SPEC-ML-14).
 - **LLMs**
   - Transformer (from the inside).
   - Text generation.
+- **Reinforcement Learning** (SPEC-ML-15) — MDP (state/action/reward/return); policy, value, and the
+  Bellman equation; ε-greedy exploration; TD learning — Q-learning (off-policy) vs. SARSA (on-policy);
+  a runnable tabular Q-learning agent on a tiny chess-derived environment (real `python-chess` legality,
+  a King-vs-Rook corner-capture task), evaluated against random/greedy baselines; DQN, policy gradients,
+  and self-play + MCTS (AlphaZero/MuZero) — explained and grounded, not executed, with an honest
+  compute-gap caveat. Chess through-line, prerequisites SPEC-ML-1 and SPEC-DS-14.
 
 ### Cloud Environment Setup
 - Google / AWS / Azure — blob storage, GPU training, TPU training.

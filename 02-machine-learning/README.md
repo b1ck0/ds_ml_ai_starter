@@ -15,8 +15,16 @@ Python · TensorFlow · PyTorch · torchvision.
 - **Computer Vision** — image classification (MNIST), object detection (COCO), semantic segmentation
   (COCO); metrics: mAP, mAR, IoU.
 - **Natural Language** — text classification (DistilBERT, a small pretrained encoder); text generation
-  (distilgpt2, a decoder — RoBERTa is encoder-only and cannot generate, explained in the generation chapter).
+  (distilgpt2, a decoder — RoBERTa is encoder-only and cannot generate, explained in the generation chapter);
+  fine-tuning a transformer (DistilBERT trained end to end on dair-ai/emotion — the explicit PyTorch
+  loop, then the HF `Trainer`, save/reload, inference); text & NLP metrics (classification, generation,
+  retrieval/similarity).
 - **LLMs** — the transformer from the inside; text generation.
+- **Reinforcement Learning** — the MDP, policy/value/Bellman, ε-greedy, Q-learning (off-policy) vs.
+  SARSA (on-policy); a tabular Q-learning agent that learns to hunt down a Rook on a tiny, genuinely-chess
+  corner-capture task, evaluated against random and greedy baselines; DQN, policy gradients, and
+  self-play + MCTS (AlphaZero) explained and grounded (not executed), with the honest compute-gap
+  caveat.
 
 ## Cloud Environment Setup
 Google / AWS / Azure — blob storage · GPU training · TPU training.

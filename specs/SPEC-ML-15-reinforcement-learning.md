@@ -1,6 +1,9 @@
 # SPEC-ML-15: Reinforcement Learning — agents that learn a game from reward (chess as the through-line)
 
-**Status:** approved
+**Status:** in-review (written by Sonnet, grounded by Haiku NOTE-ML-15-1..4; snippet-compile,
+py_compile, and markdown-render gates all pass; real run confirms reward rising, ε decaying, and
+Q-learning/SARSA both beating the random and greedy-taker baselines — see run log in the chapter §5;
+pending independent fresh-Sonnet review + architect merge)
 **Subject:** Machine Learning
 **Section:** Worked Examples  (new sub-area `03-worked-examples/04-reinforcement-learning/`)
 **Routing:** writer=Sonnet 4.6 · research=Haiku · review=Sonnet (fresh) · architect=Opus 4.8
