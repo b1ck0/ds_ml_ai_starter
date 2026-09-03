@@ -2,50 +2,97 @@
 
 *Agentic Engineering · Worked Examples · SPEC-AGENT-4*
 
-This is the capstone that wires the two previous Agentic Engineering worked examples together into
-one useful thing: give the agent a PDF invoice, and it extracts vendor, invoice number, date, line
-items and totals, checks that they're internally consistent, and calls an MCP tool to persist them —
-the full "unstructured input → agent → tool → structured store" loop, built from pieces you've
-already seen work.
+## The invoice that speaks a different dialect
 
-If [the MCP database chapter](01-mcp-database-query-layer.md) taught you the *read* half of that loop
-(a typed tool boundary in front of a database an LLM can't touch directly) and the RAG-over-PDFs
-chapter taught you *extraction from unstructured text*, this chapter is where those combine with the
-one new discipline neither of them needed: **validating an extractor's output before it is allowed
-to become a row.** A regex can miscount a column. An LLM can hallucinate a plausible-looking number.
-Neither gets to touch the database until a typed schema has said the result is internally consistent.
+Every accounts-payable team has lived some version of this: a new vendor's invoice lands in the
+inbox, whatever parsed last month's invoices chokes on this one, and a payment either stalls for a
+week or — worse — goes out for the wrong amount. The PDF's *format* changes from vendor to vendor;
+the money it represents doesn't get any less real for that. Turning "a page of text a person can
+read" into "a row a database can trust" has been a stubbornly hard problem for exactly that reason,
+long before anyone called the software doing it an agent.
+
+Here's the naive fix, failing, on this chapter's own shipped code — not a contrived example. Section
+3.1 below extracts an invoice number by matching a line against one fixed label:
+`re.compile(r"^Invoice Number:\s*(?P<value>.+)$")`. That works perfectly on the sample invoice this
+chapter generates. Hand it one line from a vendor who abbreviates the label instead, and watch what
+happens — captured for real, against the exact patterns `extract.py` ships:
+
+```text
+.venv-agent/Scripts/python.exe -c "from extract import _FIELD_PATTERNS as P; lines = ['Inv. #: INV-2026-0042', 'Date: 2026-08-15', 'Ship To: Contoso Ltd, 77 Market St, Boston MA 02108']; [print(f'{l!r:56s} -> ' + next((f for f, p in P.items() if p.match(l)), 'no match')) for l in lines]"
+```
+
+```text
+'Inv. #: INV-2026-0042'                                  -> no match
+'Date: 2026-08-15'                                       -> no match
+'Ship To: Contoso Ltd, 77 Market St, Boston MA 02108'    -> no match
+```
+
+Nothing crashes. Nothing raises yet, either — the regex just quietly finds nothing, for all three
+lines, because none of them spell a label the pattern recognises. Section 3.1 turns that silence
+into a loud, specific `ExtractionError` rather than a half-filled invoice sneaking downstream, which
+is the right failure mode for a fixed regex. But it's still a *ceiling*: a pattern only ever
+understands the one vocabulary it was written against. That ceiling is exactly where an agent earns
+its keep over "just write a better regex" — Section 3.2 builds an LLM-based extractor that reads the
+page the way a person would, matching *meaning* ("this line names the invoice number") instead of
+*exact label text*.
+
+One sentence worth repeating at dinner: **an extractor's only job is to propose fields; refusing to
+trust those fields until a schema says they hang together is a second, separate job, and neither job
+gets to mark its own homework.**
 
 ## 1. What & why — the unstructured → structured loop
 
-Picture the manual version of this task: someone opens a PDF invoice, reads the vendor name and
-total off the page, and types them into an accounts-payable system. That's a human doing three
-things in sequence — *read* unstructured content, *decide* what the structured fields are, *write*
-them somewhere durable — and every one of the three is a place a tired human (or a careless script)
-introduces an error: a transposed digit, a missed line item, the same invoice entered twice because
-nobody checked first.
+Picture the manual version of the task the regex above was standing in for: someone opens a PDF
+invoice, reads the vendor name and total off the page, and types them into an accounts-payable
+system. That's a human doing three things in sequence — *read* unstructured content, *decide* what
+the structured fields are, *write* them somewhere durable — and every one of the three is a place a
+tired human (or a careless script) introduces an error: a transposed digit, a missed line item, the
+same invoice entered twice because nobody checked first.
 
 An **agent** doing the same job is that same three-step loop with each step made explicit and
-checkable:
+independently checkable:
 
 1. **Extract** — turn the PDF's text into a set of named fields. This chapter builds two extractors:
-   a deterministic, regex-based one that needs no API key at all (Section 3.1), and a key-gated LLM
-   extractor for invoices whose layout the regex was never written for (Section 3.2).
+   a deterministic, regex-based one that needs no API key at all (Section 3.1 — the one that just
+   failed above on an unfamiliar label), and a key-gated LLM extractor for invoices whose layout the
+   regex was never written for (Section 3.2).
 2. **Validate** — before anything is trusted, coerce the extracted fields through a typed schema that
    rejects malformed values and checks the document is internally consistent — do the line items sum
    to the subtotal? Does subtotal + tax equal the total? (Section 2.)
 3. **Persist** — hand the validated data to a narrow, single-purpose MCP tool that inserts it with
    parameterised SQL and refuses to insert the same invoice twice (Section 4.)
 
-**Where an agent earns its keep over "just write a regex":** a fixed regex only ever works for the
-one template it was written against — Section 3.1's fallback is honest about that limitation, and
-Section 3.2 shows the LLM path that generalises to invoices with an unseen layout, because the model
-reads the text the way a person would rather than matching fixed byte offsets. **Where a schema earns
-its keep over "just trust the extractor":** neither extractor is asked to promise anything about its
-own output — the promise is made once, centrally, by `schema.py`'s `Invoice` model, regardless of
-which extractor produced the raw fields. A Java engineer already knows this shape: a
-`@Valid @RequestBody InvoiceDto` at a controller boundary, backed by Bean Validation annotations,
-doesn't care whether the JSON came from a trusted internal service or an arbitrary client — it
-validates either way, at construction, before a single line of business logic runs.
+The whole loop, start to finish — the picture to keep coming back to as each section below builds
+one box of it:
+
+```mermaid
+flowchart LR
+    PDF["PDF invoice"] --> PARSE["pdfplumber:<br/>page text"]
+    PARSE --> RULE["extract_fields_rule_based()<br/>no API key, template-specific"]
+    PARSE --> LLM["extract_fields_llm()<br/>key-gated, generalises"]
+    RULE --> RAW["raw dict<br/>(not yet trusted)"]
+    LLM --> RAW
+    RAW --> VALIDATE{"Invoice(**raw)<br/>schema.py"}
+    VALIDATE -->|"inconsistent or malformed"| REJECT["ValidationError<br/>names the field, no row written"]
+    VALIDATE -->|"internally consistent"| TOOL["MCP insert_invoice()<br/>re-validates, parameterised SQL"]
+    TOOL -->|"invoice_number seen before"| DUP["duplicate: no second row"]
+    TOOL -->|"new invoice_number"| ROW["structured row<br/>invoices + invoice_line_items"]
+```
+
+**Where a schema earns its keep over "just trust the extractor":** neither extractor above is asked
+to promise anything about its own output — the promise is made once, centrally, by `schema.py`'s
+`Invoice` model, regardless of which extractor produced the raw fields. A Java engineer already
+knows this shape: a `@Valid @RequestBody InvoiceDto` at a controller boundary, backed by Bean
+Validation annotations, doesn't care whether the JSON came from a trusted internal service or an
+arbitrary client — it validates either way, at construction, before a single line of business logic
+runs.
+
+If [the MCP database chapter](01-mcp-database-query-layer.md) taught you the *read* half of this
+loop (a typed tool boundary in front of a database an LLM can't touch directly) and the RAG-over-PDFs
+chapter taught you *extraction from unstructured text*, this chapter is where those combine with the
+one new discipline neither of them needed: **validating an extractor's output before it is allowed
+to become a row.** A regex can miscount a column. An LLM can hallucinate a plausible-looking number.
+Neither gets to touch the database until a typed schema has said the result is internally consistent.
 
 ### 1.1 The sample invoice — a fixture, not a scan
 
@@ -94,6 +141,12 @@ reconfirmed installed while writing this chapter. `pypdf` is installed but not i
 chapter's code — it's cited above only for the environment-capability claim.
 
 ## 2. The schema — a typed contract every extractor must satisfy (LO1)
+
+In plain language, before any code: a pydantic model is a shape plus a set of promises. The shape
+says which fields exist and what type each one is; the promises are extra rules a plain type hint
+can't express — "this number can't be negative," "these three numbers must add up." Construct one
+and either you get back a fully-formed object that has already kept every promise, or you get back
+nothing at all and a specific error naming which promise broke. Nothing in between.
 
 [`schema.py`](code/invoice_agent/schema.py) defines two pydantic models: `LineItem` and `Invoice`.
 Pydantic 2's two validator decorators do the work — `field_validator` for a single field,
@@ -192,6 +245,21 @@ class Invoice(BaseModel):
         return self
 ```
 
+Both models stack the same two kinds of check, and both run automatically the moment you construct
+one — no separate `.validate()` call to remember, the same way a Bean Validation annotation fires
+the instant a constrained object is built:
+
+```mermaid
+flowchart TD
+    RAW["raw dict from either extractor"] --> FIELD["field_validator:<br/>one field at a time<br/>e.g. parse invoice_date from an ISO string"]
+    FIELD --> MODEL["model_validator(mode=after):<br/>an invariant across several fields"]
+    MODEL --> CHECK1{"each line item:<br/>quantity x unit_price within<br/>2 cents of amount?"}
+    CHECK1 -->|no| FAIL1["ValidationError"]
+    CHECK1 -->|yes| CHECK2{"subtotal = sum of line items?<br/>total = subtotal + tax?"}
+    CHECK2 -->|no| FAIL2["ValidationError"]
+    CHECK2 -->|yes| OK["Invoice instance:<br/>guaranteed internally consistent"]
+```
+
 `mode="before"` on `parse_iso_date` runs *before* pydantic's own type coercion, on the raw input —
 necessary here because both of this chapter's extractors hand back a plain `"2026-08-15"` string, and
 without this validator pydantic would only accept an already-parsed `date`/`datetime` or a stricter
@@ -259,8 +327,26 @@ Total Due: 367.20
 Notice `pdfplumber` collapses the original PDF's column padding down to single spaces — the source
 PDF's rows have wide gaps between "Widget A - Standard" and "10" so the numbers line up visually, but
 `extract_text()` normalises that to one space per gap (verified by running it against this exact file
-while writing this chapter). That's what makes a plain whitespace-based regex enough; no fixed-width
-column math needed. The fallback matches each labelled field with its own small pattern:
+while writing this chapter). That single-space normalisation is a genuine gift — but it also invites
+a lazy first attempt that breaks immediately. **Try the obvious thing first:** split each line-item
+row on whitespace and grab fields by position (`description, qty, price, amount = parts`). Run that
+against the real first row of this real invoice:
+
+```text
+.venv-agent/Scripts/python.exe -c "line = 'Widget A - Standard 10 12.50 125.00'; parts = line.split(); print('naive .split() ->', parts); print(f'positional guess -> description={parts[0]!r} qty={parts[1]!r} unit_price={parts[2]!r} amount={parts[3]!r}')"
+```
+
+```text
+naive .split() -> ['Widget', 'A', '-', 'Standard', '10', '12.50', '125.00']
+positional guess -> description='Widget' qty='A' unit_price='-' amount='Standard'
+```
+
+That's not a subtle bug — it's a description swallowing the columns after it, because
+`"Widget A - Standard"` is itself four whitespace-separated tokens, and `parts[1]` was never going
+to be a quantity. **Why we do it this way instead:** anchor the *numeric* columns from the right
+(quantity is always an integer, price and amount always end in exactly two decimals) and let the
+description absorb everything in between with a lazy `.+?` group — which is exactly what
+`_LINE_ITEM_RE` below does. The fallback matches each labelled field with its own small pattern:
 
 ```python
 import re
@@ -314,8 +400,24 @@ chapter:
 }
 ```
 
-Feed that straight into `Invoice(**raw)` and it validates clean — Section 4 does exactly that. Be
-honest about the limitation this buys you: this fallback is **template-specific**. It works because
+Line up the naive `.split()` guess against what the real regex recovered for that same first row —
+the before/after this section was building toward:
+
+| Field | Naive `.split()` by position | `_LINE_ITEM_RE` (this chapter's code) |
+|---|---|---|
+| `description` | `"Widget"` | `"Widget A - Standard"` |
+| `quantity` | `"A"` | `10` |
+| `unit_price` | `"-"` | `12.50` |
+| `amount` | `"Standard"` | `125.00` |
+
+Every naive-column value above is not just wrong, it's wrong in a way `schema.py`'s
+`LineItem.quantity: int = Field(gt=0)` would catch immediately (`"A"` isn't an `int` at all) — so
+this particular mistake would at least fail loudly at validation rather than silently corrupting a
+row. The lazy-group regex avoids the mistake at the source instead, which is one boundary check
+fewer to rely on downstream.
+
+Feed the correctly-parsed dict straight into `Invoice(**raw)` and it validates clean — Section 4 does
+exactly that. Be honest about the limitation this buys you: this fallback is **template-specific**. It works because
 `generate_sample_invoice.py`'s layout is fixed and known. Point it at a vendor's invoice with a
 different label ("Inv. #" instead of "Invoice Number:") or a multi-line address, and it raises
 `ExtractionError` rather than guessing — which is the correct failure mode for a regex, and exactly
@@ -422,6 +524,31 @@ tools:
 |---|---|---|
 | `insert_invoice(...)` | Validate + persist one invoice, idempotent on `invoice_number` | Yes |
 | `get_invoice(invoice_number)` | Read one invoice back with its line items | No |
+
+The write path re-runs the same schema check `run.py` already ran, on purpose — no caller,
+including this chapter's own code, gets to skip it:
+
+```mermaid
+sequenceDiagram
+    participant Run as run.py
+    participant Tool as MCP insert_invoice
+    participant DB as SQLite: invoices + invoice_line_items
+
+    Run->>Tool: call_tool insert_invoice payload
+    Tool->>Tool: Invoice(**payload) -- re-validate from scratch
+    alt fields inconsistent or malformed
+        Tool-->>Run: status rejected, errors
+    else invoice_number already in invoices table
+        Tool->>DB: SELECT id FROM invoices WHERE invoice_number = ?
+        DB-->>Tool: existing row
+        Tool-->>Run: status duplicate, invoice_id
+    else new, valid invoice
+        Tool->>DB: INSERT INTO invoices ...
+        Tool->>DB: INSERT INTO invoice_line_items ... (one row per item)
+        DB-->>Tool: invoice_id
+        Tool-->>Run: status inserted, invoice_id, line_item_count
+    end
+```
 
 ### 4.1 Schema — two tables, money stored as exact text
 
@@ -636,7 +763,17 @@ this section was typed in by hand.
 
 `run.py`'s Steps 5-7 exercise the three failure modes SPEC-AGENT-4 asks this chapter to handle
 explicitly, each one caught and reported rather than crashing the whole run or, worse, silently
-doing the wrong thing.
+doing the wrong thing:
+
+```mermaid
+flowchart TD
+    A["run.py Steps 5-7"] --> B["5: re-insert the same invoice_number"]
+    B --> B1["caught: status duplicate,<br/>same invoice_id, no second row"]
+    A --> C["6: delete a required field<br/>before validating"]
+    C --> C1["caught: ValidationError names<br/>the field, no MCP call attempted"]
+    A --> D["7: feed non-PDF bytes<br/>to the extractor"]
+    D --> D1["caught: ExtractionError,<br/>one exception type regardless of cause"]
+```
 
 ### 5.1 Idempotency — the same invoice, submitted twice
 
