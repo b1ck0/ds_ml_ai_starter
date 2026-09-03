@@ -534,10 +534,10 @@ instead, at a fraction of the trainable-parameter count, especially valuable onc
 too large to comfortably move every weight on ordinary hardware. This chapter's small DistilBERT
 didn't need that trade-off; a multi-billion-parameter LLM usually does.
 
-**SPEC-ML-14** (text & NLP metrics) is the natural next step: this chapter reused DS-6's
-accuracy/macro-F1 vocabulary for classification, but never touched the metrics that judge
-*generation* (perplexity, BLEU, ROUGE, BERTScore) or *retrieval* (Recall@k, MRR, nDCG) — the numbers
-ML-9's generation chapter and AGENT-3's RAG chapter are actually judged on.
+[**Text & NLP metrics**](04-text-metrics.md) (SPEC-ML-14) is the natural next step: this chapter
+reused DS-6's accuracy/macro-F1 vocabulary for classification, but never touched the metrics that
+judge *generation* (perplexity, BLEU, ROUGE, BERTScore) or *retrieval* (Recall@k, MRR, nDCG) — the
+numbers ML-9's generation chapter and AGENT-3's RAG chapter are actually judged on.
 
 ---
 

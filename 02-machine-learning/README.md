@@ -17,8 +17,9 @@ Python · TensorFlow · PyTorch · torchvision.
 - **Natural Language** — text classification (DistilBERT, a small pretrained encoder); text generation
   (distilgpt2, a decoder — RoBERTa is encoder-only and cannot generate, explained in the generation chapter);
   fine-tuning a transformer (DistilBERT trained end to end on dair-ai/emotion — the explicit PyTorch
-  loop, then the HF `Trainer`, save/reload, inference); text & NLP metrics (classification, generation,
-  retrieval/similarity).
+  loop, then the HF `Trainer`, save/reload, inference); text & NLP metrics (classification — macro/micro/
+  weighted F1; generation — perplexity, BLEU, chrF, ROUGE, BERTScore; retrieval/similarity — cosine
+  similarity, Recall@k, MRR, nDCG — each computed by hand and reproduced with a pinned library).
 - **LLMs** — the transformer from the inside; text generation.
 - **Reinforcement Learning** — the MDP, policy/value/Bellman, ε-greedy, Q-learning (off-policy) vs.
   SARSA (on-policy); a tabular Q-learning agent that learns to hunt down a Rook on a tiny, genuinely-chess

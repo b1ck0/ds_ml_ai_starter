@@ -1,0 +1,7 @@
+metric,score_0_to_1,reference,candidate
+BLEU (smoothed),0.1623,the cat sat on the mat,a feline rested on the rug
+chrF (matched order),0.3719,the cat sat on the mat,a feline rested on the rug
+ROUGE-1 F1,0.3333,the cat sat on the mat,a feline rested on the rug
+ROUGE-2 F1,0.2000,the cat sat on the mat,a feline rested on the rug
+ROUGE-L F1,0.3333,the cat sat on the mat,a feline rested on the rug
+BERTScore F1,0.8729,the cat sat on the mat,a feline rested on the rug

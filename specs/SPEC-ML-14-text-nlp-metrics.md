@@ -1,6 +1,8 @@
 # SPEC-ML-14: Text & NLP metrics — measuring classifiers, generators, and retrievers
 
-**Status:** approved
+**Status:** written by Sonnet, grounded by Haiku (NOTE-ML-14-package-versions, -metric-definitions,
+-library-apis, -llm-judge-biases) — snippet-compile, py_compile, actual-run, and markdown-render gates
+all pass — pending independent review + architect merge
 **Subject:** Machine Learning
 **Section:** Worked Examples
 **Routing:** writer=Sonnet 4.6 · research=Haiku · review=Sonnet (fresh) · architect=Opus 4.8
