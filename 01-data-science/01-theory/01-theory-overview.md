@@ -348,6 +348,166 @@ flowchart TD
   [Class Imbalance](../03-worked-examples/08-class-imbalance.md) uses a voting ensemble to predict a
   minority class.
 
+The table above says *what* each strategy does. Watch *how* — on numbers small enough to check by
+hand — before Section 5 formalises the bias/variance vocabulary both of them are built around.
+
+#### Bagging, step by step
+
+**Step 1 — draw N bootstrap samples, with replacement.** Start from one small training set of 8
+rows (labelled 1–8). "With replacement" means each draw is independent — the same row can be picked
+twice, and some rows won't be picked at all:
+
+| Bootstrap sample | Rows drawn | Rows missing |
+|---|---|---|
+| Sample A | 1, 1, 3, 4, 4, 6, 7, 8 | 2, 5 |
+| Sample B | 2, 2, 3, 3, 5, 6, 7, 8 | 1, 4 |
+| Sample C | 1, 2, 4, 5, 5, 6, 8, 8 | 3, 7 |
+
+Each sample is still 8 rows — same size as the original, just a different resample. *Why it
+matters:* the chance a specific row is never drawn across 8 draws-with-replacement is
+$(1-\tfrac{1}{8})^8 \approx 0.343$ — roughly a third of rows are missing from any one bootstrap
+sample, which is exactly what forces the three trees below to disagree with each other even though
+they're all trained on overlapping data.
+
+**Step 2 — fit one model per sample, independently, in parallel.** Nothing about fitting tree A
+depends on tree B or tree C — they could run on three separate threads, or three separate machines,
+with zero coordination between them.
+
+**Step 3 — combine by averaging (regression) or majority vote (classification).**
+
+```mermaid
+flowchart TB
+    TRAIN["training set<br/>(8 rows)"] --> B1["bootstrap sample A<br/>(draw 8 rows, with replacement)"]
+    TRAIN --> B2["bootstrap sample B<br/>(draw 8 rows, with replacement)"]
+    TRAIN --> B3["bootstrap sample C<br/>(draw 8 rows, with replacement)"]
+    B1 --> M1["tree A<br/>(fit independently)"]
+    B2 --> M2["tree B<br/>(fit independently)"]
+    B3 --> M3["tree C<br/>(fit independently)"]
+    M1 --> COMBINE["average (regression)<br/>or majority vote (classification)"]
+    M2 --> COMBINE
+    M3 --> COMBINE
+    COMBINE --> OUT["bagged prediction"]
+```
+
+Now the payoff, with real numbers. Say the true value for one test point is `y = 10`. Because each
+tree saw a different resample, each makes a different, largely independent error:
+
+| Model | Prediction | Error |
+|---|---|---|
+| Tree A | 11 | +1 |
+| Tree B | 8 | -2 |
+| Tree C | 12 | +2 |
+| **Average** | **(11 + 8 + 12) / 3 = 10.33** | **+0.33** |
+
+No single tree was close to right, but the average's error (+0.33) is smaller than every individual
+tree's error. That's the same **variance** Section 5.2 defines — how much the individual predictions
+disagree with each other (11, 8, 12: a spread of 4) — being tamed by averaging instead of by
+switching to a less flexible model. Independent mistakes partly cancel when you average them; a
+*shared* mistake (all three trees trained on the same biased sample) would not have cancelled at
+all. This is exactly the mechanism behind the DS-8 result: `BalancedBaggingClassifier`
+([Class Imbalance](../03-worked-examples/08-class-imbalance.md)) fixed a single noisy undersample
+(PR-AUC had crashed to 0.16) by running that same undersample-and-fit step 25 independent times and
+averaging the results — one unlucky draw stops dominating the answer.
+
+#### Boosting, step by step
+
+Boosting's loop is sequential, not parallel — each stage depends directly on the output of the one
+before it. Trace three rounds of AdaBoost (the original reweighting scheme) on 5 points, `P1`–`P5`,
+with true labels `y = [+1, +1, -1, -1, +1]`.
+
+```mermaid
+flowchart LR
+    TRAIN["5 points<br/>(equal weights, 1/5 each)"] --> H1["stump 1<br/>(fit on current weights)"]
+    H1 --> ERR1["score its errors<br/>(weighted error)"]
+    ERR1 --> RW1["reweight:<br/>wrong points heavier,<br/>right points lighter"]
+    RW1 --> H2["stump 2<br/>(fit on reweighted data)"]
+    H2 --> ERR2["score its errors<br/>(weighted error)"]
+    ERR2 --> RW2["reweight again"]
+    RW2 --> H3["stump 3<br/>(fit on reweighted data)"]
+    H3 --> COMBINE["weighted vote:<br/>a1*h1 + a2*h2 + a3*h3"]
+    COMBINE --> OUT["boosted prediction"]
+```
+
+**Step 1 — fit a weak stump, find what it got wrong.** Every point starts with equal weight
+$w_i = 1/5 = 0.2$. Stump 1 predicts `h1 = [+1, +1, +1, -1, +1]` — wrong only on `P3`. Its
+*weighted* error is the total weight of the points it got wrong: $\varepsilon_1 = w_3 = 0.2$.
+
+**Step 2 — turn that error into a vote weight, and reweight the points.** AdaBoost's original
+weight-update rule [source: Wikipedia — AdaBoost](https://en.wikipedia.org/wiki/AdaBoost) (checked
+2026-09-03):
+
+$$\alpha_m = \tfrac{1}{2}\ln\!\left(\dfrac{1-\varepsilon_m}{\varepsilon_m}\right), \qquad
+w_i \leftarrow w_i \cdot e^{-\alpha_m y_i h_m(x_i)} \text{, then renormalise so the weights sum to } 1$$
+
+In plain language: $\alpha_m$ ("how much this stump's vote counts") grows as its error shrinks; the
+update multiplies a *correctly* classified point's weight by $e^{-\alpha_m}$ (shrink it) and a
+*misclassified* point's weight by $e^{+\alpha_m}$ (grow it). For round 1: $\alpha_1 =
+\tfrac{1}{2}\ln(4) \approx 0.693$. Applying the update and renormalising:
+
+| Point | Weight before round 1 | Weight after round 1 |
+|---|---|---|
+| P1, P2, P4, P5 (correct) | 0.200 each | 0.125 each |
+| P3 (wrong) | 0.200 | **0.500** |
+
+One misclassified point now carries as much weight as the other four combined — the next stump is
+forced to pay attention to it.
+
+**Step 3 — fit the next stump on the reweighted data, repeat.** Stump 2 (`h2 = [-1, +1, -1, -1,
++1]`) is fit on those new weights; it fixes `P3` but misses `P1` (weight 0.125), so
+$\varepsilon_2 = 0.125$ and $\alpha_2 = \tfrac{1}{2}\ln(7) \approx 0.973$. Reweighting again pushes
+`P1` up to 0.500. Stump 3 (`h3 = [+1, -1, -1, -1, +1]`) is fit on *that*; it fixes `P1` but misses
+`P2` (weight $1/14 \approx 0.071$), so $\varepsilon_3 \approx 0.071$ and $\alpha_3 =
+\tfrac{1}{2}\ln(13) \approx 1.282$.
+
+**Step 4 — combine by a weighted vote, not a simple average.** The final prediction is
+$\mathrm{sign}(\alpha_1 h_1(x) + \alpha_2 h_2(x) + \alpha_3 h_3(x))$. Watch the *combined* training
+error move as each stage is added:
+
+| Stages combined | Combined vote gets wrong | Training error |
+|---|---|---|
+| just `h1` | P3 | 20% |
+| `h1` + `h2` (weighted by α1, α2) | P1 | 20% |
+| `h1` + `h2` + `h3` (weighted by α1, α2, α3) | *none* | **0%** |
+
+Check the last row by hand for `P1`: $0.693(+1) + 0.973(-1) + 1.282(+1) = 1.002 \to \text{sign} =
++1$, matching its true label `+1`. Notice the raw training error didn't fall on *every* round — it's
+still 20% after round 2, just a *different* point wrong — what's shrinking every round is each
+stump's own weighted error ($\varepsilon$: 0.200 → 0.125 → 0.071), which is what eventually drags
+the combined vote to zero. That's boosting's "iterate toward perfection" loop, made concrete.
+
+**The other flavour — gradient boosting fits the residual instead of reweighting.** Rather than
+reweighting points, gradient boosting fits each new stump directly to the ensemble's *current
+errors* — "the estimator $h_m$ is fitted to predict the negative gradients of the samples" [source:
+scikit-learn User Guide — Gradient Boosting](https://scikit-learn.org/stable/modules/ensemble.html)
+(checked 2026-09-03), and for squared-error loss the negative gradient is exactly the residual
+$y_i - F_{m-1}(x_i)$. Four points, `y = [4, 7, 9, 12]`, starting from the flat baseline
+$F_0 = \bar y = 8$:
+
+| Point | y | $F_0$ | residual $r_0 = y - F_0$ |
+|---|---|---|---|
+| 1 | 4 | 8 | -4 |
+| 2 | 7 | 8 | -1 |
+| 3 | 9 | 8 | +1 |
+| 4 | 12 | 8 | +4 |
+
+A stump splits these residuals into two groups and predicts each group's mean:
+`h1 = [-2.5, -2.5, +2.5, +2.5]`. Add it straight in ($F_1 = F_0 + h_1$): $F_1 = [5.5, 5.5, 10.5,
+10.5]$, new residuals $r_1 = [-1.5, +1.5, -1.5, +1.5]$. The sum of squared errors — "how wrong the
+model is, in total" — drops from $\sum r_0^2 = 16+1+1+16=34$ to $\sum r_1^2 = 1.5^2 \times 4 = 9$
+after a *single* stump; fitting the next stump on `r1` shrinks it again. Same "iterate toward the
+answer" pattern as AdaBoost, just a different correction (fit the residual, instead of reweighting
+and voting).
+
+#### One glance: parallel + vote vs. sequential + correct
+
+| | Bagging | Boosting |
+|---|---|---|
+| Shape | fans out — every tree trained at once, independently | chains — every stump trained after seeing the last one's mistakes |
+| Fixes | **variance** (independent errors partly cancel on average) | **bias** (each stage directly corrects what's still wrong) |
+| What you just watched | 3 trees, each off by a different amount, average closer than any one of them alone | training error 20% → 20% → 0% as weighted stumps stack up |
+
+Same taxonomy the table above already drew — now with the gears turning.
+
 ## 5. The central tension — overfitting, bias–variance, and regularization
 
 ```mermaid
