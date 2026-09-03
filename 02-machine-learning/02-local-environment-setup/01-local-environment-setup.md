@@ -2,18 +2,69 @@
 
 *Machine Learning · Local Environment Setup · SPEC-ML-0*
 
-The Data Science stack (`pandas`, `numpy`, `scikit-learn`, `scipy`) runs entirely on the CPU and
-never has to think about "which hardware is this number sitting on." Deep learning is different:
-the same matrix multiplication that scikit-learn happily does in a fraction of a second can take
-minutes on a CPU for a real neural network, and *hours or days* for anything with millions of
-parameters. The two frameworks that make GPU-accelerated deep learning practical in Python —
-**PyTorch** and **TensorFlow** — exist specifically to let you write one program and run it on
-whatever compute is available: your laptop's CPU today, a rented GPU tomorrow.
+## The gigabyte you didn't order
 
-This chapter gets that toolchain installed correctly, explains the CPU/GPU/CUDA/MPS device model a
-Java backend engineer has usually never had to reason about, and draws the line between "tensor"
-and "numpy array" — because from here on, every Machine Learning chapter in this course assumes
-this environment is already working.
+Picture the obvious first move: a fresh laptop, no NVIDIA GPU in sight — a standard business
+machine — and you type the command every PyTorch tutorial opens with.
+
+```bash
+pip install torch
+```
+
+You walk off to get coffee. When you get back, `pip list` shows a download that took a while and
+landed a couple of gigabytes in `site-packages`. That's not a CPU build — `pip` quietly resolved a
+package built to bundle NVIDIA's CUDA runtime and cuDNN libraries, so a GPU-equipped machine can run
+PyTorch's kernels with no separate CUDA Toolkit install. Whether the plain command hands you that
+CUDA-bundling build or a CPU-only one depends on your OS, and can change release to release
+([source: PyTorch forums](https://discuss.pytorch.org/t/index-url-to-install-pytorch/198253),
+checked 2026-09-02 — [NOTE-ML-1-torch-install](../../research/NOTE-ML-1-torch-install.md)). On this
+laptop, best case, that multi-gigabyte download just sits there, dead weight, because there's no GPU
+to run its kernels on — roughly **2 GB+ for a CUDA build against ~950 MB for the CPU-only
+equivalent** ([NOTE-ML-1-torch-install](../../research/NOTE-ML-1-torch-install.md)). Worst case, the
+machine *does* have an NVIDIA GPU, just with a driver that doesn't match the CUDA version the wheel
+was compiled against, and the very first real GPU call raises something like `CUDA driver version is
+insufficient for CUDA runtime version` — a problem this chapter's §5 covers in full.
+
+Here's the one-sentence version you could repeat at standup: **`pip` doesn't know whether your
+machine has a GPU it can use — leave that unstated, and it guesses, and the guess can cost you
+gigabytes or a crash.**
+
+Walk through the fix, step by step — same shape as any dependency-resolution bug you've chased in a
+Java build, just with a hardware axis Maven never had to reason about:
+
+**Step 1 — decide what hardware you're targeting.** Every example in this course runs on CPU (§4.3
+explains why a GPU is optional here), so the target for this chapter is: CPU, no CUDA, no driver
+dependency at all.
+
+**Step 2 — stop letting `pip` guess.** PyTorch publishes a wheel — Python's pre-built package
+format, a `.whl` file `pip` downloads and installs directly, no local compilation — through a
+**separate index** dedicated entirely to the CPU-only build. Point `pip` at that index explicitly
+with `--index-url`, and you get the CPU wheel every time, on every OS, regardless of what the
+platform default happens to be this release
+([source: PyTorch — Get Started Locally](https://pytorch.org/get-started/locally/), checked
+2026-09-02 — [NOTE-ML-1-torch-install](../../research/NOTE-ML-1-torch-install.md)).
+
+**Step 3 — run the real command.** §2 below has it verbatim, pinned to exact versions verified
+against PyPI — no guessing, no "whatever's newest today."
+
+**Step 4 — prove it landed.** A version string alone doesn't tell you which build you got. §3's
+verification script prints it, along with which compute devices PyTorch can actually see on this
+machine.
+
+```mermaid
+flowchart TD
+    START["pip install torch<br/>(no flags)"] --> Q{"matching NVIDIA GPU<br/>+ driver on this machine?"}
+    Q -->|"no, or unsure"| GUESS["pip guesses --<br/>may resolve the CUDA build<br/>(~2 GB+, GPU code you<br/>can never run)"]
+    GUESS --> WASTE["wasted bandwidth + disk,<br/>or a driver-mismatch crash<br/>on first GPU call"]
+    Q -->|"yes, driver confirmed"| ASIS["plain install may work --<br/>still worth pinning explicitly"]
+    START -.->|"the fix: say what you want"| FIX["pip install torch==2.14.0<br/>--index-url .../whl/cpu"]
+    FIX --> GOOD["~950 MB, CPU-only,<br/>runs anywhere, zero driver risk"]
+```
+
+That's the whole gotcha this chapter opens with. Everything from here sets it up properly: the right
+virtualenv, the right install command, a script that proves it worked, and the mental model —
+tensors, and the CPU/GPU/CUDA/MPS device they live on — that every later Machine Learning chapter
+assumes you already have.
 
 ## 1. What & why
 
@@ -23,12 +74,20 @@ downloads packages, `pip list` shows you what's on the classpath. Deep learning 
 those mechanics — the difference is *what* gets installed and *how big it is*.
 
 `pip install torch` does not behave like `pip install pandas`. Pandas is a few megabytes of pure
-Python plus a compiled extension. PyTorch is a few hundred megabytes to a few *gigabytes*, because
-the package can optionally bundle an entire copy of NVIDIA's CUDA runtime and cuDNN libraries so
-your GPU can run the same kernels the framework was compiled against — no separate CUDA Toolkit
-install required. That's convenient when you actually have an NVIDIA GPU. It's a multi-gigabyte
-waste of bandwidth and disk when you don't, which is why picking the right install command (Section
-2) is the first thing this chapter gets right.
+Python plus a compiled extension. PyTorch is a few hundred megabytes to a few *gigabytes*, for
+exactly the reason the cold open above just walked through: the package can optionally bundle an
+entire copy of NVIDIA's CUDA runtime and cuDNN libraries. That's convenient when you actually have an
+NVIDIA GPU. It's a multi-gigabyte waste of bandwidth and disk when you don't — which is why picking
+the right install command (§2) is the first thing this chapter gets right, before a single line of
+model code.
+
+The Data Science stack (`pandas`, `numpy`, `scikit-learn`, `scipy`) runs entirely on the CPU and
+never has to think about "which hardware is this number sitting on." Deep learning is different: the
+same matrix multiplication that scikit-learn happily does in a fraction of a second can take minutes
+on a CPU for a real neural network, and *hours or days* for anything with millions of parameters.
+The two frameworks that make GPU-accelerated deep learning practical in Python — **PyTorch** and
+**TensorFlow** — exist specifically to let you write one program and run it on whatever compute is
+available: your laptop's CPU today, a rented GPU tomorrow.
 
 ### Why a separate venv (`.venv-ml`)
 
@@ -52,9 +111,22 @@ A virtualenv, either way, is still just an isolated `site-packages` directory wi
 interpreter symlink — the same "isolated classpath per project" idea as the DS venv, there are just
 now two of them, one per subject's toolchain.
 
+```mermaid
+flowchart LR
+    A["DS venv<br/>pandas / numpy / scikit-learn<br/>(CPU-only, always)"] -.->|"separate toolchain,<br/>separate blast radius"| B["◀ you are here<br/>.venv-ml + pick CPU index"]
+    B --> C["pip install<br/>pinned CPU wheels"]
+    C --> D["verify_ml_env.py<br/>versions + devices"]
+    D --> E["tensors vs arrays<br/>device + autograd"]
+    E --> F["SPEC-ML-1<br/>neural network fundamentals"]
+```
+
+The two boxes on the left are the whole reason this chapter exists as its own toolchain: a fresh
+venv, and one install decision that has to be made correctly before anything else in this course's
+Machine Learning track will run.
+
 ## 2. Install PyTorch, torchvision, and TensorFlow (CPU build)
 
-### The gotcha: the CPU wheel needs an explicit index
+### 2.1 The gotcha: the CPU wheel needs an explicit index
 
 Run the plain command — `pip install torch`, no other flags — and what you get depends on your OS,
 and can change between PyTorch releases: on Linux, the default PyPI wheel bundles CUDA
@@ -76,7 +148,16 @@ TensorFlow doesn't have this problem: `pip install tensorflow` installs a CPU-co
 default, no separate index needed
 ([NOTE-ML-1-torch-install](../../research/NOTE-ML-1-torch-install.md)).
 
-### The commands (what you, the reader, run)
+```mermaid
+flowchart TD
+    Q{"do you have an NVIDIA GPU<br/>with a matching driver?"}
+    Q -->|"no (this course's assumption)"| CPUIDX["use the CPU index --<br/>pytorch.org/get-started/locally,<br/>select 'CPU'"]
+    Q -->|"yes, driver version known"| GPUIDX["use pytorch.org's selector<br/>for your exact CUDA version --<br/>never guess the pairing"]
+    CPUIDX --> RESULT1["torch==2.14.0+cpu<br/>no driver dependency"]
+    GPUIDX --> RESULT2["torch==2.14.0+cu###<br/>must match installed driver"]
+```
+
+### 2.2 The commands (what you, the reader, run)
 
 Create and activate the dedicated venv first, same mechanics as any other virtualenv:
 
@@ -96,17 +177,18 @@ pip install torch==2.14.0 torchvision==0.29.0 torchaudio==2.14.0 --index-url htt
 pip install tensorflow==2.21.0
 ```
 
-The `--index-url https://download.pytorch.org/whl/cpu` on the first line is the entire gotcha: leave
-it off and pip may instead resolve a CUDA-targeted build — roughly 2 GB+ once torch and torchvision
-are both downloaded — against a machine that has no GPU to run it on. With the CPU index, the same
-two packages come to roughly 250 MB (torch) and 700 MB (torchvision)
+The `--index-url https://download.pytorch.org/whl/cpu` on the first line is the entire gotcha from
+the cold open, written down as a command: leave it off and pip may instead resolve a CUDA-targeted
+build — roughly 2 GB+ once torch and torchvision are both downloaded — against a machine that has no
+GPU to run it on. With the CPU index, the same two packages come to roughly 250 MB (torch) and
+700 MB (torchvision)
 ([NOTE-ML-1-torch-install](../../research/NOTE-ML-1-torch-install.md)). `torchaudio` is included
 here only because PyTorch's own CPU index expects the trio to be installed together at matching
 versions; this course's chapters don't use it directly.
 
 TensorFlow needs no index flag — the second line is the whole install.
 
-### Environment this chapter is gated against
+### 2.3 Environment this chapter is gated against
 
 ```text
 torch==2.14.0+cpu
@@ -127,6 +209,15 @@ chapter's gate run; `verify_ml_env.py` (Section 3) is written to detect and repo
 rather than fail, and the captured output below shows exactly what that looks like. If you follow
 the install commands above in your own `.venv-ml`, your own run of the script will print a
 `tensorflow version:` line instead.
+
+```mermaid
+flowchart LR
+    A["DS venv<br/>(existing)"] --> B[".venv-ml + CPU index<br/>(picked, §2.1)"]
+    B --> C["◀ you are here<br/>pip install pinned wheels"]
+    C --> D["verify_ml_env.py<br/>versions + devices"]
+    D --> E["tensors vs arrays<br/>device + autograd"]
+    E --> F["SPEC-ML-1<br/>neural network fundamentals"]
+```
 
 ## 3. Verify: `verify_ml_env.py`
 
@@ -250,10 +341,10 @@ dy/dt (t.grad)    = tensor([2., 4., 6.])  (expected: 2*t = [2., 4., 6.])
 
 Two things worth reading closely in that output. First, `torch version: 2.14.0+cpu` — the `+cpu`
 local version suffix is torch's own confirmation that the CPU-only build landed, not a CUDA one;
-if the index-url gotcha from Section 2 had been missed, this line would instead read something like
-`2.14.0+cu121`. Second, `torch.cuda.is_available()` and `torch.backends.mps.is_available()` both
-report `False` on this machine, which is expected and *fine* — Section 4 covers why CPU is enough
-for everything in this course.
+if the index-url gotcha from the cold open and §2.1 had been missed, this line would instead read
+something like `2.14.0+cu121`. Second, `torch.cuda.is_available()` and
+`torch.backends.mps.is_available()` both report `False` on this machine, which is expected and
+*fine* — §4 covers why CPU is enough for everything in this course.
 
 `torch.cuda.is_available()` and `torch.backends.mps.is_available()` are the two APIs PyTorch exposes
 for exactly this check: the former queries whether an NVIDIA CUDA-capable GPU and driver are
@@ -262,18 +353,45 @@ Macs only — irrelevant on Windows/Linux, where it always reports `False`)
 ([source: torch.cuda.is_available docs](https://docs.pytorch.org/docs/stable/generated/torch.cuda.is_available.html),
 checked 2026-09-02 — [NOTE-ML-1-torch-install](../../research/NOTE-ML-1-torch-install.md)).
 
+```mermaid
+flowchart LR
+    A["DS venv<br/>(existing)"] --> B[".venv-ml + CPU index<br/>(picked, §2.1)"]
+    B --> C["pip install pinned wheels<br/>(done, §2.2)"]
+    C --> D["◀ you are here<br/>verify_ml_env.py"]
+    D --> E["tensors vs arrays<br/>device + autograd"]
+    E --> F["SPEC-ML-1<br/>neural network fundamentals"]
+```
+
 ## 4. Tensors vs. numpy arrays: the device/autograd model
 
 On the surface, a `torch.Tensor` and a `numpy.ndarray` look like the same thing: an n-dimensional
-array of numbers with a `dtype` and a `shape`. Two properties separate them, and both showed up in
-Section 3's output:
+array of numbers with a `dtype` and a `shape`. A **tensor** is just PyTorch's name for its array
+type — same idea as a numpy array, an n-dimensional grid of numbers, but with two extra properties
+bolted on, and both showed up in Section 3's output:
+
+```mermaid
+flowchart LR
+    subgraph NP["numpy.ndarray"]
+        NP1["block of memory"]
+        NP2["always CPU --<br/>no such thing as<br/>'a numpy array on the GPU'"]
+        NP3["no memory of the<br/>operations that<br/>produced it"]
+    end
+    subgraph T["torch.Tensor"]
+        T1["block of memory"]
+        T2["device attribute --<br/>cpu / cuda / mps"]
+        T3["optional autograd tape<br/>(requires_grad=True)"]
+    end
+```
 
 ### 4.1 A tensor has a `device`
 
 A numpy array is always, unconditionally, a block of memory on the CPU — there's no such thing as
-"a numpy array on the GPU." A torch tensor carries a `device` attribute: `cpu`, `cuda` (an NVIDIA
-GPU, numbered if you have more than one — `cuda:0`, `cuda:1`, …), or `mps` (Apple Silicon GPU). You
-move a tensor between devices explicitly with `.to(device)`:
+"a numpy array on the GPU." A torch tensor carries a **device** attribute: which piece of hardware
+the data physically lives on and computes on — `cpu`, `cuda` (an NVIDIA GPU, numbered if you have
+more than one — `cuda:0`, `cuda:1`, …), or `mps` (Apple Silicon GPU). **CUDA** is NVIDIA's GPU
+programming platform — the API and runtime libraries a GPU-accelerated PyTorch build talks to, the
+same thing the cold open's "CUDA build" was bundling. You move a tensor between devices explicitly
+with `.to(device)`:
 
 ```python
 import torch
@@ -285,12 +403,22 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 x = x.to(device)                             # explicit move -- no implicit magic
 ```
 
-There's no Java equivalent to reach for here without overreaching, so name the difference plainly:
-this is closer to explicitly choosing which connection pool or thread pool executor a task runs on
-than it is to anything the JVM does automatically. PyTorch never silently moves data between
-devices for you — an operation between a CPU tensor and a CUDA tensor raises an error, not a
-silent, slow copy. You place tensors where you want the computation to happen, on purpose, every
-time.
+There's no exact Java equivalent here, but the closest thing you already do is picking a JVM runtime
+target — which JRE, which architecture — for a deployment, except PyTorch makes you pick it per
+tensor, explicitly, every time:
+
+```mermaid
+flowchart TD
+    Tn["a torch.Tensor"] --> D{"which device?"}
+    D -->|".to('cpu')"| CPU["CPU<br/>(always available)"]
+    D -->|".to('cuda')"| CUDA["NVIDIA GPU<br/>(torch.cuda.is_available())"]
+    D -->|".to('mps')"| MPS["Apple Silicon GPU<br/>(torch.backends.mps.is_available())"]
+    CPU -.->|"like choosing a JVM<br/>runtime target explicitly --<br/>nothing is picked for you"| NOTE["ops between tensors on<br/>different devices raise an<br/>error, never a silent copy"]
+```
+
+PyTorch never silently moves data between devices for you — an operation between a CPU tensor and a
+CUDA tensor raises an error, not a silent, slow copy. You place tensors where you want the
+computation to happen, on purpose, every time.
 
 ### 4.2 A tensor can remember how it was computed (autograd)
 
@@ -325,14 +453,24 @@ a GPU (rented, in the cloud, per the ML curriculum's later "Cloud Environment Se
 you nothing. Training a CV model from scratch on a large image dataset, or fine-tuning a large
 language model — that's where a GPU (or several) stops being optional.
 
+```mermaid
+flowchart LR
+    A["DS venv<br/>(existing)"] --> B[".venv-ml + CPU index<br/>(picked, §2.1)"]
+    B --> C["pip install pinned wheels<br/>(done, §2.2)"]
+    C --> D["verify_ml_env.py<br/>(run, §3)"]
+    D --> E["◀ you are here<br/>tensors vs arrays,<br/>device + autograd understood"]
+    E --> F["SPEC-ML-1<br/>neural network fundamentals"]
+```
+
 ## 5. Pitfalls
 
 - **Mismatched CUDA/torch builds.** If you do have an NVIDIA GPU and install a CUDA-targeted wheel,
   the CUDA version the wheel was built against has to be compatible with your installed NVIDIA
   driver. Install the wrong pairing and you get import-time or runtime errors like "CUDA driver
-  version is insufficient for CUDA runtime version" — the fix is always to use the exact command
-  pytorch.org's selector gives you for your actual driver, never to guess. This chapter sidesteps
-  the whole problem by using the CPU build, which has no driver dependency at all.
+  version is insufficient for CUDA runtime version" — the failure mode the cold open opened with.
+  The fix is always to use the exact command pytorch.org's selector gives you for your actual
+  driver, never to guess. This chapter sidesteps the whole problem by using the CPU build, which has
+  no driver dependency at all.
 - **The giant accidental download.** Forgetting `--index-url https://download.pytorch.org/whl/cpu`
   on a CPU-only machine is the single most common way to burn several gigabytes of bandwidth and disk
   on a build you can't use. If a `pip install torch` is taking unexpectedly long or `pip list` shows
@@ -350,7 +488,8 @@ language model — that's where a GPU (or several) stops being optional.
 
 - Deep learning frameworks (PyTorch, TensorFlow) differ from the DS stack mainly in size and in
   their relationship to hardware: they can optionally bundle GPU runtime libraries, which is why the
-  *install command* — not just the package name — matters.
+  *install command* — not just the package name — matters. That's the whole story behind the cold
+  open's "gigabyte you didn't order."
 - The CPU wheel needs an explicit `--index-url https://download.pytorch.org/whl/cpu`; skip it and
   you risk downloading a multi-gigabyte CUDA build you can't use. TensorFlow's plain `pip install`
   is CPU by default, no flag needed.
@@ -358,11 +497,21 @@ language model — that's where a GPU (or several) stops being optional.
   native-heavy dependency into its own build module: size, blast radius, and independent version
   churn.
 - A `torch.Tensor` differs from a `numpy.ndarray` in two ways: it carries an explicit **device**
-  (`cpu`/`cuda`/`mps`, moved with `.to()`, never implicitly), and, with `requires_grad=True`, it
-  tracks the operations performed on it so `.backward()` can compute gradients automatically
-  (**autograd**) — the mechanism that makes training a network tractable.
+  (`cpu`/`cuda`/`mps`, moved with `.to()`, never implicitly — like choosing a JVM runtime target
+  yourself instead of letting the platform pick), and, with `requires_grad=True`, it tracks the
+  operations performed on it so `.backward()` can compute gradients automatically (**autograd**) —
+  the mechanism that makes training a network tractable.
 - CPU is enough for every chapter in this course; a GPU starts paying for itself only once you're
   training a large model on a large dataset for real, which is what the later cloud chapters cover.
+
+```mermaid
+flowchart LR
+    A["DS venv<br/>(existing)"] --> B[".venv-ml + CPU index"]
+    B --> C["pip install pinned wheels"]
+    C --> D["verify_ml_env.py"]
+    D --> E["tensors vs arrays<br/>device + autograd"]
+    E --> F["◀ you are here<br/>SPEC-ML-1 next"]
+```
 
 Everything here assumed you can already run a Python script and manage a virtualenv — if that's
 still shaky ground, the Data Science local environment setup chapter covers `venv`/`pip` from
