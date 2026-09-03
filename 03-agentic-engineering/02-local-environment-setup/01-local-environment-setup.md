@@ -2,14 +2,49 @@
 
 *Agentic Engineering · Local Environment Setup · SPEC-AGENT-0*
 
-[`theory.md`](../01-theory/01-theory.md) (SPEC-AGENT-1) explained *why* an agent needs RAG and MCP: LLMs are
-stateless, bounded, and frozen at a training cutoff, so anything resembling "memory" or "the ability to
-act" has to be bolted on from outside the model. This chapter stands up the four pieces that bolting-on
-actually requires, for real, on your machine: the **Google Agent Development Kit (ADK)** as the agent
-runtime, **FastMCP** for the standardised tool protocol, **pgvector** on Postgres as the memory/retrieval
-store, and **FastAPI** as the HTTP boundary that ties them together. Every install and every query below
-runs locally with no LLM API key. Only the actual model-inference call — the one arrow in this chapter's
-component map that leaves your machine — needs a key, and it's clearly marked wherever it comes up.
+## The dependency conflict that resolved cleanly — this time
+
+Run this exact command against this project's environment today, and it succeeds with zero conflicts:
+install `google-adk==2.8.0` into a venv that already has `fastapi==0.141.1` sitting in it (Section 2.3
+runs it for real, output and all). That's not something you get to take for granted, though — it's a
+coin flip that happened to land right, and this project's own dependency history proves it. An earlier
+release, `google-adk==1.12.0`, pinned `starlette<1.0.0,>=0.46.2` while `fastapi` needed
+`starlette<0.42.0` at the time — two ranges with **no version number that satisfies both**
+([NOTE-AGENT-1-stack.md](../../research/NOTE-AGENT-1-stack.md), caveat 1). That's not a hypothetical
+risk; it's a resolver conflict that genuinely happened, on this exact library pairing, one version back.
+
+Every Java engineer has felt this shape of failure before, just with a different toolchain's error
+message: two libraries in a `pom.xml`, each pinning an incompatible range of the same transitive
+dependency, and Maven simply cannot produce a dependency graph that satisfies both — the build fails
+loudly, naming the conflict. `pip` hits the identical wall when two packages disagree on a shared
+transitive pin; the only difference is which tool is doing the resolving.
+
+```mermaid
+flowchart LR
+    OLD["google-adk==1.12.0<br/>needs starlette&lt;1.0.0,&gt;=0.46.2"] -->|"vs fastapi's<br/>starlette&lt;0.42.0"| CONFLICT["no version satisfies both --<br/>a real resolver conflict"]
+    NEW["google-adk==2.8.0<br/>needs starlette&lt;2,&gt;=1.3.1"] -->|"vs installed<br/>starlette==1.6.0"| CLEAN["satisfied --<br/>pip install --dry-run proves it, Section 2.3"]
+```
+
+[`theory.md`](../01-theory/01-theory.md) (SPEC-AGENT-1) already explained *why* an agent needs RAG and
+MCP at all: LLMs are stateless, bounded, and frozen at a training cutoff, so anything resembling
+"memory" or "the ability to act" has to be bolted on from outside the model. This chapter is where you
+stand up the four pieces that bolting-on actually requires, for real, on your own machine — and the
+dependency story above is your first real taste of a theme running through the whole chapter: these
+pieces are genuinely independent moving parts, not one framework, and treating them that way (separate
+virtual environments, a defensive default, real dry-run verification instead of "it'll probably be
+fine") is what Section 2 is built around.
+
+```mermaid
+flowchart LR
+    FA["FastAPI<br/>the HTTP boundary"] --> ADK["ADK runtime<br/>orchestrates the request"]
+    ADK -->|"tool call"| MCP["FastMCP<br/>standardised tool protocol"]
+    ADK -->|"memory lookup"| PGV["pgvector on Postgres<br/>nearest-neighbour store"]
+    ADK -->|"model inference<br/>(the ONLY key-gated arrow)"| LLM["LLM provider<br/>Gemini / Anthropic / OpenAI"]
+```
+
+Every install and every query behind those first four boxes runs locally, with no LLM API key. Only the
+last arrow — the actual model-inference call — leaves your machine, and it's clearly marked wherever it
+comes up (Section 4).
 
 ## Environment
 
@@ -53,6 +88,17 @@ Every other piece in the table (FastAPI, MCP, pgvector) is exactly as determinis
 the Java-world thing in the row next to it, which is precisely why this chapter can verify all of them
 without ever touching an LLM provider.
 
+```mermaid
+flowchart LR
+    subgraph JAVA["A normal backend -- your code decides"]
+        REQ1["request"] --> CODE["if/else,<br/>your own branches"] --> RESP1["response"]
+    end
+    subgraph AGENT["The agent stack -- the LLM decides"]
+        REQ2["request"] --> ADKR["ADK runtime hands the<br/>decision to the LLM"] --> DECIDE{"tool call, memory<br/>lookup, or just answer?"}
+        DECIDE --> RESP2["response"]
+    end
+```
+
 ## 2. The Python stack — install, verify, and why ADK lives in its own venv
 
 ### 2.1 Two virtual environments, not one
@@ -63,6 +109,21 @@ This project keeps two separate virtualenvs for Agentic Engineering:
   `pgvector`, `psycopg`, `pydantic`, plus the embedding/RAG tooling `theory.md` used
   (`sentence-transformers`, `pdfplumber`, …).
 - **`.venv-adk`** — `google-adk` alone, in its own isolated environment.
+
+```mermaid
+flowchart LR
+    subgraph AGENTV[".venv-agent -- the shared stack"]
+        FA2["fastapi"]
+        FM["fastmcp"]
+        PGV2["pgvector (client)"]
+        PSY["psycopg"]
+        PYD["pydantic"]
+        ST["sentence-transformers, pdfplumber, ..."]
+    end
+    subgraph ADKV[".venv-adk -- isolated, on purpose"]
+        ADKPKG["google-adk alone"]
+    end
+```
 
 If you've read [`Data Science/Local Environment Setup/local-environment-setup.md`](../../01-data-science/02-local-environment-setup/01-local-environment-setup.md)
 (SPEC-DS-0), you already know *why* a venv exists at all — an isolated `site-packages`, the Python
@@ -95,13 +156,11 @@ python -m venv .venv-adk
 pip install google-adk==2.8.0
 ```
 
-Here's the honest version of why, verified rather than assumed. `google-adk` has a documented history of
-being a tight fit next to `fastapi`: an earlier release (v1.12.0) pinned `starlette<1.0.0,>=0.46.2` while
-`fastapi` needed `starlette<0.42.0` — two constraints with **no version satisfying both**, a real
-resolver conflict ([NOTE-AGENT-1-stack.md](../../research/NOTE-AGENT-1-stack.md), caveat 1). That's the
-kind of thing every Java engineer has hit in a `pom.xml` dependency tree: two libraries each pinning an
-incompatible range of a shared transitive dependency, and Maven (or here, pip) simply cannot produce a
-graph that satisfies both.
+The cold open at the top of this chapter already named the risk this isolation defends against:
+`google-adk==1.12.0` and `fastapi` once pinned genuinely incompatible `starlette` ranges — a real
+resolver conflict, not a hypothetical one
+([NOTE-AGENT-1-stack.md](../../research/NOTE-AGENT-1-stack.md), caveat 1). Here's the honest version of
+where the *current* pin actually stands, verified rather than assumed.
 
 The current pin, `google-adk==2.8.0`, loosened that constraint to `starlette<2,>=1.3.1` — which the
 `fastapi==0.141.1` / `starlette==1.6.0` already installed in `.venv-agent` satisfies. This project checked
@@ -165,6 +224,12 @@ it — a decision, and a credential, this chapter defers to Section 4.
 
 One script checks both environments, and handles the *other* one's packages being absent gracefully
 instead of crashing — because that absence is the point, not a bug:
+
+```mermaid
+flowchart LR
+    SCRIPT["verify_agentic_env.py<br/>(one script, two runs)"] -->|"run with<br/>.venv-agent's python.exe"| A["reports fastapi, fastmcp,<br/>pgvector, psycopg, pydantic --<br/>google-adk absent (by design)"]
+    SCRIPT -->|"run with<br/>.venv-adk's python.exe"| B["reports google-adk --<br/>the rest absent (by design)"]
+```
 
 ```python
 """Verify the Agentic Engineering local environment.
@@ -301,6 +366,12 @@ distance operators to answer exactly that query
 [NOTE-AGENT-1-stack.md](../../research/NOTE-AGENT-1-stack.md)). `theory.md` Section 3 covered the concept
 (HNSW/IVF, ANN vs. exact search); this section stands up the real thing.
 
+```mermaid
+flowchart LR
+    Q1["WHERE id = 42"] --> BT["B-tree index --<br/>exact match<br/>(Hibernate/JPA, every day)"]
+    Q2["ORDER BY embedding &lt;=&gt; query<br/>LIMIT k"] --> NN["pgvector --<br/>nearest-neighbour distance,<br/>not an equality check"]
+```
+
 ### 3.2 Start it with Docker Compose
 
 ```yaml
@@ -376,6 +447,14 @@ CREATE EXTENSION
 `CREATE EXTENSION vector;` is the whole install step — the extension ships inside the official image, it
 just isn't turned on for a fresh database by default
 ([source: pgvector](https://github.com/pgvector/pgvector), checked 2026-09-02).
+
+```mermaid
+flowchart LR
+    UP["docker compose up -d<br/>(pgvector/pgvector:pg17)"] --> READY["pg_isready --<br/>accepting connections"]
+    READY --> EXT["CREATE EXTENSION vector;<br/>(once per database)"]
+    EXT --> SQL["raw SQL: CREATE TABLE ... vector(3);<br/>INSERT; SELECT ... ORDER BY &lt;=&gt;"]
+    EXT --> PY["psycopg + pgvector client:<br/>the same query, from Python"]
+```
 
 ### 3.3 A real vector column, a real insert, a real nearest-neighbour query
 
@@ -519,6 +598,12 @@ and querying pgvector are all key-free, local operations. The **one** call this 
 reference only, not executed as part of this chapter's gate — is actually *running* the agent, i.e.
 having it call the LLM:
 
+```mermaid
+flowchart LR
+    A["Agent(model=..., name=..., description=...)<br/>construction -- NO key needed"] --> B["InMemoryRunner(agent=...)<br/>construction -- NO key needed"]
+    B --> C["runner.run(...)<br/>actually calls the LLM --<br/>THE one key-gated step"]
+```
+
 ```python
 # KEY-GATED -- reference only, not run as part of this chapter's gate.
 # Requires a real GOOGLE_API_KEY (or another supported provider's key) in the environment.
@@ -570,6 +655,20 @@ secrets manager rather than a checked-in properties file, this is the identical 
 git, secret never does."
 
 ## 5. The component map — how it all connects
+
+Section 1's table and Section 4's key-gated/key-free split both collapse into one picture. Rendered
+first as a GitHub-native Mermaid diagram; the equivalent plain-text version follows immediately below
+it — that one is this project's actual committed artefact, for the reason explained right after it.
+
+```mermaid
+flowchart TB
+    CLIENT["HTTP client<br/>(browser / curl / another service)"] -->|"HTTP request"| FASTAPI["FastAPI<br/>your service's HTTP boundary"]
+    FASTAPI -->|"invokes"| ADKR["ADK Runtime<br/>root_agent = Agent(model=..., name=..., description=...)<br/>decides: tool call? memory lookup? call the LLM?"]
+    ADKR -->|"tool call (MCP protocol)"| MCP["MCP Server(s)<br/>built with FastMCP --<br/>Tools / Resources / Prompts"]
+    ADKR -->|"memory / retrieval"| PGV["Postgres + pgvector<br/>CREATE EXTENSION vector;<br/>embedding &lt;=&gt; query ORDER BY ... LIMIT k"]
+    MCP -->|"wraps"| SYS["The actual system(s) --<br/>a database, a filesystem, an internal REST API"]
+    ADKR -->|"model inference call --<br/>the ONLY key-gated arrow"| LLM["LLM Provider<br/>Gemini via GOOGLE_API_KEY<br/>(or Anthropic / OpenAI, per NOTE-AGENT-1)"]
+```
 
 ```text
   HTTP client                                            LLM Provider (key-gated)
@@ -684,6 +783,16 @@ environments — which is exactly what Sections 2–3 just proved by actually ru
 - The component map (Section 5) is the picture to keep in your head for every chapter that follows: a
   request flows FastAPI → ADK runtime → (MCP tool call *or* pgvector memory lookup) → LLM, and only the
   last arrow costs money.
+
+Back to the map from the cold open — every box is now either built or ready:
+
+```mermaid
+flowchart LR
+    FA["FastAPI -- installed & verified, S2.2"] --> ADK["ADK runtime -- agent<br/>constructed & verified, S2.3"]
+    ADK -->|"tool call"| MCP["FastMCP -- installed, S2.2;<br/>a real server is SPEC-AGENT-2"]
+    ADK -->|"memory lookup"| PGV["pgvector on Postgres --<br/>real nearest-neighbour query, S3"]
+    ADK -->|"model inference<br/>(key-gated)"| LLM["LLM provider --<br/>.env pattern ready, S4;<br/>not called in this chapter's gate"]
+```
 
 Next: [SPEC-AGENT-2](../03-worked-examples/01-mcp-database-query-layer.md) builds a real MCP server with
 FastMCP — Tools and Resources wrapping an actual database — tested with a plain client, still with no LLM

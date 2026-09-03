@@ -2,6 +2,35 @@
 
 *Agentic Engineering · Worked Examples · [SPEC-AGENT-5](../../specs/SPEC-AGENT-5-elders-tribunal.md)*
 
+## The question with two confident, opposite answers
+
+Ask one language model whether your team should rewrite its auth service in Rust this quarter, and
+it will answer. Ask a *second* one, completely independently, and — as you'll see captured for real,
+verbatim, in Section 5 — it can answer with equal confidence and the opposite verdict:
+
+> **Elder-A:** "Rewrite the auth service in Rust this quarter. VERDICT: YES"
+> **Elder-B:** "Keep it in Python -- the risk isn't worth it right now. VERDICT: NO"
+
+Nothing in either answer hints that the question was contested. Each one reads like a settled
+recommendation, because a single forward pass through a model has no mechanism for saying "well, it
+depends who you ask." That is the actual failure mode this chapter is built to catch — not a model
+being obviously wrong, but a model being confidently silent about its own uncertainty.
+
+This is not a new problem in AI research, and the fix this chapter builds is not a new idea either.
+Two findings, months apart in 2023, are the direct ancestors of everything below. Sampling a single
+model several times and taking the answer most of the samples agree on measurably improves reasoning
+accuracy over asking once
+[source: Wang et al., "Self-Consistency Improves Chain of Thought Reasoning in Language
+Models"](https://arxiv.org/abs/2203.11171) (checked 2026-09-03). And having *several* language-model
+instances literally debate a question over multiple rounds — reading and rebutting each other's
+answers before a final round is tallied — improves factual accuracy and reasoning further still,
+because a wrong answer that survives a rebuttal is much better evidence than a wrong answer nobody
+ever challenged
+[source: Du et al., "Improving Factuality and Reasoning in Language Models through Multiagent
+Debate"](https://arxiv.org/abs/2305.14325) (checked 2026-09-03). This chapter builds the second idea,
+not silent resampling of one model: elders who read each other's arguments, and either change their
+mind or hold their ground and say so.
+
 Every agent you have built in this course so far is one model, alone, deciding what to do. This
 chapter builds something structurally different: several agents — **elders** — that each hold
 their own position on a question, argue it across multiple rounds while reading what the others
@@ -15,6 +44,9 @@ the first try: a single LLM call gives you one opinion, stated with the same con
 it is right or badly wrong. A panel that has to *state a position, defend it against pushback, and
 either converge or admit it didn't* is a cheap, mechanical way to surface exactly the disagreement a
 single call would hide.
+
+The sentence to keep, the kind you could repeat at dinner: **one model answering alone can't tell
+you whether a question was actually settled — get a panel to argue it out, and you find out.**
 
 ## 1. What & why — the panel-of-experts framing
 
@@ -60,6 +92,43 @@ additionally needs three third-party SDKs, but only if you actually construct on
 Section 4 covers exactly what, and why it's safe to leave uninstalled.
 
 ## 2. The protocol — roles, rounds, turn order, stop condition (LO1)
+
+**Step 1 of the build: agree on the protocol before a line of code exists.** The topology is a fixed
+shape — a panel of elders speaking in turn, round after round, converging on a moderator that turns
+the outcome into a report:
+
+```mermaid
+flowchart TD
+    TOPIC(["Topic"]) --> ROUND1
+
+    subgraph ROUND1["Round 1 -- round-robin, fixed order"]
+        direction LR
+        A1["Elder 1<br/>sees: nothing yet"] --> A2["Elder 2<br/>sees: Elder 1's turn"] --> A3["Elder 3<br/>sees: Elders 1-2"]
+    end
+
+    ROUND1 --> CHECK1{"Everyone voted,<br/>and all verdicts match?"}
+    CHECK1 -- "yes" --> STOP["Stop early: unanimous"]
+    CHECK1 -- "no, rounds remain" --> ROUND2
+
+    subgraph ROUND2["Round 2+ -- same order, FULL history so far visible"]
+        direction LR
+        B1["Elder 1"] --> B2["Elder 2"] --> B3["Elder 3"]
+    end
+
+    ROUND2 --> CHECK2{"All match, or<br/>max_rounds reached?"}
+    CHECK2 -- "yes" --> STOP2["Stop: max_rounds"]
+    CHECK2 -- "no, rounds remain" --> ROUND1
+
+    STOP --> TALLY["Vote tally<br/>(strict majority or deadlock)"]
+    STOP2 --> TALLY
+    TALLY --> MOD["Moderator.synthesize()"]
+    MOD --> RESULT(["Consensus report"])
+```
+
+Elders never talk to each other directly and never talk to the moderator mid-debate — every message
+flows through the shared transcript the orchestrator maintains, the same way every service in a
+request pipeline talks to the next one through a shared, append-only log rather than a direct
+back-channel. The rest of this section pins down exactly what each box above means in code.
 
 Before any code, the rules the whole chapter implements:
 
@@ -136,6 +205,26 @@ rendered as text, the same choice the MCP chapter made for its own sequence diag
 
 Full diagram, with both termination paths annotated against the real captured run:
 [artefacts/debate_flow_diagram.txt](artefacts/debate_flow_diagram.txt).
+
+### Watch a disagreement become a convergence, one round at a time
+
+Every string below is exactly what `test_orchestrator.py`'s
+`test_round_robin_order_and_history_growth` (Section 3.3) scripts two elders to say — a real,
+committed test, not an invented example — run through a real `max_rounds=2` tribunal:
+
+| Elder | Round 1 says | Round 2 says |
+|---|---|---|
+| Elder-A | "Point A1. VERDICT: YES" | "Point A2. VERDICT: YES" |
+| Elder-B | "Point B1. VERDICT: NO" | "Point B2. VERDICT: YES" |
+
+Round 1 ends split — YES against NO — so the unanimous check from the diagram above fails and the
+debate carries on. Round 2 lands both elders on YES: had a round been left on the clock, the
+unanimous-early-stop check that runs after *every* round (not just the last one) would end the
+debate right there. This particular test asserts on turn order and history growth, not on
+`stop_reason`, but the mechanism is the one Section 3.2's loop implements, and it's the smallest real
+example in this codebase of a panel actually changing its mind after hearing the other side — as
+opposed to Section 5's Debate 1, where the panel holds its opening positions for all three rounds and
+only ever converges on a stable *majority*, never unanimity.
 
 ## 3. The engine — a provider-agnostic `Elder` interface, unit-tested with fakes (LO2)
 
