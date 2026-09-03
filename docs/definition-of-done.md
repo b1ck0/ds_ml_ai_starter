@@ -21,6 +21,13 @@ A chapter is DONE only when **every** box below is checked. No exceptions "to be
 - [ ] Every artefact (plot, table, metric output) reproduces from the committed code.
 - [ ] Snippet compile check passes (`.claude/hooks/verify.sh` / `.claude/hooks/check_snippets.py`).
 
+## Renders on GitHub
+- [ ] LaTeX + Mermaid render check passes (`.claude/hooks/check_markdown_render.py`): no unescaped
+      `_ ^ # % & ~` inside a `\text{...}` run (MathJax breaks — use `\text{one\_hot}`), no unclosed
+      `$$`/`$` span, no Mermaid with a bad start keyword or an unquoted `(`/`)` in a node label.
+- [ ] Every `$…$` / `$$…$$` formula and every ```mermaid block was eyeballed as rendered (the checker
+      is necessary, not sufficient).
+
 ## Audience-fit
 - [ ] Written for an experienced Java dev new to Python/ML: JVM/Java analogies where they clarify,
       no unexplained jargon, the "why" before the "how".

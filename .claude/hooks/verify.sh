@@ -30,6 +30,8 @@ case "$file" in
     if [ -n "$PY" ] && [ -f ".claude/hooks/check_snippets.py" ]; then
       echo "[verify] markdown snippets: $file"
       run "$PY" .claude/hooks/check_snippets.py "$file"
+      # also lint GitHub RENDERING: LaTeX \text-run escaping + Mermaid node labels
+      [ -f ".claude/hooks/check_markdown_render.py" ] && run "$PY" .claude/hooks/check_markdown_render.py "$file"
     else
       echo "[verify] snippet checker unavailable — skipping $file"
     fi

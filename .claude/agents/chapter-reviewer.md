@@ -22,9 +22,20 @@ prose/code/artefacts, and the `research/NOTE-*.md` it cites.
    - `python -m py_compile` each code file, and actually execute the examples
    - confirm the artefacts reproduce and match what the prose claims
    - confirm external links resolve
-4. **Audience-fit:** would a senior Java dev new to Python/ML follow this unaided? Flag unexplained
+4. **Renders on GitHub:** the book is read on GitHub, which renders LaTeX (MathJax) and Mermaid
+   natively — a broken formula or diagram dumps raw source / an error box on the page, and the
+   snippet gate never sees it. So:
+   - run `python .claude/hooks/check_markdown_render.py <chapter>.md` and treat any hit as a defect.
+     It catches the top offenders: an **unescaped `_ ^ # % & ~` inside a `\text{...}` run** (MathJax
+     prints "'_' allowed only in math mode" and shows raw TeX — the fix is `\text{one\_hot}`, not
+     `\text{one_hot}`), an unclosed `$$`/`$` span, a Mermaid block with a bad start keyword, and an
+     unquoted `(`/`)` inside a Mermaid `[...]`/`{...}` node label.
+   - the checker is necessary but not sufficient: also eyeball every `$…$`/`$$…$$` and ```mermaid
+     block for anything else that would fail to render (unknown macros, `$` used as a literal
+     currency sign inside math, a label the checker's heuristics can't judge). When in doubt, say so.
+5. **Audience-fit:** would a senior Java dev new to Python/ML follow this unaided? Flag unexplained
    jargon, a missing "why", a misleading analogy, or a worked example with no visible artefact.
-5. Look beyond the ACs: silent scope creep, an example that only works by luck (unset seed), a claim
+6. Look beyond the ACs: silent scope creep, an example that only works by luck (unset seed), a claim
    the NOTE doesn't actually support.
 
 ## Output
