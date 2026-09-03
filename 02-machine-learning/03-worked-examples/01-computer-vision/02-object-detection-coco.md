@@ -2,25 +2,62 @@
 
 *Machine Learning · Worked Examples · Computer Vision · SPEC-ML-5*
 
-The MNIST chapter answered one question: "what digit is in this image?" — one label for an image
-that contained exactly one thing, centered, filling the frame. Almost nothing you'll ever point a
-camera at looks like that. A real photo has a person, a skateboard, and a stick in it at once, each
-in its own place. **Object detection** is the task of answering "what is in this image, *and
-where*" — a list of boxes, each with a class label and a confidence score, instead of one label for
-the whole picture. This chapter loads a detector pretrained on COCO (Common Objects in Context, the
-80-class benchmark dataset the field standardized on) and runs it, unmodified, on two real photos —
-every box drawn in this chapter's artefacts came from the model actually looking at the pixels, not
-from a canned example.
+## One label isn't enough
+
+Picture an ordinary street scene: a person, a car, and a dog, each somewhere specific in the frame.
+Point the MNIST chapter's classifier at it and you get back exactly one answer —
+`classify(image) -> Label` — a single string, no matter how many things are actually in the picture.
+Which one does it pick? There's no good answer, because the question itself is wrong for this kind
+of image. **One label isn't enough. You need to know *where* each thing is, and there could be
+zero, one, or a dozen of them.**
+
+This chapter runs its pretrained model on a real photo you'll see again in Section 4: a man riding a
+skateboard, carrying what looks — to a machine, at least — like it might be a baseball bat. A
+classifier could only ever return one of `person`, `skateboard`, or `baseball bat` for that whole
+image. What you actually want is all three claims at once, each with its own location and its own
+confidence: **person, here, 99.9% sure; skateboard, here, 99.9% sure; baseball bat, here — only
+54.5% sure, and it's actually a wooden pole he's carrying.** That richer answer — a list of
+`(box, label, score)` triples instead of one label — is what **object detection** means.
+
+```mermaid
+flowchart LR
+    subgraph CLS["classification (MNIST chapter)"]
+        IMG1["image"] --> CLF["classify(image)"]
+        CLF --> LBL["one Label<br/>e.g. 'person'"]
+    end
+    subgraph DET["detection (this chapter)"]
+        IMG2["same image"] --> DTC["detect(image)"]
+        DTC --> LIST["List of Detections<br/>each: box + label + score"]
+    end
+```
+
+If you've ever written a matcher that returns `List<Match>` instead of a single `boolean`, you
+already know this shape — "find zero or more instances and say where each one is" — just applied to
+pixels instead of records. Here's the whole chapter as one pipeline, the map this chapter keeps
+coming back to: load a frozen, pretrained detector; run it on a real photo; watch the raw output
+turn out to be mostly noise; clean that noise up in two distinct steps; draw what's left.
+
+```mermaid
+flowchart LR
+    A["image"] --> B["model(image)<br/>frozen, pretrained"]
+    B --> C["raw boxes + labels + scores<br/>(most of them noise)"]
+    C --> D["score threshold<br/>keep only confident guesses"]
+    D --> E["NMS<br/>collapse duplicate boxes"]
+    E --> F["draw_bounding_boxes()<br/>clean, final boxes"]
+```
+
+Every arrow in that diagram is a section of this chapter: Sections 3–4 build A→B→C, Section 5 builds
+C→D→E→F. Nothing here is simulated — every box, score, and pixel coordinate in this chapter's
+artefacts came from the model actually looking at real photos, run by `code/detection_infer.py`.
 
 ## 1. What & why
 
 **Classification vs. detection, in interface terms.** A classifier is a function with a fixed
 output shape: `classify(image) -> Label`, one answer, always. A detector's output shape depends on
 what's actually *in* the image: `detect(image) -> List<Detection>`, where each `Detection` carries
-its own class label, a confidence score, and a bounding box — zero detections for an empty scene,
-a dozen for a crowd. If you've ever written a matcher that returns `List<Match>` instead of a
-single `boolean`, the shape of the problem — "find zero or more instances and say where each one
-is" — is the same one, applied to pixels instead of records.
+its own class label, a confidence score, and a **bounding box** — a box in plain terms: the smallest
+rectangle that contains the object, described by its top-left and bottom-right corners — zero
+detections for an empty scene, a dozen for a crowd.
 
 **Where a backend engineer meets this.** Content moderation pipelines that need to flag *and
 locate* a specific object in an uploaded image; retail shelf-monitoring systems counting how many
@@ -63,14 +100,48 @@ required or used anywhere in this chapter, same as SPEC-ML-4).
 
 ## 2. Model families — two-stage vs. one-stage
 
-Every detector has to solve two problems at once: *where* might an object be, and *what* is it.
-The two dominant architecture families answer "where" differently:
+Every detector has to solve two problems at once: *where* might an object be, and *what* is it. That
+"where" question has a research history worth a quick look before comparing today's options — the
+two-stage family this chapter uses is the third generation of one lineage, not a single invention:
 
-- **Two-stage detectors** (Faster R-CNN — "Faster R-CNN: Towards Real-Time Object Detection with
-  Region Proposal Networks", [arXiv:1506.01497](https://arxiv.org/abs/1506.01497), checked
-  2026-09-02) run in two passes: a first network proposes a few hundred candidate regions likely to
-  contain *something*, then a second stage classifies and refines the box for each candidate. More
-  compute, but each final prediction had a dedicated, focused look.
+```mermaid
+timeline
+    title Two-stage detectors — the R-CNN lineage
+    2013 : R-CNN — CNN features + an external region-proposal algorithm; a big accuracy jump over hand-crafted features, but painfully slow
+    2015 : Fast R-CNN — one shared CNN pass over the whole image, RoI pooling per region; 213x faster at test time than R-CNN
+    2015 : Faster R-CNN — a learned Region Proposal Network replaces the external proposal step; end-to-end trainable, this chapter's model
+```
+
+R-CNN ("Rich feature hierarchies for accurate object detection and semantic segmentation," Girshick,
+Donahue, Darrell & Malik, [arXiv:1311.2524](https://arxiv.org/abs/1311.2524), checked 2026-09-03)
+was the first to run a CNN's learned features over region proposals instead of hand-crafted ones —
+but it ran the CNN separately on every one of ~2,000 proposed regions per image, so it was slow.
+Fast R-CNN ("Fast R-CNN," Girshick, [arXiv:1504.08083](https://arxiv.org/abs/1504.08083), checked
+2026-09-03) fixed that by running the CNN once over the whole image and pooling features per region
+from that single pass — its own abstract reports **213x faster at test-time** than R-CNN and **9x
+faster** to train the same VGG16 network. Faster R-CNN — this chapter's model — took the last
+external piece (a separate region-proposal algorithm) and replaced it with a small learned network
+trained jointly with the rest ("Faster R-CNN: Towards Real-Time Object Detection with Region
+Proposal Networks", [arXiv:1506.01497](https://arxiv.org/abs/1506.01497), checked 2026-09-02),
+making the whole pipeline one trainable model instead of a pipeline of separate tools.
+
+That's what "two-stage" still means today: one pass proposes *where* something might be, a second
+pass decides *what* it is and refines the box. The alternative family skips the first pass entirely:
+
+```mermaid
+flowchart TB
+    IMG["input image"] --> Q{"how does the model<br/>find candidate regions?"}
+    Q -->|"two-stage"| RPN["stage 1: propose ~hundreds<br/>of candidate regions"]
+    RPN --> REFINE["stage 2: classify + refine<br/>each candidate"]
+    REFINE --> TWOOUT["Faster R-CNN<br/>box_map 37.0 · 134.4 GFLOPS<br/>more compute, focused look per box"]
+    Q -->|"one-stage"| DENSE["single pass: predict boxes<br/>+ classes densely, every position/scale"]
+    DENSE --> ONEOUT["SSD / RetinaNet<br/>box_map 25.1-36.4 · 34.9-151.5 GFLOPS<br/>cheaper per image, historically less accurate"]
+```
+
+- **Two-stage detectors** (Faster R-CNN, above) run in two passes: a first network proposes a few
+  hundred candidate regions likely to contain *something*, then a second stage classifies and
+  refines the box for each candidate. More compute, but each final prediction had a dedicated,
+  focused look.
 - **One-stage detectors** (SSD — [arXiv:1512.02325](https://arxiv.org/abs/1512.02325), checked
   2026-09-02; RetinaNet — [arXiv:1708.02002](https://arxiv.org/abs/1708.02002), checked 2026-09-02)
   skip the proposal step: a single pass over the image predicts boxes and classes densely, at every
@@ -257,17 +328,27 @@ image's pixel coordinates before handing it back to you** — confirmed directly
 is `(3, 640, 480)` and every returned box coordinate lands inside that `480×640` frame, not inside
 whatever internal size the model resized to.
 
-**14 raw detections, only 3 above a 0.3 score.** This is the single most important thing to
-internalize about a detector's raw output: it is *not* a clean list of "the objects in this image."
-It's every candidate the model considered worth reporting at all, most of them wrong. The next
-section is what turns this into something usable.
+**14 raw detections, only 3 above a 0.3 score — this is node C in the pipeline map, and it's the
+single most important thing to internalize about a detector's raw output.** It is *not* a clean list
+of "the objects in this image." It's every candidate the model considered worth reporting at all,
+most of them wrong. Section 5 is exactly the D→E→F half of the pipeline: two filters that turn this
+noisy list into the two real boxes on the cover photo.
 
 ## 5. Post-processing — score threshold and non-max suppression
 
-**Score threshold** is the simplest, most important filter: keep only detections whose score clears
-some bar you choose. There's no universally correct value — it's a precision/recall trade-off you
-pick for your use case (Section 6 gives that trade-off a name). Applying different thresholds to the
-same raw output already shown above:
+```mermaid
+flowchart LR
+    C["C: raw boxes + labels + scores<br/>(Section 4 — 14 for person1.jpg)"] --> D["D: score threshold<br/>(this section)"]
+    D --> E["E: NMS<br/>(this section)"]
+    E --> F["F: draw_bounding_boxes()<br/>(this section)"]
+```
+
+**Score threshold** — in plain terms, a knob from 0 to 1: turn it up and you trust only the model's
+most confident guesses, risking a missed real object; turn it down and you catch more real objects
+at the cost of letting more false alarms through. There's no universally correct value — it's a
+precision/recall trade-off you pick for your use case (Section 6 gives that trade-off a name).
+Applying different thresholds to the same raw output already shown above — watch the clutter fall
+away one cut at a time:
 
 | threshold | `person1.jpg` kept | what gets cut |
 |---|---|---|
@@ -275,14 +356,18 @@ same raw output already shown above:
 | ≥ 0.5 | 3 | (same 3 — `baseball bat` at 0.545 still clears it) |
 | ≥ 0.7 | 2 | `baseball bat` (0.545) — actually a wooden pole the person is carrying, a genuine misclassification a stricter threshold happens to filter out |
 
-**Non-max suppression (NMS)** solves a different problem: a detector often proposes *several*
-overlapping boxes around the *same* physical object, at slightly different positions and sizes, each
-with its own score. NMS keeps the highest-scoring box in each overlapping cluster and discards the
-rest. "Overlapping" is measured with **IoU (Intersection over Union)** — the area the two boxes
-share, divided by the area they cover together — which Section 6 will reuse for a completely
-different purpose (evaluation). A small, hand-checkable example, using the real
-`torchvision.ops.nms` function on three made-up boxes, makes the mechanism concrete before applying
-it to real detections:
+14 raw → 3 at ≥0.3 → 3 at ≥0.5 → **2 at ≥0.7, the boxes actually drawn below.**
+
+**Non-max suppression (NMS)** solves a different problem — in plain terms: if five people all point
+at the same dog, you don't count five dogs, you count one, the sighting you trust most. A detector
+often proposes *several* overlapping boxes around the *same* physical object, at slightly different
+positions and sizes, each with its own score. NMS keeps the highest-scoring box in each overlapping
+cluster and discards the rest. "Overlapping" is measured with **IoU (Intersection over Union)** — in
+plain terms, how much two rectangles overlap, as a fraction from 0 (no shared area) to 1 (identical
+rectangles): the area the two boxes share, divided by the area they cover together. Section 6 will
+reuse this exact quantity for a completely different purpose (evaluation). A small, hand-checkable
+example, using the real `torchvision.ops.nms` function on three made-up boxes, makes the mechanism
+concrete before applying it to real detections:
 
 ```python
 from torchvision.ops import box_iou, nms
@@ -325,7 +410,7 @@ needs it, and combining detections from multiple models or multiple crops of the
 real scenario where you apply NMS yourself, on boxes the framework didn't already deduplicate for
 you.
 
-### Drawing the boxes
+### Drawing the boxes — node F, the end of the pipeline
 
 ```python
 from torchvision.ops import nms
@@ -350,8 +435,9 @@ to_pil_image(annotated).save("detection_person1.png")
 
 Both boxes are genuine model output at `score >= 0.70`: **`person`** at confidence `0.999`, and
 **`skateboard`** at `0.999` — the `baseball bat` guess (the wooden pole he's actually carrying, an
-interesting real misclassification) is correctly excluded by the threshold. The full run — both
-sample images, real weights, real boxes — is `code/detection_infer.py`:
+interesting real misclassification) is correctly excluded by the threshold, exactly the cold open's
+promise delivered on real pixels. The full run — both sample images, real weights, real boxes — is
+`code/detection_infer.py`:
 
 ```bash
 .venv-ml/Scripts/python.exe "Machine Learning/Worked Examples/computer-vision/code/detection_infer.py"
@@ -359,9 +445,17 @@ sample images, real weights, real boxes — is `code/detection_infer.py`:
 
 The second sample image, `leaning_tower.jpg`, is not a photo at all — it's a 19th-century engraving
 of the Leaning Tower of Pisa, with small human figures near its base. It stresses the same pipeline
-in a different way: **52 raw detections, 22 at ≥0.3, 17 at ≥0.5, only 11 at ≥0.7** — every one the
-model reports above 0.3 is class `person`, correctly, even though the "photo" is a line drawing and
-every figure is only 15–35 pixels tall:
+in a different way — watch the same funnel play out on a much noisier raw output:
+
+```mermaid
+flowchart LR
+    R["52 raw detections"] -->|"score >= 0.3"| T3["22 kept"]
+    T3 -->|"score >= 0.5"| T5["17 kept"]
+    T5 -->|"score >= 0.7"| T7["11 kept<br/>(drawn below)"]
+```
+
+Every one the model reports above 0.3 is class `person`, correctly, even though the "photo" is a
+line drawing and every figure is only 15–35 pixels tall:
 
 ![leaning_tower.jpg (an antique engraving), with 11 small red bounding boxes around the human figures near the tower's base, correctly labeled "person" at score >= 0.70](artefacts/detection_leaning_tower.png)
 
@@ -398,8 +492,16 @@ kind of low-confidence guess a sensible threshold exists to cut.
 ## 6. Evaluation preview — IoU, mAP, and COCO's 80 classes (→ ML-7)
 
 This chapter only *runs* a pretrained model; it doesn't score how good its boxes are against ground
-truth — that needs labeled data and is SPEC-ML-7's job in full. Two ideas are worth previewing here
-because they're already visible in what you've built:
+truth — that needs labeled data and is SPEC-ML-7's job in full.
+
+```mermaid
+flowchart LR
+    A["this chapter: boxes on real images<br/>no ground truth, no score"] -.->|"ML-7"| B["IoU: how well does a<br/>predicted box match the truth?"]
+    B -.->|"ML-7"| C["mAP: precision/recall<br/>across all classes + IoU thresholds"]
+    C -.->|"ML-7"| D["torchmetrics.detection<br/>.MeanAveragePrecision"]
+```
+
+Two ideas are worth previewing here because they're already visible in what you've built:
 
 - **IoU**, defined in Section 5 for NMS (intersection area over union area of two boxes), is also
   exactly how a predicted box gets matched to a ground-truth box during evaluation: a prediction
@@ -449,17 +551,20 @@ placeholders, leaves `80`.
 ## 8. Recap & what's next
 
 - **Detection outputs boxes + labels + scores, not one label** — `List<Detection>`, not `Label`; a
-  detector reports zero-to-many objects, each with its own confidence.
-- **Two-stage (Faster R-CNN) vs. one-stage (SSD, RetinaNet)** is a real accuracy/compute trade-off,
-  shown here with real numbers pulled from the installed library itself: SSD300 costs 34.9 GFLOPS
-  for 25.1 box_map; Faster R-CNN v2 costs 280.4 GFLOPS for 46.7.
+  detector reports zero-to-many objects, each with its own confidence — the gap the cold open posed
+  ("one label isn't enough"), answered.
+- **Two-stage (Faster R-CNN) vs. one-stage (SSD, RetinaNet)** is a real accuracy/compute trade-off
+  with a real research lineage behind it (R-CNN → Fast R-CNN → Faster R-CNN), shown here with real
+  numbers pulled from the installed library itself: SSD300 costs 34.9 GFLOPS for 25.1 box_map;
+  Faster R-CNN v2 costs 280.4 GFLOPS for 46.7.
 - **`fasterrcnn_resnet50_fpn(weights=FasterRCNN_ResNet50_FPN_Weights.DEFAULT)`**, run on two real
   photos, drew real boxes — `person`/`skateboard` on `person1.jpg`, 11 small `person` boxes on the
   antique `leaning_tower.jpg` engraving — with every number in this chapter reproduced from
   `code/detection_infer.py`'s actual run log, not fabricated.
 - **Score threshold and NMS are both necessary, different filters** — threshold cuts low-confidence
-  noise (Section 5's table); NMS collapses duplicate boxes around the same object (the hand-checked
-  IoU-0.681 toy example). Faster R-CNN already applies NMS internally, which is itself worth knowing.
+  noise (Section 5's table: 14 → 3 → 3 → 2 kept as the bar rises); NMS collapses duplicate boxes
+  around the same object (the hand-checked IoU-0.681 toy example). Faster R-CNN already applies NMS
+  internally, which is itself worth knowing.
 - **This chapter did not train anything** — SPEC-ML-5 scopes training/fine-tuning a detector, and
   downloading full COCO, out of scope entirely (conceptual only); every result here came from a
   frozen, pretrained checkpoint run in inference mode.
@@ -486,6 +591,16 @@ inline) for the qualitative architecture claims, and from **directly inspecting
 GFLOPS, box_map) — none of those numbers came from documentation text or memory, all were read back
 from the live objects the chapter's own code loads; (3) the torchvision repository's BSD-3-Clause
 licence for the sample images, confirmed by fetching its `LICENSE` file directly.
+
+**Restyle pass (2026-09-03):** this chapter was rewritten into the storytelling/heavy-visual house
+style (`docs/style-guide.md`) without touching any prior claim, code block, artefact, or number. Two
+new claims were added and freshly grounded with live citations, checked 2026-09-03: the R-CNN
+lineage timeline (R-CNN, Girshick/Donahue/Darrell/Malik,
+[arXiv:1311.2524](https://arxiv.org/abs/1311.2524); Fast R-CNN, Girshick,
+[arXiv:1504.08083](https://arxiv.org/abs/1504.08083), quoting its own abstract's "213x faster at
+test-time" and "9x faster" training claims directly). All six `python` code blocks, all `text`
+output blocks, both artefact images, the detections table, and every previously-cited number are
+reproduced byte-for-byte from the prior version — verified by diff before this note was written.
 
 **Correction to NOTE-ML-5's evidence table:** evidence item 3 states "Labels are 1-indexed COCO class
 IDs (1-80, not 0-indexed)." Running `weights.meta["categories"]` directly (Section 3) shows this is

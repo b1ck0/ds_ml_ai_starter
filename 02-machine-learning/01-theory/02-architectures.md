@@ -2,6 +2,33 @@
 
 *Machine Learning · Theory · SPEC-ML-2*
 
+## A cat, a screen, and a Nobel Prize
+
+In 1959, at Johns Hopkins, David Hubel and Torsten Wiesel had a microelectrode sitting inside a
+single neuron in a cat's visual cortex, and a projector throwing shapes onto a screen in front of
+the animal. They tried dot after dot, spot after spot. Nothing. The neuron stayed silent. Then,
+while they were sliding a glass slide out of the projector to change it, its straight edge swept
+across the screen — and the neuron fired.
+
+That accident turned into a research program: individual neurons in the visual cortex, it turned
+out, don't respond to "light" in general. Each one fires for a bar or edge at one specific
+orientation — a cell tuned to 30° stays quiet for a 90° edge — and different neurons are tuned to
+different angles, tiled across the whole visual field. In 1981, Hubel and Wiesel shared the Nobel
+Prize in Physiology or Medicine (with Roger Sperry) "for their discoveries concerning information
+processing in the visual system"
+([source: The Nobel Prize in Physiology or Medicine 1981, official citation, nobelprize.org](https://www.nobelprize.org/prizes/medicine/1981/summary/)
+(checked 2026-09-03); orientation-selective "simple cells" and position-invariant "complex cells"
+per
+[source: Hubel & Wiesel's visual feature detectors, summarized from their Nobel-cited work](https://en.wikipedia.org/wiki/David_H._Hubel)
+(checked 2026-09-03)).
+
+Here's the one-sentence version you could repeat at dinner: **the brain doesn't look at a whole
+scene at once — it tiles the visual field with small, local edge-detectors, each tuned to one
+pattern, and builds everything else on top of that.** That is, mechanically, what a convolutional
+neural network does in software: a small filter, applied at every position, hunting for one
+pattern. Before this chapter shows a network *learning* filters like that, build one by hand —
+watching real numbers move is worth more than reading the definition.
+
 ## What & why
 
 In Java, picking a data structure is half the design: a `HashMap` for lookups, a `TreeMap` for
@@ -16,8 +43,9 @@ flat, unordered vector of numbers. That's a fine default, but it throws away str
 the whole point:
 
 - A **grid** (an image's pixels, a spectrogram) has 2D locality — a pixel's neighbours matter more
-  than a pixel on the other side of the image. A dense layer doesn't know that; it happily connects
-  every pixel to every other pixel from scratch.
+  than a pixel on the other side of the image, exactly the kind of local pattern Hubel and Wiesel's
+  cortical cells were tuned to. A dense layer doesn't know that; it happily connects every pixel to
+  every other pixel from scratch.
 - A **sequence** (a sentence, a time series) has order — swapping two words changes the meaning. A
   dense layer has no notion of "before" and "after."
 - Some problems need a **compressed representation** of the input, not a label. Some need to turn
@@ -25,9 +53,10 @@ the whole point:
 
 This chapter is the map: four families of architecture, one paragraph each on *what problem shape
 they solve*, then enough of the mechanism to reason about them — diagrams over derivations, per this
-chapter's scope. The one runnable worked example is a hand-set 2D convolution, because seeing a
-filter slide over an image and light up its edges says more than three paragraphs about "spatial
-feature extraction."
+chapter's scope. The CNN section builds convolution from scratch, by hand, on real numbers, the way
+the deck this chapter is based on does it; the runnable worked example is a hand-set 2D convolution,
+because seeing a filter slide over an image and light up its edges says more than three paragraphs
+about "spatial feature extraction."
 
 ## 1. The key decision — match architecture to data shape
 
@@ -48,27 +77,120 @@ output?** That single question narrows the field to one or two candidates almost
 
 Keep this table in view for the rest of the chapter — every section below is one row of it, expanded.
 
-## 2. CNNs — convolution, filters, feature maps, pooling
+## 2. CNNs — building convolution from first principles
 
 **What problem shape it solves:** your input is a grid with local structure (an image, most
 commonly), and the same visual feature — an edge, a corner, a texture — can appear anywhere in that
 grid. You want a layer that (a) looks at small local neighbourhoods, not the whole image at once, and
 (b) reuses the same feature detector at every position instead of learning a separate one for each
-pixel.
+pixel. Build it in five steps, each on real numbers before any general formula.
 
-### Concept
+```mermaid
+flowchart LR
+    S1["Step 1<br/>an image is a<br/>grid of numbers"] --> S2["Step 2<br/>a global transform<br/>touches every pixel<br/>the same way"]
+    S2 --> S3["Step 3<br/>convolution: a local,<br/>weighted-sum transform"]
+    S3 --> S4["Step 4<br/>the output-size formula"]
+    S4 --> S5["Step 5<br/>named filters<br/>(hand-designed)"]
+    S5 -.->|"so why hand-design at all?"| CNN["a CNN learns<br/>its own kernels"]
+```
 
-A **convolution layer** slides a small matrix of numbers — a **kernel** or **filter** (say, 3x3) —
-across the input, and at each position computes one number: the sum of the kernel's weights
-multiplied by the pixels underneath it. Two things fall out of that description, and they're the
-whole reason CNNs exist for images:
+### Step 1 — an image is just a grid of numbers
+
+A grayscale image, to a computer, is nothing more than a 2D array — one number per pixel, brighter
+means a bigger number. Here's a tiny 4x4 stand-in, small enough to read by eye:
+
+```python
+import numpy as np
+
+# A tiny 4x4 "image": in a computer, a grayscale image is nothing more than
+# a 2D grid of numbers -- each number is one pixel's brightness. conv_demo.py's
+# real sample image is 40x40 floats in [0, 1]; this is the same idea, shrunk
+# down to numbers you can read by eye.
+patch = np.array([
+    [ 13,  99,  40,   5],
+    [ 14,  42,  88,  60],
+    [200,  10,  75,  33],
+    [ 30, 150,  20,   9],
+])
+print(patch)
+```
+
+```text
+[[ 13  99  40   5]
+ [ 14  42  88  60]
+ [200  10  75  33]
+ [ 30 150  20   9]]
+```
+
+### Step 2 — a global transform touches every pixel the same way
+
+Before convolution, it's worth naming the simpler kind of image operation, because convolution is
+defined by *not* being this: a **global pixel transform** applies one fixed rule to every pixel,
+independently, with no regard for its neighbours. Brightness and contrast are the classic examples —
+add a constant to brighten, multiply by a constant to boost contrast:
+
+```python
+brighter = patch + 20        # brightness: shift every pixel by the same constant
+higher_contrast = patch * 1.5  # contrast: scale every pixel by the same constant
+```
+
+```text
+brighter  (every pixel + 20):
+[[ 33 119  60  25]
+ [ 34  62 108  80]
+ [220  30  95  53]
+ [ 50 170  40  29]]
+higher contrast (every pixel x 1.5):
+[[ 20 148  60   8]
+ [ 21  63 132  90]
+ [300  15 112  50]
+ [ 45 225  30  14]]
+```
+
+(A real 8-bit image would clip these to `[0, 255]`; skipped here since this is a numeric
+illustration, not a stored image.) Notice what's missing: pixel `(1, 1) = 42` never once looked at
+its neighbours `99`, `14`, or `88` to decide its new value. That's exactly the gap convolution
+fills.
+
+### Step 3 — convolution is a *local*, weighted-sum transform
+
+A **convolution** does look at neighbours: slide a small matrix of numbers — a **kernel** or
+**filter** — across the image, and at *each* position compute one number: the sum of the kernel's
+weights multiplied by the pixels currently underneath it. Try it on the top-left 2x2 corner of
+`patch` with a simple kernel that only keeps the diagonal:
+
+```python
+window = patch[0:2, 0:2]      # the top-left 2x2 corner: [[13, 99], [14, 42]]
+kernel = np.array([[1, 0],
+                    [0, 1]])  # keep the diagonal, ignore the off-diagonal
+convolved_value = (window * kernel).sum()
+```
+
+```text
+image window:
+[[13 99]
+ [14 42]]
+kernel:
+[[1 0]
+ [0 1]]
+elementwise products: [[13, 0], [0, 42]]
+sum -> 55
+```
+
+$$13\times1 + 99\times0 + 14\times0 + 42\times1 = 55$$
+
+`55` is one number in the output **feature map** — "how strongly did this filter fire at this
+position." Slide the same 2x2 kernel one column right, recompute, slide it down a row, recompute,
+and so on across the whole image — that's the whole algorithm. Two things fall out of that
+description, and they're the whole reason CNNs exist for images:
 
 - **Local connectivity** — each output value depends only on a small local patch of the input (the
   kernel's **receptive field**), not the entire image, the way a dense layer's output would.
-- **Weight sharing** — the *same* 3x3 = 9 numbers are reused at every position in the image. If a
-  filter learns to detect a vertical edge, it detects vertical edges everywhere, not just in the
-  top-left corner. This is also what gives CNNs (approximate) **translation invariance**: shift the
-  input a few pixels, and the same features still get detected.
+- **Weight sharing** — the *same* handful of numbers (4, in this toy example; 9 for a 3x3 kernel) are
+  reused at *every* position in the image. If a filter learns to detect a vertical edge, it detects
+  vertical edges everywhere, not just in the top-left corner. This is also what gives CNNs
+  (approximate) **translation invariance**: shift the input a few pixels, and the same features
+  still get detected.
   [source: local receptive fields & weight sharing](https://medium.com/@nerdjock/convolutional-neural-network-lesson-3-local-receptive-fields-and-weight-sharing-eb7af42343ff)
   (checked 2026-09-02); NOTE-ML-3 evidence #1.
 
@@ -76,10 +198,96 @@ Weight sharing is also a massive parameter-count win over a dense layer connecti
 an output of the same size — see the worked example below for the actual numbers on our sample
 image.
 
-Applying one kernel produces one **feature map** — a 2D grid of "how strongly did this filter fire
-at this position." A real conv layer learns many kernels in parallel (edge detectors, corner
-detectors, and combinations no human would hand-design), producing a stack of feature maps, one per
-filter.
+### Step 4 — how big is the output?
+
+Slide a kernel across an image and the output is usually a *little smaller* than the input, unless
+you compensate. Three knobs control the exact size:
+
+- **stride** ($S$) — how many pixels the kernel jumps between positions (1 = check every position;
+  2 = skip every other one, halving the output).
+- **padding** ($P$) — how many extra rows/columns of (usually zero) pixels to add around the border,
+  so edge pixels get a fair number of windows passing over them too.
+- **kernel size** ($K$) — how wide the sliding window is.
+
+Given an input of width $W$, the output width is:
+
+$$\text{output size} = \frac{W - K + 2P}{S} + 1$$
+
+([source: CS231n, "Convolutional Neural Networks," Stanford — spatial output-size formula](https://cs231n.github.io/convolutional-networks/)
+(checked 2026-09-03)). Read it as: "how many times does the kernel fit, once you've padded the
+input and account for how far it jumps each step." Plug in this chapter's own sample image — 40x40,
+with the 3x3 Sobel kernels used below:
+
+```python
+def output_size(w: int, k: int, p: int, s: int) -> int:
+    return (w - k + 2 * p) // s + 1
+
+
+valid_output = output_size(w=40, k=3, p=0, s=1)   # no padding: shrinks
+same_output = output_size(w=40, k=3, p=1, s=1)    # padding 1: stays 40x40
+```
+
+```text
+valid (no padding, stride 1):  (40 - 3 + 2*0)//1 + 1 = 38
+same  (padding 1, stride 1):   (40 - 3 + 2*1)//1 + 1 = 40
+```
+
+Without padding ("valid" convolution) a 40x40 image shrinks to 38x38 under a 3x3 kernel; with 1
+pixel of padding on every side ("same" convolution) it stays 40x40. The worked example below uses
+`scipy.signal.convolve2d(..., mode="same")` — this is precisely why: it keeps the feature map the
+same size as the input, which is what `conv_demo.py` relies on to plot the before/after images
+side by side.
+
+### Step 5 — named filters: patterns humans already worked out by hand
+
+Long before neural networks, image processing built up a small library of hand-designed kernels,
+each tuned to one specific pattern — precisely the "one neuron, one orientation" idea from the cold
+open, just designed by a person instead of grown by evolution or backprop:
+
+| Filter | Kernel (3x3) | What it detects |
+|---|---|---|
+| Mean blur | $\frac{1}{9}\begin{bmatrix}1&1&1\\1&1&1\\1&1&1\end{bmatrix}$ | smooths noise by averaging each pixel with its neighbours |
+| Sobel (X or Y) | $\begin{bmatrix}-1&0&1\\-2&0&2\\-1&0&1\end{bmatrix}$ | edges in one direction (used in the worked example below) |
+| Laplacian | $\begin{bmatrix}0&1&0\\1&-4&1\\0&1&0\end{bmatrix}$ | edges in *every* direction at once (a second derivative) |
+
+```python
+MEAN_BLUR = np.ones((3, 3)) / 9.0
+LAPLACIAN = np.array([
+    [0.0,  1.0,  0.0],
+    [1.0, -4.0,  1.0],
+    [0.0,  1.0,  0.0],
+])
+```
+
+```text
+mean blur kernel (each cell 1/9):
+[[0.111 0.111 0.111]
+ [0.111 0.111 0.111]
+ [0.111 0.111 0.111]]
+Laplacian kernel:
+[[ 0.  1.  0.]
+ [ 1. -4.  1.]
+ [ 0.  1.  0.]]
+Laplacian weights sum to 0.0 -- a flat region convolves to ~0, only changes (edges) survive
+```
+
+(Laplacian kernel and its role as a second-derivative, all-direction edge detector per
+[source: "Discrete Laplace operator," Image Processing section, Wikipedia](https://en.wikipedia.org/wiki/Discrete_Laplace_operator)
+(checked 2026-09-03) — confirms this exact 3x3 kernel and its use as an edge filter.) Notice the Laplacian's weights sum to zero: over a flat, unchanging patch of
+image, the weighted sum cancels out to roughly nothing — it only lights up where the *values*
+change, which is exactly what "detecting an edge" means numerically.
+
+**So why hand-design filters at all?** For decades, that's exactly what computer vision did — build
+a library of kernels like these three, pick the ones relevant to your problem, apply them by hand.
+It works, but it doesn't scale: nobody can hand-design every useful pattern for every possible
+task. Hubel and Wiesel's Nobel-winning finding is the hint a CNN takes literally: the visual cortex
+doesn't get its edge detectors handed down by a designer either — evolution and early visual
+experience tune them. A **convolution layer** in a neural network keeps the exact mechanism from
+Step 3 (slide a small matrix, multiply-and-sum) but *initializes the kernel's numbers randomly and
+learns them by gradient descent*, the same backprop machinery [ML-1] built. Instead of one
+Sobel-style edge detector you designed, a real conv layer typically learns dozens of small filters
+in parallel — edge detectors, corner detectors, and combinations no human would think to hand-code —
+producing a stack of feature maps, one per filter.
 
 **Pooling** (most commonly **max-pooling**) is a fixed, unlearned downsampling step usually applied
 after a conv layer: slide a small window (2x2 is typical) over a feature map and keep only the
@@ -96,9 +304,9 @@ classic **Sobel** edge-detect kernels — one for vertical edges, one for horizo
 each over the image with `scipy.signal.convolve2d` (NOTE-ML-3 evidence #6;
 [source: scipy.signal.convolve2d docs](https://docs.scipy.org/doc/scipy/reference/generated/scipy.signal.convolve2d.html)
 (checked 2026-09-02), confirmed against the scipy 1.18.1 installed in this project's `.venv-ml`).
-Note that these kernel weights are *hand-set*, not learned — exactly the point: a real CNN starts
-from random weights and *learns* kernels like these via backprop, but the mechanics of "slide a
-small matrix, multiply-and-sum" are identical either way.
+Note that these kernel weights are *hand-set*, not learned — exactly the point made in Step 5: a real
+CNN starts from random weights and *learns* kernels like these via backprop, but the mechanics of
+"slide a small matrix, multiply-and-sum" are identical either way.
 
 ```python
 import numpy as np
@@ -177,6 +385,49 @@ To reproduce all of the above yourself:
 .venv-ml/Scripts/python.exe "Machine Learning/Theory/code/conv_demo.py"
 ```
 
+### From nine hand-picked numbers to a hundred learned layers
+
+Sobel's 9 numbers were picked by a person in the 1960s. Once CNNs could learn their own kernels
+from data, the field spent the next two decades pushing on one question: *what's the best way to
+stack, connect, and scale layers of learned filters?* Each landmark below answers that question a
+different way, and each one is still a direct descendant of the "slide a kernel, multiply-and-sum"
+mechanism from Step 3:
+
+```mermaid
+timeline
+    title CNN architecture timeline -- what each one introduced
+    1998 : LeNet-5 (LeCun et al.) -- first CNN in practice; tanh activations, average pooling, digit recognition
+    2012 : AlexNet (Krizhevsky, Sutskever, Hinton) -- won ImageNet (ILSVRC); ReLU + dropout + trained on GPUs
+    2014 : VGG (Simonyan and Zisserman) -- depth from simplicity; every conv is 3x3, stacked in blocks
+    2015 : ResNet (He et al.) -- residual skip connections; let gradients skip layers, enabling 100+ layer nets
+    2018 : MobileNetV2 (Sandler et al.) -- depthwise-separable convs + inverted residuals; accuracy on a phone's compute budget
+    2019 : EfficientNet (Tan and Le) -- compound scaling; grow depth, width, and input resolution together, by formula
+```
+
+Grounded per source, each checked 2026-09-03:
+[LeNet-5 architecture (LeCun et al., 1998)](https://medium.com/@dbhatt245/a-deep-dive-into-yann-lecuns-1998-cnn-paper-explained-simply-with-examples-ff88c26f1154);
+[AlexNet (Krizhevsky, Sutskever & Hinton, NIPS 2012 — the conference now called NeurIPS) — ReLU, dropout, dual-GPU training, ImageNet win](https://medium.com/@atkarhitesh/a-timeline-of-cnn-architectures-how-cnns-have-transformed-image-recognition-80961e54a49b);
+["Very Deep Convolutional Networks for Large-Scale Image Recognition" (Simonyan & Zisserman, arXiv:1409.1556, 2014; presented ICLR 2015)](https://arxiv.org/abs/1409.1556) —
+stacked 3x3 convolutions instead of larger filters;
+["Deep Residual Learning for Image Recognition" (He, Zhang, Ren & Sun, arXiv:1512.03385, 2015)](https://arxiv.org/abs/1512.03385) —
+residual/skip connections, up to 152 layers, ILSVRC 2015 winner;
+["MobileNetV2: Inverted Residuals and Linear Bottlenecks" (Sandler, Howard, Zhu, Zhmoginov & Chen, arXiv:1801.04381, 2018; CVPR 2018)](https://arxiv.org/abs/1801.04381) —
+inverted-residual blocks built from depthwise-separable convolutions, for mobile compute budgets;
+["EfficientNet: Rethinking Model Scaling for Convolutional Neural Networks" (Tan & Le, PMLR v97 / ICML 2019)](https://proceedings.mlr.press/v97/tan19a.html) —
+a single compound coefficient scales depth, width, and resolution together.
+
+Two threads worth pulling out of that timeline, because they generalize past CNNs:
+
+- **LeNet-5 -> AlexNet -> VGG** is a story of "the same mechanism, scaled up" — more layers, more
+  learned filters, faster hardware (GPUs) — using the exact 3x3-kernel slide-and-sum from Step 3
+  throughout.
+- **ResNet's skip connections** solve a problem that should sound familiar: stack enough plain
+  conv layers and gradients vanish on the way back down, the *exact* mechanism §3 below describes
+  for RNNs (repeated multiplication by a small derivative shrinking the signal) — just across
+  *depth* instead of *time*. A skip connection adds an unmodified copy of a layer's input to its
+  output, giving the gradient an *additive* path back through the network — the same fix LSTM's
+  cell state uses for time, applied to depth.
+
 ## 3. Sequences — RNN limits, then LSTM/GRU gating
 
 **What problem shape it solves:** your input is an ordered sequence of variable length — words in a
@@ -199,7 +450,17 @@ network can't learn dependencies that span more than a handful of steps. This is
 gradient problem** for sequences (NOTE-ML-3 evidence #2;
 [source: LSTM & GRU overcoming vanishing gradient](https://medium.com/@Hafiza_Shamza_Hanif/long-short-term-memory-lstm-and-gated-recurrent-unit-gru-overcoming-the-vanishing-gradient-dc67c07facb2)
 (checked 2026-09-02)) — the same multiplicative-shrinkage mechanism [ML-1] showed for deep stacks of
-`sigmoid`/`tanh` layers (NOTE-ML-2 evidence #4), just unrolled across *time* instead of *depth*.
+`sigmoid`/`tanh` layers (NOTE-ML-2 evidence #4), just unrolled across *time* instead of *depth* — the
+same mechanism §2 just flagged as the reason ResNet needed skip connections *across depth*.
+
+```mermaid
+flowchart LR
+    H0["h_0"] -->|"x tanh', at most 1"| H1["h_1"]
+    H1 -->|"x tanh', at most 1"| H2["h_2"]
+    H2 -->|"x tanh', at most 1"| DOTS["..."]
+    DOTS -->|"x tanh', at most 1"| H50["h_50"]
+    H50 -.->|"gradient back to h_0 is<br/>roughly (small number)^50, near 0"| H0
+```
 
 ### Concept — LSTM and GRU: gating fixes it
 
@@ -216,7 +477,10 @@ acting as a "how much" dial):
 The reason this fixes vanishing gradients: the cell-state backbone is **additive**
 (`C_t = forget ⊙ C_{t-1} + input ⊙ candidate`), not the repeated-multiplication chain a vanilla RNN's
 hidden state goes through. Gradients can flow back across many steps along that additive path without
-shrinking exponentially (NOTE-ML-3 evidence #2).
+shrinking exponentially (NOTE-ML-3 evidence #2). **Why an additive path fixes it, in one line:**
+repeated multiplication by numbers `<= 1` shrinks toward zero; repeated addition doesn't shrink at
+all — the same reason a running total survives fifty steps of "add or don't add" but not fifty steps
+of "multiply by 0.9 or don't."
 
 **GRU** (Gated Recurrent Unit) is a simpler variant: it merges the forget/input gates into a single
 **update gate** and adds a **reset gate**, and drops the separate cell state entirely — two gates
@@ -267,6 +531,18 @@ tracking subject-verb agreement, another tracking nearby words) at once.
 (checked 2026-09-02), and
 [a walkthrough of the mechanism](https://towardsdatascience.com/transformers-in-action-attention-is-all-you-need-ac10338a023a/)
 (checked 2026-09-02).)
+
+```mermaid
+flowchart LR
+    TOK["every token"] --> Q["Query<br/>what am I looking for?"]
+    TOK --> K["Key<br/>what do I offer?"]
+    TOK --> V["Value<br/>what do I contribute?"]
+    Q --> MATCH["Q x K^T<br/>compare every pair"]
+    K --> MATCH
+    MATCH --> SM["softmax<br/>-> a weight per pair"]
+    SM --> BLEND["weighted blend of V<br/>= this token's new representation"]
+    V --> BLEND
+```
 
 ### Concept — positional encoding
 
@@ -336,6 +612,16 @@ scratch are out of scope here — that's ML-10.
 
 Two more shapes share a family resemblance — both have an "encoder" stage and a "decoder" stage —
 but solve very different problems, so it's worth being precise about which is which.
+
+```mermaid
+flowchart LR
+    subgraph SEQ2SEQ["encoder-decoder: different output"]
+        IN1["input sequence"] --> ENC1["encoder"] --> CTX["context"] --> DEC1["decoder"] --> OUT1["a DIFFERENT<br/>output sequence"]
+    end
+    subgraph AE["autoencoder: same output"]
+        IN2["input x"] --> ENC2["encoder"] --> Z["bottleneck z<br/>(compressed)"] --> DEC2["decoder"] --> OUT2["reconstruction of<br/>the SAME input"]
+    end
+```
 
 ### Encoder-decoder (seq2seq) — one sequence becomes a different sequence
 
@@ -408,20 +694,26 @@ from. Same two-stage shape, opposite goals.
 
 - **Stacking layers deep without a fix for vanishing gradients.** The exact mechanism from §3
   (repeated multiplication by a small derivative shrinking the gradient) isn't unique to *time* — it
-  happens across *depth* too: composing `L` sigmoid/tanh layers multiplies by a term `<= 0.25` at each
-  one, so `(0.25)^L -> 0` as `L` grows (NOTE-ML-2 evidence #4, from [ML-1]). This is exactly why ReLU
-  activations and gated architectures (LSTM/GRU, and — one layer further — the residual connections
-  transformers use) matter more as networks get deeper. **How to see it:** if a deep network's early
-  layers' weights barely move during training while later layers train fine, suspect vanishing
-  gradients, not a data problem.
+  happens across *depth* too, and §2's CNN timeline shows the field hitting this same wall directly:
+  composing `L` sigmoid/tanh layers multiplies by a term `<= 0.25` at each one, so `(0.25)^L -> 0` as
+  `L` grows (NOTE-ML-2 evidence #4, from [ML-1]). This is exactly why ReLU activations and gated
+  architectures (LSTM/GRU, and ResNet's skip connections — an additive path across *depth*, the same
+  fix LSTM applies across *time*) matter more as networks get deeper. **How to see it:** if a deep
+  network's early layers' weights barely move during training while later layers train fine, suspect
+  vanishing gradients, not a data problem.
 
 ## Recap & what's next
 
 Four architecture families, four data shapes:
 
-- **CNN** — grid data, weight-sharing exploits local, position-independent structure (§2).
+- **CNN** — grid data; built up from Step 1's "image is a grid of numbers" through the hand-worked
+  convolution arithmetic (`13x1 + 99x0 + 14x0 + 42x1 = 55`), the output-size formula
+  $(W-K+2P)/S+1$, and hand-designed filters (mean blur, Sobel, Laplacian) — then the historical
+  timeline (LeNet-5 -> AlexNet -> VGG -> ResNet -> MobileNetV2 -> EfficientNet) of what happens once
+  a network learns its own kernels instead (§2).
 - **RNN -> LSTM/GRU** — ordered sequences; gating fixes the vanilla RNN's vanishing-gradient limit by
-  giving gradients an additive path back through time (§3).
+  giving gradients an additive path back through time — the same additive trick ResNet uses across
+  depth (§3).
 - **Transformer** — sequences, without the sequential bottleneck: self-attention connects any two
   positions directly and computes in parallel; positional encoding restores the order information
   attention alone doesn't have (§4).
@@ -430,9 +722,10 @@ Four architecture families, four data shapes:
   (§5).
 
 The common thread: none of this is arbitrary — every mechanism here (weight sharing, gating,
-attention, bottlenecks) exists to make a specific data shape learnable efficiently. The reflex to
-build going forward: look at your data's shape *first*, then pick the architecture family, not the
-other way around.
+attention, bottlenecks, skip connections) exists to make a specific data shape learnable efficiently,
+and the same fixes keep reappearing in different clothes (an additive gradient path solves vanishing
+gradients whether the axis is time or depth). The reflex to build going forward: look at your data's
+shape *first*, then pick the architecture family, not the other way around.
 
 Next: [ML-3 — Theory: Representations](03-representations.md) picks up where "what shape is the raw
 input" leaves off, and asks how a network turns raw pixels, tokens, or categories into the numeric
