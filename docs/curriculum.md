@@ -58,6 +58,11 @@ Every subject folder is organised under the same five sections:
 - **Model Registry** — MLflow: tracking model performance across runs.
 - **Feature Store** — Feast (or another open-source store): slow vs fast features in production, a
   unified SDK.
+- **Bayesian inference** (SPEC-DS-19) — the other paradigm: prior × likelihood → posterior, sampled
+  with PyMC. Bayesian linear regression with Gaussian noise and an AR(1) time-series model on the
+  owner's own use-cases; credible vs. confidence intervals; posterior-predictive bands; MCMC
+  diagnostics (R-hat, ESS) with a deliberately non-converging model as the pitfall. Ties back to DS-5
+  (regression) and DS-9 (the AR model returns).
 
 ### Cloud Environment Setup
 - **Google Vertex AI** — notebooks, training via Vertex AI Pipelines, MLOps advantages over ad-hoc

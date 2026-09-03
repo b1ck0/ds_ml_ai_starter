@@ -1,6 +1,6 @@
 # SPEC-DS-19: Bayesian inference — priors, likelihood, and posteriors you can sample
 
-**Status:** approved
+**Status:** written by Sonnet, grounded by Haiku (NOTE-DS-19-1..4) — pending independent review + architect merge
 **Subject:** Data Science
 **Section:** Worked Examples
 **Routing:** writer=Sonnet 4.6 · research=Haiku · review=Sonnet (fresh) · architect=Opus 4.8

@@ -1012,6 +1012,13 @@ regression chapters in the curriculum build toward. The classification chapter t
 one keeps the same metric-first, model-comparison structure, but for the "which bucket" question
 regression deliberately set aside in §1.
 
+Every fit in this chapter also returned exactly **one** number per coefficient — `distance_km`'s
+weight is 6.445494, full stop, with no attached sense of how sure that number is.
+[Bayesian Inference](14-bayesian-inference.md) (DS-19) revisits this same idea — a straight line fit
+to noisy data — and asks the question this chapter's point estimates can't answer: instead of one
+best-fitting line, what does the *whole range* of plausible lines look like, and how would you know
+if that range were too wide to trust?
+
 ---
 
 ### Environment note (for the architect)

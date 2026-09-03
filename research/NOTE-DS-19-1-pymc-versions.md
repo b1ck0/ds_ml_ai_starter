@@ -34,6 +34,11 @@ PyMC v5.28.5 (released 2026-05-01) is the latest v5 series; PyMC 6.3.1 (2026-08-
 - cmdstanpy/pystan remain valid choices for large-scale Bayesian inference but incur C++ compilation overhead not needed here.
 
 **Recommendation:**
-Pin to **`pymc==5.28.5`**, **`arviz==1.3.0`** in requirements. Do not specify numpy/matplotlib versions explicitly (use ">=2.0" for numpy, ">=3.8" for matplotlib to allow flexibility). If snippets are tested on a Windows machine, validate conda install path in addition to pip; document both. Note owner's prior PyStan work but explain why PyMC v5 + nutpie is now better for single-machine CPU work.
+Pin to **`pymc==5.28.5`**, **`arviz==0.23.4`** in requirements.
+
+> **ARCHITECT CORRECTION (2026-09-03):** the original draft pinned `arviz==1.3.0`, but that pair is
+> **not jointly installable** — `pymc==5.28.5`'s own metadata requires `arviz<1.0`. The chapter writer
+> hit the pip resolver error and pinned **`arviz==0.23.4`** (the newest release pymc 5.28.5 accepts),
+> which sampled and produced diagnostics cleanly. Use 0.23.4. (Every "arviz 1.3.0" below is superseded.) Do not specify numpy/matplotlib versions explicitly (use ">=2.0" for numpy, ">=3.8" for matplotlib to allow flexibility). If snippets are tested on a Windows machine, validate conda install path in addition to pip; document both. Note owner's prior PyStan work but explain why PyMC v5 + nutpie is now better for single-machine CPU work.
 
 **Date checked:** 2026-09-03

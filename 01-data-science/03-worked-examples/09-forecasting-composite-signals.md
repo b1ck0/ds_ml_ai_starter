@@ -803,6 +803,11 @@ This chapter closes out the "trend, split, and validate honestly" thread that st
 from a large candidate set, the harder version of the pruning [the collinearity chapter](03-collinearity.md)
 started.
 
+Section 4.1's `AR(p)` equation reappears in [Bayesian Inference](14-bayesian-inference.md) (DS-19),
+fit the same way in spirit but with a posterior *distribution* over $\phi$ instead of one
+maximum-likelihood point — the same "how sure are we" question this chapter's point-estimate
+`ARIMA` fits never asked.
+
 ---
 
 ### Environment

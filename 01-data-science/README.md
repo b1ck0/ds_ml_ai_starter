@@ -17,7 +17,8 @@ PyCharm · Python · pip/venv · pandas · NumPy · Matplotlib · scikit-learn �
 ## Worked Examples
 Hypothesis testing & EDA · imputation · collinearity · train/valid/holdout split · regression
 (NYC taxi fare) · classification (Titanic; + multi-class & multi-label) · forecasting (composite
-synthetic signals) · feature selection · AutoML · model registry (MLflow) · feature store (Feast).
+synthetic signals) · feature selection · AutoML · model registry (MLflow) · feature store (Feast) ·
+Bayesian inference (Gaussian-noise regression + AR(1) with PyMC).
 
 ## Cloud Environment Setup
 Vertex AI · Azure ML · SageMaker · batch vs online inference · production monitoring (concept/data/
@@ -27,4 +28,4 @@ model drift, retraining triggers) · in-database ML (BigQuery ML, Redshift ML).
 MLOps pipelines, model promotion decisions, monitoring, and retraining — see the Cloud section and
 `docs/definition-of-done.md`.
 
-_All 19 Data Science chapters (DS-0 → DS-18) are complete — see the sections above._
+_All 20 Data Science chapters (DS-0 → DS-19) are complete — see the sections above._
