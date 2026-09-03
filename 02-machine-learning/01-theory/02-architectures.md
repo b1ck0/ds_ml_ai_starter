@@ -428,6 +428,288 @@ Two threads worth pulling out of that timeline, because they generalize past CNN
   output, giving the gradient an *additive* path back through the network — the same fix LSTM's
   cell state uses for time, applied to depth.
 
+The timeline treats each landmark as a black box — "ResNet has skip connections," "Inception has
+1x1 bottlenecks" — but that skips a question any engineer would ask next: concretely, how does one
+conv layer's output *become* the next layer's input, and what are those 1x1 convolutions and the
+"global average pool" littering every modern architecture diagram actually computing? Four pieces
+close that gap, still all built from the sliding-kernel mechanism in Step 3.
+
+### Channels — how one conv layer connects to the next
+
+Steps 1–5 convolved a single grayscale image (one channel) with a single hand-set kernel. Real
+images have 3 channels (red, green, blue), and a real network stacks dozens of conv layers, each
+producing dozens of feature maps for the next one to consume. So what actually flows from layer
+`L-1` into layer `L`, and how does a kernel handle more than one channel to begin with?
+
+**The kernel picks up a third dimension.** A conv layer with `C_in` input channels and `C_out`
+output filters doesn't use `C_out` separate 2D kernels — it uses `C_out` separate *3D* kernels,
+each of shape `(C_in, kH, kW)`. Stack all `C_out` of them and the layer's full weight tensor has
+shape `(C_out, C_in, kH, kW)` — this is PyTorch's own `nn.Conv2d` convention
+([source: `torch.nn.Conv2d`, "Variables" section — the `weight` attribute has shape
+`(out_channels, in_channels / groups, kernel_size[0], kernel_size[1])`, which is
+`(out_channels, in_channels, kH, kW)` at the default `groups=1`](https://docs.pytorch.org/docs/stable/generated/torch.nn.Conv2d.html)
+(checked 2026-09-03)). Each output filter slides across the image exactly as in Step 3, but at
+every position it multiplies-and-sums across *all* `C_in` channels at once, collapsing them into a
+**single** output number — one filter, however many input channels it started with, always produces
+one feature map. Stack `C_out` such filters side by side and you get `C_out` feature maps: the next
+layer's channels.
+
+Real numbers, following an RGB image through two conv layers:
+
+```python
+def conv_params(c_out: int, c_in: int, kh: int, kw: int, bias: bool = True) -> int:
+    """Total learnable weights in a conv layer with weight shape
+    (c_out, c_in, kh, kw) -- PyTorch's nn.Conv2d convention -- plus one bias
+    per output filter (NOTE: PyTorch docs, "Variables" section, checked 2026-09-03).
+    """
+    weights = c_out * c_in * kh * kw
+    biases = c_out if bias else 0
+    return weights + biases
+
+
+conv1_params = conv_params(c_out=16, c_in=3, kh=3, kw=3)   # RGB in (3 channels), 16 filters out
+conv2_params = conv_params(c_out=32, c_in=16, kh=3, kw=3)  # 16 in, 32 filters out
+```
+
+```text
+conv1: weight shape (16, 3, 3, 3) -> 16*3*3*3 = 432 weights, +16 bias = 448 params
+conv2: weight shape (32, 16, 3, 3) -> 32*16*3*3 = 4,608 weights, +32 bias = 4,640 params
+total for both layers: 5,088 params
+```
+
+Notice `conv2`'s kernel is `(32, 16, 3, 3)`, not `(32, 3, 3, 3)` — its `C_in` has to match `conv1`'s
+`C_out` (`16`), not the original image's 3 channels, because `conv2` never sees the raw image, only
+`conv1`'s 16 feature maps.
+
+**Why we do it this way — the Java analogy.** In Java, a method's return type has to match the next
+method's parameter type or `javac` refuses to compile the chain — plug a method returning `List<Foo>`
+into one expecting `List<Bar>` and you find out before a single test runs. A conv stack's channel
+counts are the same contract: layer `L`'s `C_out` **must** equal layer `L+1`'s `C_in`, or the shapes
+don't compose. Channels are the "width" of the tensor type flowing between layers, the same role a
+generic type parameter plays in a builder chain. Where this genuinely differs from Java: PyTorch
+won't catch a channel mismatch at "compile" time the way `javac` would — you only find out when the
+forward pass actually runs and a matrix-multiply throws a shape error. There is no static type
+checker for tensor shapes; get in the habit of printing `.shape` after each layer while debugging,
+the way you'd read a stack trace.
+
+```mermaid
+flowchart LR
+    IMG["input image<br/>(C_in=3, H, W)<br/>red, green, blue channels"] --> C1["Conv2d<br/>weight (16, 3, 3, 3)<br/>16 filters, each spans all 3 input channels"]
+    C1 --> F1["feature maps<br/>(C=16, H, W)"]
+    F1 --> C2["Conv2d<br/>weight (32, 16, 3, 3)<br/>32 filters, each spans all 16 input channels"]
+    C2 --> F2["feature maps<br/>(C=32, H, W)"]
+```
+
+*Figure — tensor shapes flowing layer to layer. Each conv layer's `C_out` becomes the next layer's
+`C_in`; only the channel dimension needs to line up, `H` and `W` can shrink or stay fixed per the
+Step 4 output-size formula independently of channel count.*
+
+### Receptive field — why stacking small kernels beats one big one
+
+With channels sorted, the next question: how much of the *original input image* does a neuron three
+layers deep actually "see"? A layer-1 neuron's answer is easy — exactly the `3x3` patch under its
+kernel, per Step 3. Is a layer-3 neuron still limited to a `3x3` patch too?
+
+No — its **receptive field** (the region of the *original* input that can influence one output
+value) grows with depth, because a layer-2 neuron's own `3x3` window is built from layer-1 *outputs*,
+each of which already summarized its own `3x3` patch of the raw image. Stack `L` layers of `K x K`
+kernels (stride 1, no pooling) and the receptive field grows by `(K-1)` pixels per layer:
+
+$$\text{RF}_L = \text{RF}_{L-1} + (K-1)$$
+
+```python
+def receptive_field_growth(n_layers: int, kernel_size: int = 3, stride: int = 1) -> list[int]:
+    """Receptive field after each of n_layers stacked conv layers, stride 1:
+    RF_L = RF_{L-1} + (K - 1). Starts at RF_0 = 1 (a single input pixel).
+    """
+    rf = 1
+    sizes = []
+    for _ in range(n_layers):
+        rf = rf + (kernel_size - 1) * stride
+        sizes.append(rf)
+    return sizes
+
+
+rf_per_layer = receptive_field_growth(n_layers=3, kernel_size=3)
+
+# Compare params: three stacked 3x3 layers vs one 7x7 layer, same 64->64 channels,
+# same resulting 7x7 receptive field.
+c = 64
+three_3x3_weights = 3 * conv_params(c_out=c, c_in=c, kh=3, kw=3, bias=False)
+one_7x7_weights = conv_params(c_out=c, c_in=c, kh=7, kw=7, bias=False)
+```
+
+```text
+receptive field after layer 1, 2, 3 (each a 3x3 conv, stride 1): [3, 5, 7]
+three stacked 3x3 convs, 64->64 channels each: 3 x (64*64*3*3) = 110,592 weights
+one 7x7 conv, 64->64 channels:                     64*64*7*7 = 200,704 weights
+the single 7x7 conv uses ~1.8x the weights of three stacked 3x3s -- for the same 7x7 receptive field
+```
+
+**Why stacking small kernels wins.** Three `3x3` layers reach the *same* `7x7` receptive field as
+one `7x7` layer for roughly half the weights — and, just as important, three layers means three
+ReLU nonlinearities stacked in the path instead of one, so the network gets three chances to bend
+its decision boundary where one big kernel gives it only one. This is precisely the argument VGG
+made for building deep networks entirely out of `3x3` convolutions
+([source: "Very Deep Convolutional Networks for Large-Scale Image Recognition" (Simonyan &
+Zisserman, arXiv:1409.1556, 2014)](https://arxiv.org/abs/1409.1556) (checked 2026-09-03) — stacked
+`3x3` convolutions reach the receptive field of a larger filter with fewer parameters and more
+non-linearity), already named in the timeline above.
+
+```mermaid
+flowchart LR
+    L0["input pixels"] --> L1["conv layer 1, 3x3<br/>receptive field: 3x3"]
+    L1 --> L2["conv layer 2, 3x3<br/>receptive field: 5x5"]
+    L2 --> L3["conv layer 3, 3x3<br/>receptive field: 7x7"]
+    L3 -.->|"same coverage as, ~1.8x fewer weights, 3 ReLUs not 1"| BIG["one 7x7 conv layer<br/>receptive field: 7x7"]
+```
+
+*Figure — three stacked `3x3` layers reach the same `7x7` receptive field as one `7x7` layer, for
+fewer parameters and more nonlinearity.*
+
+### Global Average Pooling — trading a huge dense head for zero parameters
+
+Suppose several conv+pool stages have left you with a stack of feature maps — say `(C=512, H=7,
+W=7)`, the shape VGG16 produces from a `224x224` input after five pooling stages — and the next step
+is turning that into class scores. The obvious move, following Steps 1–5's logic, is to flatten
+everything into one long vector and put a dense (fully connected) layer on top, the way [ML-1]'s
+dense layers work. Try it, in real numbers:
+
+```python
+c, h, w = 512, 7, 7
+flattened_length = c * h * w  # what "flatten" turns the feature maps into
+
+dense_weights = flattened_length * 4096      # every flattened number -> every one of 4096 units
+dense_bias = 4096
+dense_first_layer_params = dense_weights + dense_bias
+```
+
+```text
+final feature maps: (C=512, H=7, W=7) -> flatten -> 25,088-length vector
+dense head, FIRST FC layer alone: 25,088 x 4,096 = 102,760,448 weights (+4,096 bias) = 102,764,544 params
+```
+
+That's **over 100 million** parameters for one layer — VGG16's own architecture puts nearly 120
+million of its ~138 million total parameters in exactly this kind of dense head
+([source: VGG16 architecture — 7x7x512 final feature volume flattened to 25,088, feeding
+4096-unit fully connected layers](https://builtin.com/machine-learning/vgg16) (checked 2026-09-03);
+network shape confirmed against
+["Very Deep Convolutional Networks for Large-Scale Image Recognition" (Simonyan & Zisserman,
+arXiv:1409.1556, 2014)](https://arxiv.org/abs/1409.1556) (checked 2026-09-03)). Worse, that dense
+layer's weight count is *locked* to `25,088` — feed the network a differently-sized image and the
+flattened length changes, and the dense layer's weights no longer fit.
+
+**Global Average Pooling (GAP)** fixes both problems at once: instead of flattening, average *every*
+`H x W` feature map down to a single number, one average per channel. `(C, H, W)` becomes `(C,)` — a
+`C`-length vector — with **no learned weights at all**, and it works for *any* `H, W`, because an
+average doesn't care how many numbers went into it.
+
+```python
+gap_vector_length = c          # GAP: average(H, W) -> one number, per channel -- 0 learned weights
+num_classes = 1000
+gap_head_weights = c * num_classes       # the C -> num_classes linear layer that follows GAP
+gap_head_bias = num_classes
+gap_head_params = gap_head_weights + gap_head_bias
+```
+
+```text
+GAP: (C=512, H=7, W=7) -> average each 7x7 map to one number -> a (512,) vector, 0 params
+GAP + linear head, 512 -> 1000 classes: 512*1000 = 512,000 weights (+1,000 bias) = 513,000 params
+the dense head's FIRST layer alone uses ~200x the params of the entire GAP + linear head
+```
+
+GAP's feature vector still needs one small `C -> num_classes` linear layer to produce class scores
+— GAP itself adds zero parameters, it's the flatten+giant-dense-layer step it *replaces*. This is
+the Network-in-Network paper's contribution, adopted by nearly every CNN classifier since
+([source: "Network In Network" (Lin, Chen, Yan, arXiv:1312.4400,
+2013)](https://arxiv.org/abs/1312.4400) (checked 2026-09-03) — introduces global average pooling
+over the last layer's feature maps as a replacement for fully-connected layers, reducing parameters
+and overfitting while enforcing correspondence between feature maps and categories).
+
+```mermaid
+flowchart LR
+    FM["final feature maps<br/>(C=512, H=7, W=7)"] --> GAP["Global Average Pool<br/>average each 7x7 map to one number<br/>0 learned weights"]
+    GAP --> VEC["feature vector<br/>(C=512,)"]
+    VEC --> LIN["linear layer, 512 -> 1000<br/>512,000 weights + 1,000 bias"]
+    LIN --> OUT["class scores<br/>(1000,)"]
+```
+
+*Figure — GAP collapses `(C, H, W)` to `(C,)` for free, size-agnostic; only the final `C ->
+num_classes` linear layer has weights.*
+
+### 1x1 convolutions — a per-pixel linear mix of channels
+
+Last piece: what if you want to change a feature map stack's channel count — say drop 256 channels
+down to 64 — without touching the spatial size, and as cheaply as possible?
+
+A **1x1 convolution** is a kernel with `kH = kW = 1`. Plug that into Step 3's mechanism: at each
+position, the kernel looks at exactly *one* pixel — but across *all* `C_in` channels at that pixel —
+and computes a weighted sum of them. It isn't looking at neighbours at all; it's a **per-pixel linear
+mix of channels**, applied identically (weight-shared) at every position, effectively a tiny dense
+layer run independently on every pixel's channel-vector. Because it's followed by a ReLU like any
+other conv layer, it adds a nonlinearity too — it isn't just a channel-count knob.
+
+```python
+oneone_params = conv_params(c_out=64, c_in=256, kh=1, kw=1)
+threethree_params = conv_params(c_out=64, c_in=256, kh=3, kw=3)
+```
+
+```text
+1x1 conv 256->64: weight (64, 256, 1, 1) -> 64*256*1*1 = 16,384 weights (+64 bias) = 16,448 params
+3x3 conv 256->64: weight (64, 256, 3, 3) -> 64*256*3*3 = 147,456 weights (+64 bias) = 147,520 params
+the 3x3 uses ~9x the params of the 1x1, for the exact same channel change (256 -> 64)
+```
+
+The 9x ratio is exactly the kernel's pixel count (`3x3 = 9` positions vs `1x1 = 1` position) — a 1x1
+conv pays only for the channel mixing, nothing for spatial extent.
+
+**Why this matters: the "bottleneck" pattern.** GoogLeNet/Inception uses 1x1 convolutions to shrink
+channel counts *before* an expensive `3x3` or `5x5` convolution, keeping the network deep without
+letting compute explode
+([source: "Going Deeper with Convolutions" (Szegedy et al., arXiv:1409.4842, 2014) — the
+GoogLeNet/Inception paper](https://arxiv.org/abs/1409.4842) (checked 2026-09-03) — 1x1 convolutions
+used as dimension-reduction modules to remove computational bottlenecks before the larger
+convolutions in each Inception module). ResNet's deeper variants (ResNet-50/101/152) use the same
+trick inside every residual block: **reduce** channels with a 1x1 conv, run the expensive `3x3` conv
+on the *smaller* channel count, then **expand** back with another 1x1 conv
+([source: "Deep Residual Learning for Image Recognition" (He, Zhang, Ren & Sun, arXiv:1512.03385,
+2015)](https://arxiv.org/abs/1512.03385) (checked 2026-09-03) — the "bottleneck" building block used
+in ResNet-50/101/152 stacks three convolutions of kernel size 1, 3, 1: the 1x1 layers reduce then
+restore dimensions, leaving the 3x3 layer with smaller input/output channel counts), the exact
+"NiN, popularised by GoogLeNet/ResNet" lineage this section opened with. Real numbers, a
+`256 -> 256` bottleneck block against one plain `3x3` doing the same shape change:
+
+```python
+reduce_params = conv_params(c_out=64, c_in=256, kh=1, kw=1)   # 1x1 reduce: 256 -> 64
+mid_params = conv_params(c_out=64, c_in=64, kh=3, kw=3)       # 3x3 at the reduced width
+expand_params = conv_params(c_out=256, c_in=64, kh=1, kw=1)   # 1x1 expand: 64 -> 256
+bottleneck_total = reduce_params + mid_params + expand_params
+
+plain_params = conv_params(c_out=256, c_in=256, kh=3, kw=3)   # one plain 3x3, same 256 -> 256
+```
+
+```text
+1x1 reduce, 256->64:  16,448 params
+3x3,        64->64:   36,928 params
+1x1 expand, 64->256:  16,640 params
+bottleneck total:     70,016 params
+plain 3x3, 256->256 directly: 590,080 params
+the plain 3x3 uses ~8.4x the params of the bottleneck, for the same 256->256 shape change
+```
+
+```mermaid
+flowchart LR
+    PIX["one pixel's channel vector<br/>(C_in=256,)"] --> K["1x1 kernel<br/>weight (64, 256, 1, 1)<br/>a per-pixel linear mix of channels"]
+    K --> OUTPIX["that pixel's new channel vector<br/>(C_out=64,)"]
+    subgraph BOTTLENECK["ResNet-style bottleneck block, 70,016 params vs 590,080 plain"]
+        R["1x1 reduce<br/>256 -> 64"] --> M["3x3<br/>64 -> 64"] --> E["1x1 expand<br/>64 -> 256"]
+    end
+```
+
+*Figure — top: a single 1x1 conv mixing one pixel's channels. Bottom: the ResNet/Inception bottleneck
+pattern — reduce channels cheaply, do the expensive spatial convolution at the reduced width, expand
+back.*
+
 ## 3. Sequences — RNN limits, then LSTM/GRU gating
 
 **What problem shape it solves:** your input is an ordered sequence of variable length — words in a
