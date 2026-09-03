@@ -2,39 +2,82 @@
 
 *Data Science · Worked Examples · SPEC-DS-12*
 
-You've got an artifact repository (Nexus, Artifactory) that answers "which commit produced
-`service-1.4.2.jar`, and what were its dependency versions?" without you having to ask — every build
-records its own provenance. You've also got a CI dashboard that lines up the last ten builds side by
-side so you can see which one broke the integration test. Machine learning experimentation, left to
-its own devices, has neither. A Jupyter notebook re-run six times with six slightly different
-hyperparameters leaves you with one `model` variable in memory and no record of which of those six
-runs it came from, what data it saw, or what score it got — the ML equivalent of overwriting the same
-JAR on every build with no version number, no changelog, and no way to answer "which build is this?"
-six months later when it's in production and something's wrong. This chapter is about the tool that
-fixes that: **MLflow**, an experiment tracker (the CI dashboard) plus a **model registry** (the
-artifact repository), both running entirely on your own machine.
+## Six re-runs, one unanswerable question
+
+Picture a normal Tuesday. You're improving a churn-prediction model in a notebook. You tweak
+`max_depth`, hit "Run All," read the accuracy off the output cell, think "a bit better," and move
+to the next tweak. Walk through what actually happens, step by step — because the failure mode
+matters more than the story:
+
+**Step 1 — set a parameter, run the cell.** `max_depth=3`. The notebook trains a model and prints
+a score.
+
+**Step 2 — read the score off the screen.** Test accuracy: 0.825. It's right there in the output;
+you don't write it down anywhere else — why would you?
+
+**Step 3 — change one parameter, re-run.** `max_depth=None`. The `model` variable in memory now
+holds the *new* fit. The old one, and the score that went with it, is simply gone — overwritten,
+the same way a second `git push --force` erases the first.
+
+**Step 4 — repeat, four more times.** Different `n_estimators`, different `max_depth`. Same
+overwrite, every time. Six attempts, five of them now unrecoverable.
+
+**Step 5 — pick "the best one" from memory** and copy its `.pkl` file somewhere durable. Which
+exact parameters produced it? You're reconstructing that from memory now, or you're not
+reconstructing it at all.
+
+**Step 6 — six months pass.** Someone in production asks: "the churn model that's currently
+serving traffic — what hyperparameters does it use, what data did it see, and can we reproduce
+it?" You open the notebook. There is no log, no diff, no history. You genuinely cannot answer the
+question.
+
+```mermaid
+flowchart TD
+    R1["run 1: max_depth=3<br/>score printed, not saved"] --> MEM["notebook variable `model`<br/>(overwritten every re-run)"]
+    R2["run 2: max_depth=None<br/>score printed, not saved"] --> MEM
+    R3["run 3: n_estimators=150<br/>score printed, not saved"] --> MEM
+    R4["run 4: n_estimators=300<br/>score printed, not saved"] --> MEM
+    R5["...two more re-runs..."] --> MEM
+    MEM --> SHIP["one .pkl copied to production<br/>(whichever ran last)"]
+    SHIP -.->|"6 months later"| Q["'what params, what data,<br/>what score produced this model?'"]
+    Q -.->|"no log, no diff, no history"| GAP["unanswerable"]
+```
+
+A Java engineer feels this one immediately, with zero ML background required: it's a build with no
+version number, no changelog, and no artifact repository. The JAR running in production could have
+come from any of six local builds, and nobody wrote down which — except it's worse than a lost JAR,
+because a JAR at least survives in `target/` after the *next* build overwrites it. The notebook's
+`model` variable doesn't even do that; it's gone the instant the next cell runs.
+
+Here's the one-sentence version you could repeat at dinner: **an experiment tracker is a CI
+dashboard for training runs, and a model registry is an artifact repository for trained models** —
+and **MLflow** is both, running entirely on your own machine, for free. The rest of this chapter
+rebuilds exactly the six-step scenario above, correctly this time. By the end, the question from
+Step 6 — "which run produced this, with what parameters?" — has a one-line, always-correct answer.
 
 ## 1. What & why
 
-Three things go missing the moment you stop tracking runs deliberately:
+Three specific things go missing the moment you stop tracking runs deliberately — you just watched
+all three vanish in the story above:
 
 - **Which parameters produced this score.** You tweaked `max_depth`, re-ran the cell, the accuracy
-  went up — but which value of `max_depth`? If you didn't write it down, that information existed for
-  exactly as long as the notebook kernel was alive.
+  went up — but which value of `max_depth`? If you didn't write it down, that information existed
+  for exactly as long as the notebook kernel was alive.
 - **Which exact code and data produced this model.** A `.pkl` file on disk doesn't say what script
   trained it, what commit that script was at, or what version of scikit-learn was installed when it
   ran. Six months later, "reproduce this result" is a research project, not a lookup.
 - **A comparable record across many attempts.** One run's metric in your head is not a comparison.
-  You need all of them, side by side, sortable by score — the thing a CI dashboard gives you for free
-  across builds.
+  You need all of them, side by side, sortable by score — the thing a CI dashboard gives you for
+  free across builds.
 
-**MLflow Tracking** solves the first two: every training run becomes a **run** — a database row plus
-a folder of artifacts — holding whatever parameters, metrics, and files you tell it to record.
+**MLflow Tracking** solves the first two: every training run becomes a **run** — a database row
+plus a folder of artifacts — holding whatever parameters, metrics, and files you tell it to record.
 **MLflow Model Registry** solves a fourth problem that shows up once a model reaches production:
 *which registered, versioned model is currently serving traffic, and how do I move a new one into
-that slot without editing code?* That's the artifact-repository half of the analogy: a registry entry
-is a named, versioned model — `churn_classifier` version `1`, version `2`, ... — the same shape as
-`service-1.4.2.jar`, `service-1.4.3.jar` in Nexus, each version an immutable, retrievable build.
+that slot without editing code?* That's the artifact-repository half of the analogy: a registry
+entry is a named, versioned model — `churn_classifier` version `1`, version `2`, ... — the same
+shape as `service-1.4.2.jar`, `service-1.4.3.jar` in Nexus, each version an immutable, retrievable
+build.
 
 This chapter runs everything **locally**: a local SQLite database as the tracking store, a local
 folder as the artifact store. No hosted MLflow server, no cloud registry — those are a forward link
@@ -44,22 +87,37 @@ PyPI and installed in a sandbox on 2026-09-02
 
 ## 2. Concept
 
-Four nouns, and one critical version-specific fact:
+Four nouns worth defining precisely before any code, and one critical version-specific fact:
 
-- **Experiment** — a named folder for runs that belong together (e.g. "churn model iterations").
-  Created once; every run after that is filed under it.
-- **Run** — one execution of your training code. Has a unique `run_id`, a start/end time, and holds:
-  - **Params** — the inputs you chose (`n_estimators=300`), logged with `mlflow.log_param`.
-  - **Metrics** — the outputs you measured (`test_accuracy=0.835`), logged with `mlflow.log_metric`.
-  - **Artifacts** — arbitrary files (a model, a plot, a report), logged with `mlflow.log_artifact` or
-    a model-specific call like `mlflow.sklearn.log_model`.
-- **Registered model** — a named entry in the Model Registry (e.g. `churn_classifier`). Each time you
-  register a run's model artifact against that name, MLflow creates a new, immutable **version**
-  (`1`, `2`, `3`, ...) — you never overwrite a version, you only add new ones, exactly like you never
-  overwrite `service-1.4.2.jar`, you publish `1.4.3`.
-- **Alias** — a named, **mutable** pointer from a registered-model name to one specific version, e.g.
-  `champion` → version `2`. This is the piece that changed recently and is the one fact in this
-  chapter most worth getting right:
+| Term | Plain-language gloss |
+|---|---|
+| **Experiment** | A named folder for runs that belong together (e.g. "churn model iterations"). Created once; every run after that is filed under it. |
+| **Run** | One execution of your training code. Has a unique `run_id`, a start/end time, and holds params, metrics, and artifacts (below). |
+| **Registered model** | A named entry in the Model Registry (e.g. `churn_classifier`). Each time you register a run's model against that name, MLflow adds a new, immutable **version** — `1`, `2`, `3`, ... — you never overwrite one, only add the next. |
+| **Alias** | A named, **mutable** pointer from a registered-model name to one specific version, e.g. `champion` → version `2`. Re-point it to promote or roll back; nothing about the versions themselves changes. |
+
+A run's three kinds of contents, and the call that logs each:
+
+- **Params** — the inputs you chose (`n_estimators=300`), logged with `mlflow.log_param`.
+- **Metrics** — the outputs you measured (`test_accuracy=0.835`), logged with `mlflow.log_metric`.
+- **Artifacts** — arbitrary files (a model, a plot, a report), logged with `mlflow.log_artifact` or
+  a model-specific call like `mlflow.sklearn.log_model`.
+
+```mermaid
+flowchart LR
+    START["mlflow.start_run()"] --> P["log_param()<br/>the inputs you chose"]
+    START --> M["log_metric()<br/>the scores you measured"]
+    START --> A["log_artifact() / log_model()<br/>files: model, plots, reports"]
+    P --> DB["tracking store<br/>(SQLite: mlflow.db)"]
+    M --> DB
+    A --> FS["artifact store<br/>(mlruns/ folder)"]
+    DB --> CMP["compared side by side:<br/>MLflow UI or search_runs()"]
+    FS --> CMP
+```
+
+That covers three of the four missing things from §1 — params, code/data provenance via logged
+artifacts, and a comparable record. The fourth noun, **alias**, is the piece that changed recently
+and is the one fact in this chapter most worth getting right:
 
 > **Stages are deprecated; use aliases.** Older MLflow material (and a lot of blog posts still
 > online) teaches moving a model version through fixed **stages** — `Staging` → `Production` →
@@ -131,6 +189,17 @@ matplotlib==3.11.1
 
 ## 4. Worked example
 
+Five moves, each one closing the exact gap the previous move left open — the same
+rebuild-the-scenario-correctly promise from the cold open, now for real:
+
+```mermaid
+flowchart LR
+    S1["1: log by hand<br/>(4.2)"] -->|"gap: tedious<br/>across many configs"| S2["2: autolog<br/>(4.3)"]
+    S2 -->|"gap: 5 runs, no<br/>side-by-side view"| S3["3: compare runs<br/>(4.4)"]
+    S3 -->|"gap: 'best run_id'<br/>isn't a stable name"| S4["4: register + promote<br/>via alias (4.5)"]
+    S4 -->|"gap: serving code<br/>shouldn't know run_ids"| S5["5: reload for<br/>inference (4.6)"]
+```
+
 Full runnable script:
 [`code/mlflow_tracking.py`](code/mlflow_tracking.py). Run it from inside the `code/` directory so the
 local SQLite store and the artifact folder land in a predictable place:
@@ -142,11 +211,13 @@ cd "Data Science/Worked Examples/code"
 
 ### 4.1 The dataset and the tracking store
 
-A synthetic subscription-churn dataset — 800 customers, five features, a `churn` label generated
-through a logistic relationship plus noise, seeded for reproducibility (the same "known ground truth"
-approach used throughout this course, e.g.
-[collinearity.md](03-collinearity.md)). One fixed train/test split is shared by **every** run below, so
-comparing runs compares models, not data:
+Before any of the five moves above can happen, every run needs the same fixed target to train and
+score against — otherwise a metric moving between runs could mean "the model changed" or "the data
+changed," and you'd have no way to tell which. A synthetic subscription-churn dataset — 800
+customers, five features, a `churn` label generated through a logistic relationship plus noise,
+seeded for reproducibility (the same "known ground truth" approach used throughout this course,
+e.g. [collinearity.md](03-collinearity.md)) — fixes that. One train/test split is shared by
+**every** run below, so comparing runs compares models, not data:
 
 ```python
 from __future__ import annotations
@@ -239,10 +310,12 @@ First run creates the database:
 2026/09/02 22:33:53 INFO mlflow.store.db.utils: Updating database tables
 ```
 
-### 4.2 Explicit tracking — the primitives
+### 4.2 Move 1 — explicit tracking, by hand
 
-Before reaching for any convenience wrapper, log one run entirely by hand, so every later
-abstraction has a concrete thing it's abstracting *over*:
+This is where the cold open gets fixed for real. Before reaching for any convenience wrapper, log
+one run entirely by hand, so every later abstraction has a concrete thing it's abstracting *over* —
+and so you can see, line by line, exactly which call captures the fact that Step 2 of the cold open
+let vanish:
 
 ```python
 from sklearn.linear_model import LogisticRegression
@@ -283,9 +356,15 @@ closes it out with a `FINISHED` status. Real output from running this:
 [manual run] run_id=fd62b88bf7484eb488edac6a7ecbca24 test_accuracy=0.8300 test_f1=0.3462
 ```
 
-### 4.3 `autolog` — the convenience wrapper, across several runs
+Compare that to the cold open's Step 2: same kind of number (`0.8300`), except now it's permanently
+attached to a `run_id`, the exact solver/`C`/`max_iter` that produced it, and a saved model
+artifact — nothing here gets overwritten by the next cell. The gap this move leaves open: writing
+eight lines of `log_param`/`log_metric` by hand gets old exactly as fast as you'd expect, the moment
+you want to compare more than one or two configurations.
 
-Writing `log_param`/`log_metric` calls for every hyperparameter of every model gets old fast.
+### 4.3 Move 2 — `autolog`, across several runs
+
+Writing `log_param`/`log_metric` calls for every hyperparameter of every model is Move 1's gap.
 `mlflow.sklearn.autolog()` patches scikit-learn so that a plain `.fit()` call inside an active run
 logs the estimator's full parameter set, a battery of standard metrics, the fitted model, and — for
 classifiers — a confusion matrix, ROC curve, and precision-recall curve, automatically
@@ -331,7 +410,12 @@ Each autolog run's artifact folder also picked up, without an explicit `log_arti
 `training_precision_recall_curve.png`, `training_roc_curve.png` — confirmed by listing a run's
 artifacts directly (`MlflowClient().list_artifacts(run_id)`) after running this chapter's code.
 
-### 4.4 Comparing runs — in the UI, and as an exported artefact
+Five runs, all on permanent record now — this is the exact scenario the cold open lost, rebuilt
+correctly: six attempts, five of them not just remembered but *queryable*. Except "on record" and
+"comparable" aren't the same thing yet: the numbers above are five separate print statements you'd
+have to read one at a time. That's the gap Move 3 closes.
+
+### 4.4 Move 3 — comparing runs, in the UI and as an exported artefact
 
 `mlflow ui --backend-store-uri sqlite:///mlflow.db` starts a local web server (confirmed running
 against this chapter's store on 2026-09-02: `Uvicorn running on http://127.0.0.1:5551`, HTTP 200 on
@@ -403,7 +487,13 @@ work here — this is the class-imbalance lesson from
 [class-imbalance.md](08-class-imbalance.md) resurfacing inside a tracking table, exactly why you log
 more than one metric per run.
 
-### 4.5 Registering a model and promoting it with an alias
+The comparison names a winner — but "the best row in this table" and "the model my serving code
+loads" are still two different things. A `run_id` like `a323ce7498784cd29ffa2c00ce71bb04` is not
+something you want hardcoded into a production service, and nothing here stops the next training
+run from producing a *better* model tomorrow. What's missing is a stable, promotable name. That's
+the registry — Move 4.
+
+### 4.5 Move 4 — registering a model and promoting it with an alias
 
 Pick the best run (`autolog-rf-4`, 0.835), register its logged model artifact under a name, and point
 a `champion` alias at the resulting version:
@@ -466,6 +556,15 @@ Created version '2' of model 'churn_classifier'.
 'champion' alias moved: version 1 -> version 2
 ```
 
+```mermaid
+flowchart LR
+    RUN1["run: autolog-rf-4<br/>test_accuracy=0.835"] -->|"register_model()"| V1["churn_classifier<br/>version 1"]
+    V1 -->|"set_registered_model_alias<br/>alias='champion'"| ALIAS["@champion"]
+    RUN2["run: autolog-rf-tuned<br/>test_accuracy=0.840"] -->|"register_model()"| V2["churn_classifier<br/>version 2"]
+    V2 -->|"set_registered_model_alias<br/>alias='champion' (re-pointed)"| ALIAS
+    ALIAS -.->|"'champion' moved:<br/>version 1 -> version 2"| V2
+```
+
 Version `1` is untouched and still retrievable — nothing was overwritten, only the `champion` pointer
 moved. Rolling back is one more call: `set_registered_model_alias(name="churn_classifier",
 alias="champion", version=1)`.
@@ -483,11 +582,23 @@ artifacts at artifact path 'model', registering model based on models:/m-a41568d
 Nothing to fix here — it's backward-compatibility machinery working as intended — but if you see that
 warning, that's why: it's normal in 3.15.2, not a broken run.
 
-### 4.6 Reloading the registered model for inference
+The registry now holds two immutable versions and one mutable pointer that always names "the
+current one." What's still missing: a way for a serving process to *use* that pointer without
+knowing any of this history exists — it shouldn't need to know there were ever two versions, or
+which run produced either of them. That's Move 5.
+
+### 4.6 Move 5 — reloading the registered model for inference
 
 The point of a registry: a serving process doesn't need to know which run produced the current
 model, which hyperparameters it used, or where its pickle file lives on disk — it asks for
 `models:/<name>@<alias>` and gets back a ready-to-predict object:
+
+```mermaid
+flowchart LR
+    SERVE["serving code"] -->|"load_model(<br/>'models:/churn_classifier@champion')"| REG["Model Registry"]
+    REG -->|"resolves alias '@champion'<br/>-> version 2"| ART["version 2 artifact<br/>(the tuned RandomForest)"]
+    ART --> PRED["champion_model.predict(X_test)"]
+```
 
 ```python
 champion_model = mlflow.sklearn.load_model(f"models:/{REGISTRY_MODEL_NAME}@champion")
@@ -503,7 +614,9 @@ print(f"[reload for inference] models:/{REGISTRY_MODEL_NAME}@champion test_accur
 0.8400 reloaded, 0.8400 at training time — the model you get back from the registry is *bit-for-bit*
 the one that was scored, not a re-trained approximation of it. That equality is the whole
 reproducibility payoff of this chapter: nobody had to remember which script, which hyperparameters,
-or which library versions produced the number in the spreadsheet.
+or which library versions produced the number in the spreadsheet. That's the cold open's Step 6
+question — "what params, what data, what score produced this model?" — answered in one line
+instead of a research project.
 
 ### 4.7 The registry structure, captured
 
@@ -540,6 +653,8 @@ larger binary artifacts (models, plots) referenced by path from those rows — t
 build tool makes between metadata (a POM, a build log) and binary output (a JAR in a repository).
 
 ## 5. Pitfalls
+
+Tracking turned on doesn't mean tracking turned on *correctly*. Four ways this still goes wrong:
 
 ### 5.1 Autolog's metrics are training-set metrics, not the number you care about
 
