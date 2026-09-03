@@ -2,22 +2,89 @@
 
 *Data Science · Worked Examples · SPEC-DS-4*
 
-You already know that a green unit-test suite doesn't mean the service works in staging, and a
-green staging run doesn't mean it'll survive production traffic. You keep those three environments
-separate on purpose: unit tests give you fast, cheap, per-change feedback; staging tells you
-whether the *whole system* behaves once it's assembled; production is the one number that actually
-matters, and you don't get to re-run it until you like the answer.
+## The exam the model already saw
 
-Machine learning has the exact same three-tier structure, with different names: **train**,
-**validation**, and **holdout** (also called "test"). This chapter explains why each one exists,
-shows you the one line of code that does the honest version of the split, and then spends most of
-its time on the bug that breaks this discipline without throwing an exception: **data leakage** —
-letting information from validation or holdout quietly influence training, so your model looks
-better than it actually is.
+Here's the fastest way to make a model look brilliant: grade it on the exact questions it already
+knows the answers to.
 
-## 1. What & why
+**Step 1 — grade the naive way.** Fit a nearest-neighbour classifier — the simplest model there
+is, it predicts a row's label by copying whichever training row it looks most like — on all 569
+rows of a real medical dataset (tumour measurements, malignant vs. benign). Then score it on
+those same 569 rows.
 
-Map the analogy precisely, because it's the mental model for the rest of this chapter:
+```python
+from sklearn.datasets import load_breast_cancer
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+
+data = load_breast_cancer()
+X, y = data.data, data.target
+
+pipe_same_data = Pipeline([("scaler", StandardScaler()), ("knn", KNeighborsClassifier(n_neighbors=1))])
+pipe_same_data.fit(X, y)
+same_data_score = pipe_same_data.score(X, y)
+print(f"graded on the SAME data it trained on : {same_data_score:.4f}")
+```
+
+```text
+graded on the SAME data it trained on : 1.0000
+```
+
+**Step 2 — look at the score.** 100.00%. Perfect. Every single row, correctly classified.
+
+**Step 3 — feel suspicious.** A 1-nearest-neighbour model predicts by finding the closest row in
+its training data and copying its label. When you score it on the *same* rows it trained on, every
+row's closest match is itself, at distance zero. It didn't learn to distinguish malignant from
+benign tumours — it memorized 569 answer keys and is now reading them back to you. This is exactly
+the trap of grading a student on the precise exam they saw the answer sheet for: of course they
+score 100%, and that number tells you nothing about whether they learned the material.
+
+**Step 4 — grade it honestly instead.** Hold back a quarter of the rows *before* fitting anything,
+and score the model only on rows it never touched during training:
+
+```python
+from sklearn.model_selection import train_test_split
+
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.25, random_state=42, stratify=y
+)
+pipe_holdout = Pipeline([("scaler", StandardScaler()), ("knn", KNeighborsClassifier(n_neighbors=1))])
+pipe_holdout.fit(X_train, y_train)
+holdout_score = pipe_holdout.score(X_test, y_test)
+print(f"graded on a held-out 25% it never saw : {holdout_score:.4f}")
+```
+
+```text
+graded on a held-out 25% it never saw : 0.9510
+```
+
+**Step 5 — name the gap.** $100.00\% - 95.10\% = 4.90$ **percentage points**, and that gap has a
+name: the difference between how a model scores on data it studied versus data it's never seen is
+its **generalisation gap**. A big gap means the model memorized instead of learning the underlying
+pattern — the technical word for that is **overfitting** — and the only way you'd ever catch it is
+by scoring on data the model didn't get to study first.
+
+**Step 6 — build a discipline that makes Step 1's mistake impossible by construction.** That's what
+the rest of this chapter is: **train**, **validation**, and **holdout** splits, and the rule that
+*nothing* — not the model, not a scaler, not an imputer — gets to see holdout data before it's
+graded on it.
+
+```mermaid
+flowchart LR
+    A["Step 1<br/>grade the model on<br/>the data it trained on"] --> B["Step 2<br/>the score: 100%<br/>(suspiciously perfect)"]
+    B --> C["Step 3<br/>feel suspicious:<br/>it just saw the exam"]
+    C --> D["Step 4<br/>grade it on rows<br/>it never trained on"]
+    D --> E["Step 5<br/>the honest score: 95.10%<br/>-- a 4.9-point generalisation gap"]
+    E --> F["Step 6<br/>build train / validation / holdout<br/>so this can't happen by accident"]
+```
+
+You already know this discipline under a different name. A green unit-test suite doesn't mean the
+service works in staging, and a green staging run doesn't mean it'll survive production traffic —
+you keep those three environments separate on purpose: unit tests give you fast, cheap, per-change
+feedback; staging tells you whether the *whole system* behaves once it's assembled; production is
+the one number that actually matters, and you don't get to re-run it until you like the answer.
+Machine learning has the exact same three-tier structure, with different names:
 
 | Testing (Java/CI) | ML | What it answers |
 |---|---|---|
@@ -25,12 +92,20 @@ Map the analogy precisely, because it's the mental model for the rest of this ch
 | Staging / integration test, run repeatedly while you tune config | **Validation split** | "Which version of this thing should I ship?" — used over and over to compare models, hyperparameters, feature choices. |
 | Production smoke test, or the one release you actually ship | **Holdout / test split** | "How will this behave on data it has genuinely never influenced?" — looked at *once*, at the end. |
 
-The reason you don't grade your model on the data it trained on is the same reason you don't grade
-a service by re-running the exact unit tests it was written to pass: of course it passes — you built
-it to pass those specific cases. The word for a model that has memorized its training data instead
-of learning the underlying pattern is **overfitting**, and the only way to catch it is to evaluate
-on data the model never saw during fitting. That's what "**generalisation**" means: performance on
-new, unseen data — the only kind of performance that matters once the model is in production.
+Held-out evaluation is not a recent invention, either. The **holdout method** — setting aside part
+of a sample specifically to check a fitted model against, rather than judging it on the data used
+to fit it — traces to Larson's 1931 work in psychology, and **k-fold cross-validation** (§4 of this
+chapter) was described in the 1960s by Mosteller and Tukey
+([source: Wilimitis & Walsh, "Practical Considerations and Applied Examples of Cross-Validation for
+Model Development and Evaluation in Health Care: Tutorial," *JMIR AI*,
+2023](https://pmc.ncbi.nlm.nih.gov/articles/PMC11041453/), checked 2026-09-03; cross-checked
+against [Arlot & Celisse, "A survey of cross-validation procedures for model selection," *Statistics
+Surveys* 4 (2010): 40–79](https://arxiv.org/abs/0907.4728), checked 2026-09-03). The problem this
+chapter opens with — a model that looks great because it's being graded on its own study material —
+is close to a century old, and the fix has always been the same one: don't grade it on what it
+studied.
+
+## 1. What & why
 
 Validation and holdout look similar (both are "unseen" data at fit time) but serve different jobs,
 and conflating them is the single most common way this discipline breaks:
@@ -46,6 +121,14 @@ and conflating them is the single most common way this discipline breaks:
   an honest estimate of production performance — the same failure mode as "fixing the code until the
   smoke test passes" and calling that a valid smoke test.
 
+```mermaid
+flowchart TB
+    ALL["All labelled data"] -->|"train_test_split -- first cut,<br/>touched once"| HOLD["Holdout<br/>the final exam,<br/>graded once at the end"]
+    ALL -->|"the rest"| POOL["Train + validation pool"]
+    POOL -->|"train_test_split -- second cut,<br/>or k-fold, Section 4"| TRAIN["Train<br/>fit the model"]
+    POOL -->|" "| VAL["Validation<br/>tune & compare,<br/>looked at repeatedly"]
+```
+
 This chapter covers the **simple, non-temporal case**: every row is an independent observation
 (patients, transactions, users) and there's no risk of "future" rows leaking into "past" training
 data. Time-series forecasting needs a different splitting strategy entirely — rows are not
@@ -60,7 +143,8 @@ This chapter uses `sklearn.datasets.load_breast_cancer()` — 569 tumour samples
 features computed from digitized images of a fine-needle aspirate (radius, texture, perimeter,
 smoothness, etc.), and a binary target: `0` = malignant (212 samples), `1` = benign (357 samples).
 It ships **inside** scikit-learn — no download, no separate licence to track, and it loads
-identically every time, which is exactly what a reproducible teaching example needs.
+identically every time, which is exactly what a reproducible teaching example needs. It's the same
+dataset the cold open just used.
 
 - **Source / documentation:**
   [sklearn.datasets.load_breast_cancer](https://scikit-learn.org/stable/datasets/toy_dataset.html#breast-cancer-wisconsin-diagnostic-dataset)
@@ -91,7 +175,8 @@ installed at exactly the pinned version — no substitutions.
 
 ### 2.2 `train_test_split`
 
-The one-line correct split:
+The one-line correct split — the same call the cold open used for Step 4, spelled out again on its
+own:
 
 ```python
 from sklearn.datasets import load_breast_cancer
@@ -123,13 +208,14 @@ matter here:
 
 ### 2.3 Why `stratify` matters
 
-Without `stratify`, `train_test_split` shuffles and cuts — the class balance in your test set is
-whatever falls out of that particular random draw. With an imbalanced target (this dataset is
-37%/63%, and many real problems — fraud, churn, disease — are far more skewed than that), an
-unlucky draw can hand you a test set whose class balance doesn't match reality, which distorts every
-metric you compute on it. `stratify=y` fixes the split to preserve the target's class proportions in
-both pieces — the same instinct as building a test dataset that mirrors production data's shape
-rather than sampling it randomly and hoping.
+**So how do you know a random split hasn't quietly handed you a skewed test set?** Without
+`stratify`, `train_test_split` shuffles and cuts — the class balance in your test set is whatever
+falls out of that particular random draw. With an imbalanced target (this dataset is 37%/63%, and
+many real problems — fraud, churn, disease — are far more skewed than that), an unlucky draw can
+hand you a test set whose class balance doesn't match reality, which distorts every metric you
+compute on it. `stratify=y` fixes the split to preserve the target's class proportions in both
+pieces — the same instinct as building a test dataset that mirrors production data's shape rather
+than sampling it randomly and hoping.
 
 ```python
 import numpy as np
@@ -158,6 +244,11 @@ default whenever your target is categorical.
 
 ## 3. The leakage demo: fit on the whole dataset, get an optimistic score
 
+The cold open's trap was loud and obvious — a 100% score is easy to distrust on sight. This
+section's trap is quieter: it doesn't touch the model at all, it hides one step earlier, in
+*preprocessing* — and it can pass code review without anyone noticing, which is exactly why it's
+worth a whole section.
+
 ### 3.1 The bug
 
 Real datasets have missing values, and every model needs numeric, similarly-scaled input — so a
@@ -169,6 +260,23 @@ before fitting a model. The bug is choosing *when* to fit those two transformers
 X_imputed = SimpleImputer(strategy="mean").fit_transform(X)   # sees every row, incl. test
 X_scaled = StandardScaler().fit_transform(X_imputed)          # sees every row, incl. test
 X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.25, stratify=y)
+```
+
+```mermaid
+flowchart LR
+    subgraph WRONG["Leaky: fit before split"]
+        ALLW["all rows,<br/>train + test mixed"] --> FITW["SimpleImputer / StandardScaler<br/>.fit() -- sees every row"]
+        FITW --> SPLITW["train_test_split"]
+        SPLITW --> TRW["X_train"]
+        SPLITW --> TEW["X_test<br/>scored using numbers<br/>it helped compute"]
+    end
+    subgraph RIGHT["Correct: split before fit"]
+        ALLR["all rows"] --> SPLITR["train_test_split"]
+        SPLITR --> TRR["X_train"]
+        SPLITR --> TER["X_test<br/>never touched by .fit()"]
+        TRR --> FITR[".fit(X_train) only"]
+        FITR --> TER2["X_test transformed with<br/>train-only mean / std"]
+    end
 ```
 
 `SimpleImputer.fit()` computes each column's mean from *every row it's given* — call it on `X`
@@ -267,12 +375,12 @@ nothing about running it once on a normal-sized dataset tells you it's wrong.
 
 ### 3.3 Making the leak visible: shrink the training set
 
-The size of this specific leak scales with how much a training-only estimate of the mean/std
-diverges from the population's — and that divergence grows as your training set shrinks relative to
-the whole dataset. So: take the same leaky-vs-correct comparison, shrink the training set to about
-5% of the data (~28 rows — a realistic stand-in for an early pilot study, where you might only have
-a few dozen labelled patients so far), and repeat the split 200 times with different seeds so a
-single lucky or unlucky draw can't decide the story:
+**So when does this actually cost you something?** The size of this specific leak scales with how
+much a training-only estimate of the mean/std diverges from the population's — and that divergence
+grows as your training set shrinks relative to the whole dataset. So: take the same leaky-vs-correct
+comparison, shrink the training set to about 5% of the data (~28 rows — a realistic stand-in for an
+early pilot study, where you might only have a few dozen labelled patients so far), and repeat the
+split 200 times with different seeds so a single lucky or unlucky draw can't decide the story:
 
 ```python
 from scipy import stats
@@ -329,11 +437,14 @@ refitting on it. There is no way to accidentally leak through a `Pipeline` the w
 
 ## 4. k-fold cross-validation
 
+`Pipeline` fixed *how* you fit — every transformer now only ever sees training rows. But it hasn't
+fixed a different problem: a single split still only gives you *one* number, and that number is at
+the mercy of exactly which rows happened to land in your validation set.
+
 ### 4.1 The problem a single holdout can't solve
 
-A single train/test split gives you exactly one number, and that number depends on which rows
-happened to land in the test set. Run the correct pipeline's 5-fold cross-validation on this dataset
-and look at the spread across folds:
+Run the correct pipeline's 5-fold cross-validation on this dataset and look at the spread across
+folds:
 
 ```python
 from sklearn.model_selection import StratifiedKFold, cross_val_score
@@ -368,7 +479,23 @@ k-fold CV splits the **train+validation pool** — everything except the holdout
 front — into `k` equally-sized folds. It then trains `k` separate models, each time using `k-1`
 folds to train and the remaining fold to validate, rotating which fold plays validation. Every row
 gets used for training in `k-1` of the `k` rounds, and for validation in exactly one round — so you
-get `k` validation scores computed from `k` different models, instead of one score from one model.
+get `k` validation scores computed from `k` different models, instead of one score from one model:
+effectively, every row gets to play "test" exactly once, instead of only the lucky (or unlucky)
+20% that a single split happens to hold out.
+
+```mermaid
+flowchart TB
+    POOL["Train + validation pool<br/>(holdout already set aside, Section 1)"] --> F1["Fold 1<br/>validate on 1/5, train on the other 4/5"]
+    POOL --> F2["Fold 2<br/>validate on 1/5, train on the other 4/5"]
+    POOL --> F3["Fold 3<br/>validate on 1/5, train on the other 4/5"]
+    POOL --> F4["Fold 4<br/>validate on 1/5, train on the other 4/5"]
+    POOL --> F5["Fold 5<br/>validate on 1/5, train on the other 4/5"]
+    F1 --> SCORES["5 validation scores<br/>-> mean + std, not just one number"]
+    F2 --> SCORES
+    F3 --> SCORES
+    F4 --> SCORES
+    F5 --> SCORES
+```
 
 ![Schematic diagram of 5-fold cross-validation: a bar at the top shows the train+validation pool split from an untouched holdout, and five rows below show each fold rotating which fifth of the pool plays validation (orange) while the rest trains (blue)](artefacts/cv_fold_diagram.png)
 
@@ -388,6 +515,20 @@ report scores from — but that's beyond this chapter's scope; the scikit-learn 
 [Nested versus non-nested cross-validation](https://scikit-learn.org/stable/auto_examples/model_selection/plot_nested_cross_validation_iris.html)
 example is the reference if you need it.
 
+**Picking between the two** comes down to how expensive a fit is and how much you need to know
+about the score's stability, not a hard rule:
+
+```mermaid
+flowchart TD
+    Q1{"Is fitting the model<br/>expensive (large data,<br/>slow model, tight deadline)?"}
+    Q1 -->|"yes"| SINGLE["Single train / validation split<br/>-- one fit, fast feedback"]
+    Q1 -->|"no"| Q2{"Is the dataset small,<br/>or do you need to know<br/>how much the score wobbles?"}
+    Q2 -->|"yes"| KFOLD["k-fold cross-validation<br/>-- k fits, a mean + a spread"]
+    Q2 -->|"no -- plenty of data,<br/>a single stable estimate is enough"| SINGLE
+    SINGLE --> HOLDOUT["Either way: keep one untouched<br/>holdout, evaluate once, at the end"]
+    KFOLD --> HOLDOUT
+```
+
 ## 5. Pitfalls
 
 ### 5.1 Leaking through preprocessing (recap)
@@ -401,7 +542,8 @@ preprocessing step in a `Pipeline` and only ever call `.fit()` on the training s
 Real datasets accumulate duplicate or near-duplicate rows — a re-exported record, a retried API
 call that got logged twice, the same patient scanned twice. If a plain random split doesn't check
 for duplicates first, some of those pairs will land with one copy in train and the other in test —
-and your model can effectively "memorize" the answer for its own twin. This demo duplicates 15% of
+and your model can effectively "memorize" the answer for its own twin, the same trick the cold open
+opened with, just smuggled in through the data instead of the split. This demo duplicates 15% of
 the rows (simulating exactly that kind of export bug), splits without deduplicating, and counts how
 many duplicate pairs got split across train and test purely by chance:
 
@@ -440,8 +582,9 @@ identifies "the same real-world thing") *before* you split, not after.**
 The most dangerous leak, because it doesn't need a coding mistake at all — just a feature that was
 recorded *after* the outcome was already known. Classic examples: a "resolution timestamp" column
 when predicting whether a support ticket will be escalated, or a lab field that only gets filled in
-once a diagnosis is confirmed. The tell is almost always the same: cross-validated accuracy that's
-suspiciously close to perfect for a real-world, noisy problem.
+once a diagnosis is confirmed. The tell is almost always the same one the cold open trained you to
+notice: cross-validated accuracy that's suspiciously close to perfect for a real-world, noisy
+problem.
 
 ```python
 leaked_column = y.astype(float).reshape(-1, 1)  # stand-in for "a field only set after diagnosis"
@@ -483,6 +626,10 @@ reported number is now optimistic.
 
 ## 6. Recap & what's next
 
+- **The cold open's trap, in one sentence:** grading a model on the data it trained on can make it
+  look far better than it is — a 1-NN model scored 100% on its own training rows and 95.10% on rows
+  it had never seen, a 4.9-point generalisation gap that only showed up once the model was graded
+  honestly.
 - **Train** fits the model, **validation** is what you tune against (repeatedly, like a staging
   suite), **holdout** is the one honest number you look at once — the same discipline as unit vs.
   integration vs. production smoke tests.
@@ -520,4 +667,9 @@ discrepancy to report for this environment (same finding as the DS-1 chapter's e
 `sklearn.datasets.load_breast_cancer` is not itself one of NOTE-5's tabulated APIs; its loader was
 verified directly against this environment's installed scikit-learn 1.9.0 (shape, class counts, and
 feature names all confirmed to match the official docs) rather than assumed from memory — see
-Section 2.1.
+Section 2.1. The cold open's illustrative 1-NN same-data-vs-holdout snippet (`same_data_score`,
+`holdout_score`) was run against this same environment; its output (`1.0000`, `0.9510`) is not
+generated by `code/splitting_and_leakage.py` (which uses `KNeighborsClassifier(1)` only in the
+Section 5.2 duplicate-rows pitfall, on a noise-augmented feature matrix) — it's a standalone
+two-line illustration kept out of the committed script because its only job is the cold open's
+narrative, not a reusable pipeline stage.
