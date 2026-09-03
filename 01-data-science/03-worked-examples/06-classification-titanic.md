@@ -2,15 +2,47 @@
 
 *Data Science · Worked Examples · SPEC-DS-6*
 
-A Java service that returns `boolean isFraud(Transaction t)` from a rules engine is easy to reason
-about: you can read every branch. A classifier returns something different — not a boolean, but a
-**probability**, `P(survived=1 | passenger)`, and *you* decide where to draw the line that turns it
-into a boolean. That single design fact — probability first, decision second — is the whole subject
-of this chapter. Get the probability right and pick the threshold badly, and your "accurate" model
-still makes the wrong call at the boundary that matters. This chapter uses Titanic passenger records
-to teach the vocabulary for judging the probability (confusion matrix, precision, recall, F1,
-ROC-AUC, PR-AUC), three model families that produce one, and the discipline of choosing a threshold
-on purpose instead of accepting scikit-learn's default of 0.5.
+## Who lives, who dies — and could a model have guessed from the manifest?
+
+On the night of April 14–15, 1912, the RMS *Titanic* struck an iceberg in the North Atlantic and
+sank on its maiden voyage. Of roughly 2,200 people aboard, about 1,500 died and only around 705
+survived — and survival was not evenly distributed: first-class passengers survived at roughly
+62%, while more than 75% of the crew perished
+([source: Britannica, "Titanic"](https://www.britannica.com/topic/Titanic), checked 2026-09-03).
+Class, sex, and age weren't footnotes to the tragedy — "women and children first," enforced harder
+in first class than in steerage, decided who got a seat in a lifeboat and who didn't.
+
+That's a chilling thing to notice as an engineer: **survival correlated with measurable attributes
+recorded on the ship's manifest** — cabin class, sex, age, family size, fare paid. Which raises the
+question this chapter answers: if you'd had that manifest and nothing else, could you have built a
+system that guesses, passenger by passenger, who lived and who died — and how would you even know
+if it was any good?
+
+Frame it the way you'd frame a system at work. A Java service that returns `boolean
+isFraud(Transaction t)` from a rules engine is easy to reason about: you can read every branch. A
+classifier returns something different — not a boolean, but a **probability**,
+`P(survived=1 | passenger)`, and *you* decide where to draw the line that turns it into a boolean.
+That single design fact — probability first, decision second — is the whole subject of this
+chapter. Get the probability right and pick the threshold badly, and your "accurate" model still
+makes the wrong call at the boundary that matters. This chapter uses the Titanic's own passenger
+records (891 of them, a public, CC0-licensed sample bundled with the seaborn plotting library — not
+a hypothetical) to teach the vocabulary for judging that probability (confusion matrix, precision,
+recall, F1, ROC-AUC, PR-AUC), three model families that produce one, and the discipline of choosing
+a decision threshold on purpose instead of accepting scikit-learn's default of 0.5.
+
+```mermaid
+flowchart LR
+    BU["Business<br/>Understanding<br/>(this section)"] --> DC["Data<br/>Collection<br/>(&sect;2)"]
+    DC --> CLEAN["Data<br/>Cleaning<br/>(&sect;2)"]
+    CLEAN --> EDA["EDA<br/>(&sect;2)"]
+    EDA --> FE["Feature<br/>Engineering<br/>&#9664; this chapter, &sect;2"]
+    FE --> MT["Model<br/>Training<br/>&#9664; this chapter, &sect;3-5"]
+    MT --> ME["Model<br/>Evaluation<br/>&#9664; this chapter, &sect;3-4"]
+```
+
+That's the standard data science process, the same "you are here" map the regression chapter used —
+this chapter lives in the same last three boxes, but for a *yes/no* question instead of a *how
+much* one.
 
 ## 1. What & why
 
@@ -30,7 +62,7 @@ passenger survive? Three things a Java engineer's boolean-logic instinct doesn't
   a modelling one. Section 4 shows the dial turning, with numbers.
 - **A single "% correct" figure can be badly misleading when the classes aren't 50/50.** A model
   that always predicts the majority class scores exactly the majority class's share as "accuracy" —
-  Section 3 measures this directly on this dataset.
+  Section 3 measures this directly on this dataset, and the number is worse than you'd guess.
 
 Think of it the way you'd think about a fraud-detection or spam filter's sensitivity slider: the
 model's job is to produce a trustworthy score; a *human decision* — encoded as a threshold — turns
@@ -62,6 +94,8 @@ above installed at exactly the pinned version — no substitutions.
 
 **Titanic**, via `seaborn.load_dataset('titanic')` — 891 passenger records, CC0-licensed, bundled
 with seaborn ([source: NOTE-10-classification-datasets](../../research/NOTE-10-classification-datasets.md)).
+This *is* a sample of the real manifest, not a toy — small enough to inspect by eye, real enough
+that every number you compute below traces back to an actual person on an actual ship.
 
 ```python
 import seaborn as sns
@@ -94,7 +128,7 @@ dtype: int64
 These NaN counts match NOTE-10 exactly (`age`: 177/891 missing, `embarked`: 2/891, `deck`: 688/891
 — i.e. 77% gone) — confirmed live against the installed loader, not assumed.
 
-The target itself is mildly imbalanced, which matters for Section 3:
+The target itself is mildly imbalanced, which matters enormously for Section 3:
 
 ```python
 print(titanic["survived"].value_counts(normalize=True).round(3))
@@ -105,8 +139,8 @@ print(titanic["survived"].value_counts(normalize=True).round(3))
 1    0.384
 ```
 
-**62% did not survive, 38% did.** Keep that number in your head — it's the accuracy score a model
-gets for doing *nothing*.
+**62% did not survive, 38% did.** Keep that number in your head — it's about to expose a lie a
+"good-looking" model can tell without learning anything at all.
 
 ### A note on the classic "title from name" feature — and why it's not here
 
@@ -137,7 +171,21 @@ print(list(zip(illustrative_names, titles)))
  ('Heikkinen, Miss. Laina', 'Miss'), ('Palsson, Master. Gosta Leonard', 'Master')]
 ```
 
-This chapter's real feature set instead builds what the loader *does* give us:
+This chapter's real feature set instead builds what the loader *does* give us — turning raw counts
+into signal the way you'd derive a `isPowerUser` flag from raw event counts instead of feeding raw
+counts straight into a model:
+
+```mermaid
+flowchart LR
+    SIBSP["sibsp<br/>(siblings/spouses aboard)"] --> FS["family_size =<br/>sibsp + parch + 1"]
+    PARCH["parch<br/>(parents/children aboard)"] --> FS
+    FS --> ALONE["is_alone =<br/>family_size == 1"]
+    FARE["fare<br/>(right-skewed, median &asymp; 14, max &asymp; 512)"] --> QCUT["pd.qcut&#40;fare, q=4&#41;<br/>equal-population quartiles"]
+    QCUT --> BIN["fare_bin:<br/>low / mid / high / very_high"]
+    FS --> MODEL["feature matrix"]
+    ALONE --> MODEL
+    BIN --> MODEL
+```
 
 - **`family_size = sibsp + parch + 1`** — siblings/spouses aboard, plus parents/children aboard,
   plus the passenger themself.
@@ -252,6 +300,11 @@ Split 75/25, **stratified** on `survived` so both splits keep the same ~62/38 ba
 train three models — Section 5 covers all three; this section reads the first one's output plus one
 deliberately dumb baseline.
 
+**So: how do you know a classifier is any good?** The obvious answer — "count what it got right,
+divide by the total" — is the one every beginner reaches for first. Before trusting that number on
+this dataset, put it under real pressure: build a "model" that looks at *no* features at all and
+always guesses the same thing.
+
 **The baseline that exposes accuracy's lie:** predict the majority class (`0`, did not survive) for
 *every single* test passenger, with no model at all:
 
@@ -273,14 +326,20 @@ recall:    0.0000
 f1:        0.0000
 ```
 
-**61.4% accuracy from a model that never once predicts a survivor.** On this class balance, "high
-accuracy" and "useful model" are not the same claim — a service that always returns `false` for
-`isFraud()` would look "99% accurate" on a dataset that's 99% legitimate transactions too, while
-catching zero fraud. This is exactly what AC4 asks this chapter to show empirically, and this
-number is it: accuracy alone cannot distinguish "learned the pattern" from "learned the majority
-class's frequency."
+**61.4% accuracy from a model that never once predicts a survivor.** Read that again: a "model"
+with zero intelligence, zero features, and zero ability to identify a single survivor still gets to
+report a headline number that sounds respectable. On this class balance, "high accuracy" and
+"useful model" are not the same claim — a service that always returns `false` for `isFraud()` would
+look "99% accurate" on a dataset that's 99% legitimate transactions too, while catching zero fraud.
+This is exactly what AC4 asks this chapter to show empirically, and this number is it: accuracy
+alone cannot distinguish "learned the pattern" from "learned the majority class's frequency."
+Precision and recall are both hard-zero here for the same reason — the baseline never predicts
+class 1, so `TP=0` sits in the numerator of both formulas below, and *any* nonzero denominator
+divided into zero is zero.
 
-Now the real model — logistic regression, at the default threshold of 0.5:
+Accuracy just failed the one job it had. The honest replacement starts from the same four counts
+every wrong-vs-right prediction can fall into, laid out as a grid — **the confusion matrix**. Now
+run the real model — logistic regression, at the default threshold of 0.5:
 
 ```python
 from sklearn.metrics import confusion_matrix
@@ -309,6 +368,21 @@ plotted as a labelled heatmap in
 
 ![Confusion matrix for logistic regression: 111 true negatives, 26 false positives, 22 false negatives, 64 true positives](artefacts/titanic_confusion_matrix.png)
 
+Here's that same grid as a labelled diagram — rows are the truth, columns are what the model said,
+and every one of the 223 test passengers lands in exactly one of the four boxes:
+
+```mermaid
+flowchart LR
+    subgraph ACTUAL_NEG["Actual: did NOT survive &#40;121 passengers&#41;"]
+        TN["Predicted: did not survive<br/>True Negative &#40;TN&#41; = 111<br/>correct"]
+        FP["Predicted: survived<br/>False Positive &#40;FP&#41; = 26<br/>false alarm"]
+    end
+    subgraph ACTUAL_POS["Actual: survived &#40;86 passengers&#41;"]
+        FN["Predicted: did not survive<br/>False Negative &#40;FN&#41; = 22<br/>a miss"]
+        TP["Predicted: survived<br/>True Positive &#40;TP&#41; = 64<br/>correct"]
+    end
+```
+
 Read it the way you'd read a test-suite's pass/fail breakdown, not a single "% green" number:
 
 - **111 true negatives** — correctly predicted "did not survive."
@@ -316,20 +390,42 @@ Read it the way you'd read a test-suite's pass/fail breakdown, not a single "% g
 - **26 false positives** — predicted "survived", was wrong (a false alarm).
 - **22 false negatives** — predicted "did not survive", was wrong (a miss).
 
-From those four counts:
+From those four counts come the two questions accuracy can't tell apart, each with a one-sentence
+plain-English gloss before the formula:
 
-- **Precision** = `TP / (TP + FP)` = `64 / (64 + 26)` = 0.711 — *of everyone the model called a
-  survivor, how many actually were?* High precision means few false alarms.
-- **Recall** = `TP / (TP + FN)` = `64 / (64 + 22)` = 0.744 — *of everyone who actually survived, how
-  many did the model catch?* High recall means few misses.
-- **F1** = the harmonic mean of the two, `0.727` — one number when you need to compare models but
-  don't want to pick precision or recall as *the* priority (Section 4 shows why the harmonic mean,
-  not the plain average, is the right combination — it punishes a model that's lopsided far more
-  than one that's balanced).
+**Precision** — *of everyone the model called a survivor, how often was it right?*
+
+$$\text{Precision} = \frac{TP}{TP + FP} = \frac{64}{64 + 26} = 0.711$$
+
+High precision means few false alarms.
+
+**Recall** — *of everyone who actually survived, how many did the model catch?*
+
+$$\text{Recall} = \frac{TP}{TP + FN} = \frac{64}{64 + 22} = 0.744$$
+
+High recall means few misses.
+
+**F1** — one number when you need to compare models but don't want to pick precision or recall as
+*the* priority. It's the *harmonic* mean, not the plain average — the harmonic mean punishes a
+lopsided model (great at one, terrible at the other) far more than one that's balanced, exactly the
+property Section 4 needs when it turns this into a dial:
+
+$$F_1 = 2 \cdot \frac{\text{Precision} \cdot \text{Recall}}{\text{Precision} + \text{Recall}} = 2 \cdot \frac{0.711 \times 0.744}{0.711 + 0.744} = 0.727$$
 
 Precision and recall are two different questions about the *same* set of mistakes, and a model can
 score well on one while scoring badly on the other — that's the trade-off Section 4 turns into a
-dial.
+dial you can actually move.
+
+```mermaid
+flowchart LR
+    DOWN["move threshold DOWN<br/>&#40;call more passengers 'survived'&#41;"] --> RUP["recall UP<br/>catch more true survivors"]
+    DOWN --> PDOWN["precision DOWN<br/>more false alarms"]
+    UP["move threshold UP<br/>&#40;call fewer passengers 'survived'&#41;"] --> RDOWN["recall DOWN<br/>miss more true survivors"]
+    UP --> PUP["precision UP<br/>fewer false alarms"]
+```
+
+There's no free lunch on that dial — every step toward more recall costs some precision, and vice
+versa. Section 4 sweeps it end to end, with real numbers.
 
 ## 4. Probabilities & thresholds — ROC-AUC, PR-AUC, and choosing on purpose
 
@@ -384,12 +480,20 @@ Both curves, all three models overlaid (Section 5 introduces the other two) —
 
 The PR curve's baseline (dashed line) sits at `0.386` — the test set's actual survivor share — not
 at `0.5` the way the ROC diagonal does. That's the "data-dependent baseline" NOTE-9 describes: a
-PR-AUC of 0.8 means much less on a 1%-positive dataset (baseline ≈ 0.01) than it does here.
+PR-AUC of 0.8 means much less on a 1%-positive dataset (baseline ≈ 0.01) than it does here. Which
+curve should you actually reach for? It comes down to one question:
+
+```mermaid
+flowchart TD
+    Q{"how imbalanced<br/>are the classes?"}
+    Q -->|"roughly balanced<br/>&#40;this chapter: 62/38&#41;"| ROC["ROC-AUC is a fine summary<br/>baseline fixed at 0.5"]
+    Q -->|"severely imbalanced<br/>&#40;1-5% positive, SPEC-DS-8&#41;"| PR["prefer PR-AUC<br/>baseline tracks prevalence,<br/>not diluted by a huge TN count"]
+```
 
 ### Choosing a threshold on purpose
 
 Sweep thresholds from 0.10 to 0.90 and score precision/recall/F1 at each — this *is* the dial from
-Section 1, made concrete:
+Section 3, made concrete. Watch the numbers move as the threshold moves, one step at a time:
 
 ```python
 thresholds = np.arange(0.10, 0.91, 0.05)
@@ -410,12 +514,14 @@ for t in thresholds:
 0.90  precision=0.917  recall=0.128  f1=0.224
 ```
 
-(Full 17-row sweep in the companion script's output.) The shape is exactly the trade-off described
-in Section 1: lower the threshold and recall climbs while precision falls (at 0.10, the model
-catches 93% of survivors but is right only 45% of the time it says "survived"); raise it and the
-reverse happens (at 0.90, 92% precision but only 13% recall — it barely calls anyone a survivor, and
-almost always right when it does). **The F1-maximising threshold here is 0.40 (F1=0.749), not the
-default 0.50 (F1=0.727)** — a small but real improvement, found only by looking.
+(Full 17-row sweep in the companion script's output.) The shape is exactly the trade-off diagram
+from Section 3, now with numbers on it: lower the threshold and recall climbs while precision falls
+(at 0.10, the model catches 93% of survivors but is right only 45% of the time it says "survived");
+raise it and the reverse happens (at 0.90, 92% precision but only 13% recall — it barely calls
+anyone a survivor, and almost always right when it does). Walk the F1 column top to bottom and it
+rises, peaks, then falls: 0.608 → 0.717 → **0.749** → 0.727 → 0.627 → 0.224.
+**The F1-maximising threshold here is 0.40 (F1=0.749), not the default 0.50 (F1=0.727)** — a small
+but real improvement, found only by looking instead of accepting the library default.
 
 This is where the Java-side framing from Section 1 pays off: imagine this model behind a claims- or
 triage-review service. A false negative here (missed a survivor) and a false positive (flagged a
@@ -496,12 +602,13 @@ print(dict(zip(feature_names, rf.feature_importances_.round(3))))
 - **`LogisticRegression.coef_`** — one signed number per (scaled) feature. `sex_male = -2.49` is by
   far the largest-magnitude coefficient: holding everything else fixed, being male is associated
   with a sharply *lower* predicted log-odds of survival — the historically documented "women and
-  children first" evacuation pattern showing up directly in the fitted weights. `pclass = -0.79`:
-  since `pclass` counts 1st→3rd, a negative coefficient means higher-numbered (lower) class predicts
-  lower survival odds — a first-class passenger's berth bought a materially better survival chance.
-  Because every numeric feature was scaled to the same range before fitting, coefficients are
-  directly comparable in magnitude — this is *why* Section 2's `StandardScaler` step matters, not
-  just cosmetic.
+  children first" evacuation pattern from this chapter's opening showing up directly in the fitted
+  weights, on this same dataset, 114 years later. `pclass = -0.79`: since `pclass` counts 1st→3rd, a
+  negative coefficient means higher-numbered (lower) class predicts lower survival odds — a
+  first-class passenger's berth bought a materially better survival chance, exactly matching the
+  ~62% first-class survival rate this chapter opened with. Because every numeric feature was scaled
+  to the same range before fitting, coefficients are directly comparable in magnitude — this is
+  *why* Section 2's `StandardScaler` step matters, not just cosmetic.
 - **`RandomForestClassifier.feature_importances_`** — mean decrease in Gini impurity attributable to
   each feature, summed across every tree and every split, normalized to sum to 1. No sign, no
   direction — just "how much splitting on this feature helped separate the classes", agnostic to
@@ -567,10 +674,11 @@ This chapter doesn't run a calibration curve (out of scope per SPEC-DS-6 — `sk
   default, not a decision — Section 4 showed a measurably better F1 (0.749 vs 0.727) at 0.40 instead.
 - The confusion matrix — `[[TN, FP], [FN, TP]]`
   ([NOTE-9](../../research/NOTE-9-classification-metrics-apis.md)) — is the source of precision
-  (`TP/(TP+FP)`), recall (`TP/(TP+FN)`), and F1 (their harmonic mean); read all three together, never
-  accuracy alone.
+  ($TP/(TP+FP)$), recall ($TP/(TP+FN)$), and F1 (their harmonic mean); read all three together,
+  never accuracy alone.
 - **A majority-class baseline (61.4% accuracy, 0 recall) proved accuracy misleads on this dataset's
-  62/38 split** — the empirical demonstration AC4 asked for.
+  62/38 split** — the empirical demonstration AC4 asked for, and the moment "78% accurate" stopped
+  sounding automatically impressive.
 - **ROC-AUC** (0.847 for logistic regression) summarizes ranking quality across every threshold;
   **PR-AUC** (0.798) does the same but focuses on the positive class and its baseline tracks
   prevalence instead of sitting fixed at 0.5 — prefer PR-AUC as imbalance gets more severe
@@ -580,7 +688,9 @@ This chapter doesn't run a calibration curve (out of scope per SPEC-DS-6 — `sk
   not automatically outperform it, despite being "fancier."
   `LogisticRegression.coef_` gives signed, comparable weights (after scaling);
   `RandomForestClassifier.feature_importances_` gives unsigned split-quality scores;
-  `HistGradientBoostingClassifier` exposes neither (verified empirically against 1.9.0).
+  `HistGradientBoostingClassifier` exposes neither (verified empirically against 1.9.0). Those
+  coefficients also recovered the exact historical pattern this chapter opened with — sex and class
+  were the two strongest predictors of who lived.
 - **Feature engineering means building from what the loader actually gives you** — this dataset has
   no `name` column, so `family_size`, `is_alone`, and `fare_bin` did the job the classic
   "title" feature usually does; and **target leakage** (`alive`) had to be dropped before it silently
@@ -613,3 +723,11 @@ empirically verified rather than documented. `OneHotEncoder(drop='if_binary')`'s
 `matplotlib==3.11.1`, `scipy==1.18.1`, `seaborn==0.13.2`, `scikit-learn==1.9.0`) from NOTE-2 and
 NOTE-5 installed and ran exactly as pinned in this chapter's gate environment (Python 3.13.7, shared
 project `.venv`).
+
+**Restyle note (this pass):** this chapter was restyled into the book's house storytelling/visual
+format (cold open, "you are here" DS-process map, confusion-matrix grid, precision/recall trade-off
+flow, ROC-vs-PR chooser, feature-engineering flow, LaTeX metric formulas) without altering any code
+block, output block, artefact reference, or reported metric number from the original SPEC-DS-6
+chapter. One new claim was added and grounded: the RMS Titanic's April 1912 sinking date and
+casualty/survival figures, cited to Britannica
+([source: Britannica, "Titanic"](https://www.britannica.com/topic/Titanic), checked 2026-09-03).
