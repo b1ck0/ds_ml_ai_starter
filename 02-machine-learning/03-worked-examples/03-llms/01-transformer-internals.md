@@ -2,21 +2,85 @@
 
 *Machine Learning · Worked Examples · LLMs · SPEC-ML-10*
 
-A Java service that processes a sequence usually reaches for something stateful and sequential — a
-`for` loop over a `List<Token>`, maybe a hand-rolled state machine, maybe an `LSTM`-style recurrent
-cell if you've touched deep learning before. The transformer, the architecture behind every modern
-LLM, throws the loop away. Every position in a sequence looks at every other position **at once**,
-through a single weighted-lookup operation called **attention**, and the "understanding" of the
-whole sequence falls out of stacking that operation a few dozen times. This chapter opens that black
-box: you'll implement scaled dot-product attention on tensors small enough to print and read by eye,
-extend it to multi-head attention, assemble one full transformer block, and watch a real tensor's
-shape at every step of the journey through it.
+## The eight-word paper title that ended an era
 
-Everything here runs from `transformer_from_scratch.py`
+In June 2017, eight researchers posted a paper to arXiv with a title that reads more like a boast
+than a methods section: **"Attention Is All You Need."** No recurrence. No convolutions. Just one
+mechanism, repeated. It was accepted at NeurIPS 2017, and within a few years it had become the
+architecture underneath essentially every large language model you've heard of — GPT, BERT, Llama,
+the model this chapter's companion (SPEC-ML-11) loads and runs
+([source: Vaswani et al., "Attention Is All You Need"](https://arxiv.org/pdf/1706.03762) (checked
+2026-09-02), via
+[research/NOTE-ML-8-transformer-and-llm.md](../../../research/NOTE-ML-8-transformer-and-llm.md)).
+
+Here's the human idea underneath the title, before any code or math: **when you read a sentence,
+you don't weigh every word equally.** Read "The trophy didn't fit in the suitcase because *it* was
+too big" and your brain doesn't treat "it" as a coin flip between "trophy" and "suitcase" — you
+weigh "trophy" far more heavily, instantly, without being taught a rule for it. That weighting —
+looking at everything in the sentence at once, but paying more attention to what's relevant right
+now — is the entire idea this chapter builds into working code. One plain sentence you could repeat
+at dinner: **attention is a model deciding, for every word, how much every other word matters to
+it, right now.**
+
+The paper earned that title by solving a problem you can feel the shape of before seeing a single
+formula. Walk through the problem, then the fix, then the six steps that turn "pay more attention to
+relevant words" into the exact tensor operation this chapter runs.
+
+**The problem.** Before 2017, the standard way to process a sentence was an RNN or LSTM: read one
+token, update a hidden state, read the next token, update again, one step at a time — a `for` loop
+over a `List<Token>` that never lets go of the loop. Token 50's influence on token 1 has to survive
+49 sequential updates to get there, the way a value passed through 49 nested function calls can get
+diluted or overwritten along the way. Two concrete costs fall out of that:
+
+- **It's slow to parallelize.** Step 50 can't start until step 49 finishes — no `parallelStream()`
+  over independent work, because every step depends on the one before it.
+- **Long-range influence fades.** Information from far back in the sequence has to survive being
+  repeatedly squeezed through the same fixed-size hidden state, the way a message degrades after
+  too many rounds of a game of telephone.
+
+```mermaid
+flowchart TB
+    subgraph SEQ["RNN / LSTM -- one token at a time"]
+        direction LR
+        A1["token 1"] --> A2["token 2"] --> A3["token 3"] --> A4["..."] --> A5["token 50<br/>(only reachable through<br/>49 sequential steps)"]
+    end
+    subgraph PAR["self-attention -- every token, at once"]
+        direction LR
+        B1["token 1"]
+        B2["token 2"]
+        B3["token 3"]
+        B4["..."]
+        B5["token 50"]
+        B1 <--> B5
+        B1 <--> B3
+        B2 <--> B5
+        B3 <--> B4
+        B2 <--> B4
+    end
+```
+
+**The fix.** Let every position look directly at every other position in one matrix operation,
+weighted by relevance — no loop, no 49-step relay race, full parallelism. That's the whole pitch of
+"Attention Is All You Need."
+
+Six steps take you from that one-sentence idea to a real, running transformer block — this is the
+map for the whole chapter, and it comes back at the top of every section below so you always know
+where you are:
+
+```mermaid
+flowchart LR
+    S0["Problem<br/>RNNs read one<br/>token at a time"] --> S1["Idea<br/>look at every token<br/>at once, weighted<br/>by relevance"]
+    S1 --> S2["Step 1 -- §2<br/>scaled dot-product<br/>attention"]
+    S2 --> S3["Step 2 -- §3<br/>multi-head<br/>attention"]
+    S3 --> S4["Step 3 -- §4<br/>one transformer<br/>block"]
+    S4 --> S5["Step 4 -- §5<br/>position + causal<br/>masking"]
+    S5 --> S6["Step 5 -- §6<br/>pitfalls"]
+```
+
+Everything below runs from `transformer_from_scratch.py`
 ([code](code/transformer_from_scratch.py)) — no `nn.MultiheadAttention`, no
 `nn.TransformerEncoderLayer`, nothing that hides the mechanics behind a single framework call. Every
-formula below is grounded against the paper that introduced it — **"Attention Is All You Need"**
-(Vaswani et al., NeurIPS 2017) — via
+formula is grounded against the paper via
 [research/NOTE-ML-8-transformer-and-llm.md](../../../research/NOTE-ML-8-transformer-and-llm.md),
 which cites the paper directly:
 [source: Attention Is All You Need](https://arxiv.org/pdf/1706.03762) (checked 2026-09-02).
@@ -37,13 +101,7 @@ are tiny and run on CPU — no GPU needed, no training, only forward passes.
 
 ## 1. What & why — attention as content-based lookup
 
-Before attention, sequence models (RNNs, LSTMs) processed tokens one at a time, carrying a hidden
-state forward — token 50's influence on token 1 has to survive 49 sequential updates, which is both
-slow (no parallelism across positions, unlike a `parallelStream()` over independent work) and prone
-to that influence fading out over distance. The transformer's insight, from Vaswani et al. (2017)
-[source: Attention Is All You Need](https://arxiv.org/pdf/1706.03762) (checked 2026-09-02): let every
-position look directly at every other position, weighted by *relevance*, in one matrix operation. No
-loop, no fading signal, full parallelism.
+*You are here:* Problem → **Idea** → Step 1 → Step 2 → Step 3 → Step 4 → Step 5.
 
 The mental model that actually transfers from Java: **attention is a soft, differentiable
 `Map.get()`.** A hash map lookup is: hash the key, find the *one* matching bucket, return its value.
@@ -53,7 +111,21 @@ weighted by how well its key matched the query. Instead of "the one exact match"
 weighted by relevance" — which is exactly what lets a token's representation absorb context from the
 whole sequence in a single step.
 
-Three tensors drive it, and they map cleanly onto that lookup analogy:
+Three tensors drive it, and they map cleanly onto that lookup analogy — this is the flow every
+example in this chapter follows, from a token's embedding to the value it actually contributes:
+
+```mermaid
+flowchart LR
+    TOK["token embedding x"] -->|"learned projection W^Q"| Q["Query Q<br/>'what am I looking for?'"]
+    TOK -->|"learned projection W^K"| K["Key K<br/>'what do I offer,<br/>to be matched against?'"]
+    TOK -->|"learned projection W^V"| V["Value V<br/>'what I actually<br/>pass on once matched'"]
+    Q --> DOT["Q times K-transpose<br/>(a relevance score<br/>per query/key pair)"]
+    K --> DOT
+    DOT --> SM["softmax<br/>(scores -> weights,<br/>each row sums to 1)"]
+    SM --> WSUM["weighted sum of V"]
+    V --> WSUM
+    WSUM --> OUT["attention output"]
+```
 
 - **Q (query)** — "what am I looking for?", one vector per position that's currently being updated.
 - **K (key)** — "what do I have to offer, as a thing to be matched against?", one vector per position
@@ -66,15 +138,29 @@ token queries every token, including itself.
 
 ## 2. Scaled dot-product attention
 
-The formula, from Section 3.2.1 of the paper
+*You are here:* Problem → Idea → **Step 1** → Step 2 → Step 3 → Step 4 → Step 5.
+
+The Q/K/V diagram above is the intuition. Here's the formula it compiles down to, from Section 3.2.1
+of the paper
 ([source: Attention Is All You Need](https://arxiv.org/pdf/1706.03762), checked 2026-09-02; also
 recorded in NOTE-ML-8-transformer-and-llm.md):
 
-```
-Attention(Q, K, V) = softmax(Q Kᵀ / √d_k) V
-```
+$$\mathrm{Attention}(Q, K, V) = \mathrm{softmax}\!\left(\frac{QK^T}{\sqrt{d_k}}\right)V$$
 
-Read left to right, as a pipeline:
+Plain-language gloss for every symbol before the pipeline: $Q$ is the query matrix (one row per
+position asking a question), $K$ is the key matrix (one row per position offering itself as an
+answer), $V$ is the value matrix (one row per position's actual payload), $d_k$ is how wide each
+query/key vector is, and $QK^T$ is "every query dotted against every key, all at once, as one matrix
+multiply."
+
+Read the formula left to right, as a four-step pipeline — the same four boxes as code, below:
+
+```mermaid
+flowchart LR
+    QK["Step 1: Q times K-transpose<br/>(n,d_k) x (d_k,m) -> (n,m)<br/>raw similarity score,<br/>one per query/key pair"] --> SCALE["Step 2: divide by sqrt(d_k)<br/>keeps big dot products<br/>from saturating softmax"]
+    SCALE --> SOFTMAX["Step 3: softmax(dim=-1)<br/>each ROW becomes a<br/>probability distribution,<br/>summing to 1"]
+    SOFTMAX --> WV["Step 4: weights times V<br/>(n,m) x (m,d_v) -> (n,d_v)<br/>weighted average of<br/>the values"]
+```
 
 1. **`Q Kᵀ`** — matrix-multiply queries against keys (transposed). If `Q` is `(n, d_k)` and `K` is
    `(m, d_k)`, this produces an `(n, m)` matrix: every query's raw similarity score against every
@@ -143,13 +229,18 @@ Two things worth staring at:
 
 ### Why `/ √d_k`? The scaling isn't cosmetic
 
+Here's the failure this step exists to prevent, made concrete instead of asserted: feed softmax a
+row with one huge score and several tiny ones and it **saturates** — nearly all of its output "piles
+onto" the single largest score, the row becomes essentially one-hot, and the gradient of a saturated
+softmax is close to zero almost everywhere. A network in that state stops learning from that
+position, silently, with no error thrown.
+
 Per NOTE-ML-8-transformer-and-llm.md: **scaling by `1/√d_k` prevents the dot products from growing
-too large, which would push softmax into a region with vanishing gradients.** Concretely: a dot
-product of two random `d_k`-dimensional vectors has variance that grows *with* `d_k` — more
-dimensions, more terms summed, more variance. Feed softmax a row with one huge score and several tiny
-ones and it saturates: the output is essentially one-hot (all its "probability mass" piles onto the
-max), and the gradient of a saturated softmax is close to zero almost everywhere — the network stops
-learning from that position. The code above measures this directly:
+too large in the first place, which is exactly what would push softmax into that saturated,
+vanishing-gradient region.** The reason dot products grow with dimension: a dot product of two
+random `d_k`-dimensional vectors sums `d_k` independent terms, and variance accumulates with every
+term you add — more dimensions summed, more variance, bigger swings between the largest and smallest
+score in a row. The code above measures this directly, on this chapter's own tiny `d_k=3` example:
 
 ```text
 variance of QK^T (unscaled): 1.601  vs scaled by 1/sqrt(d_k)=0.577: 0.534
@@ -164,31 +255,47 @@ a from-scratch attention implementation — forget the `/ math.sqrt(d_k)` and th
 
 ## 3. Multi-head attention — split, attend, concat
 
-One attention computation gives the model exactly one "view" of relevance between positions. Multi-
-head attention runs several of those views **in parallel, in different learned subspaces**, then
-combines them — the paper's Section 3.2.2 motivation: different heads can specialize (one head might
-end up tracking subject-verb agreement, another tracking coreference, purely from training, with no
-explicit instruction to do so).
+*You are here:* Problem → Idea → Step 1 → **Step 2** → Step 3 → Step 4 → Step 5.
+
+Section 2 gave you exactly one attention computation — one "view" of relevance between positions.
+But a sentence carries more than one kind of relationship at once (subject-verb agreement,
+coreference, adjective-noun binding) and one shared query/key/value projection has to blend all of
+them into a single weighting. **Multi-head attention** runs several attention computations **in
+parallel, in different learned subspaces**, then combines them — the paper's Section 3.2.2
+motivation: different heads can specialize (one head might end up tracking subject-verb agreement,
+another tracking coreference, purely from training, with no explicit instruction to do so).
 
 The formula
 ([source: Attention Is All You Need, Section 3.2.2](https://arxiv.org/pdf/1706.03762), checked
 2026-09-02; also NOTE-ML-8-transformer-and-llm.md):
 
-```
-MultiHead(Q, K, V) = Concat(head_1, ..., head_h) W^O
-head_i = Attention(Q W^Q_i, K W^K_i, V W^V_i)
-```
+$$\mathrm{MultiHead}(Q, K, V) = \mathrm{Concat}(\mathrm{head}_1, \ldots, \mathrm{head}_h)\,W^O
+\qquad \mathrm{head}_i = \mathrm{Attention}(QW^Q_i,\, KW^K_i,\, VW^V_i)$$
 
-Each head gets its own learned projections (`W^Q_i`, `W^K_i`, `W^V_i`) that shrink `d_model` down to
-a smaller `d_k` per head, runs the exact same scaled-dot-product-attention from Section 2 inside that
-smaller subspace, and the `h` results get concatenated back to `d_model` width and passed through one
-more learned projection, `W^O`.
+Gloss: $h$ is the number of heads, $W^Q_i / W^K_i / W^V_i$ are head $i$'s own learned projection
+matrices (shrinking `d_model` down to a smaller per-head `d_k`), $\mathrm{head}_i$ is plain
+scaled-dot-product attention (Section 2's exact function) run inside that smaller subspace, and
+$W^O$ is one more learned projection that maps the concatenated heads back to `d_model` width.
 
 **The Java-side gotcha:** you do not — and real implementations never do — allocate `h` separate
 small `nn.Linear` layers. One big `nn.Linear(d_model, d_model)` computes all heads' projections in a
 single matrix multiply; splitting into heads happens purely by **reshaping the output tensor**
 (`view` + `transpose`), the same trick as reinterpreting one wide `int[]` as an `int[h][d_k]` without
 copying any data:
+
+```mermaid
+flowchart LR
+    X["x: (batch, seq, d_model)"] --> WQ["one big nn.Linear<br/>(d_model, d_model)<br/>W^Q / W^K / W^V"]
+    WQ --> RESHAPE["view + transpose<br/>(reshape only,<br/>no data copy)<br/>-> (batch, n_heads, seq, d_k)"]
+    RESHAPE --> H1["head 1<br/>Attention(...)<br/>Section 2's function"]
+    RESHAPE --> H2["head 2<br/>Attention(...)"]
+    RESHAPE --> HN["head h<br/>Attention(...)"]
+    H1 --> CONCAT["concat heads<br/>-> (batch, seq, d_model)"]
+    H2 --> CONCAT
+    HN --> CONCAT
+    CONCAT --> WO["nn.Linear<br/>(d_model, d_model)<br/>W^O"]
+    WO --> OUT["output: (batch, seq, d_model)<br/>same shape as x"]
+```
 
 ```python
 class MultiHeadAttention(nn.Module):
@@ -251,22 +358,35 @@ Read the shape trail like a stack trace:
 
 ## 4. A transformer block — attention + residual + LayerNorm + feed-forward
 
-One transformer (encoder) block wraps multi-head attention with two more ingredients and stacks
-another sub-layer on top, per Sections 3.1 and 3.3 of the paper
+*You are here:* Problem → Idea → Step 1 → Step 2 → **Step 3** → Step 4 → Step 5.
+
+Multi-head attention alone is one sub-layer. A full transformer (encoder) block wraps it with two
+more ingredients and stacks a second sub-layer on top, per Sections 3.1 and 3.3 of the paper
 ([source: Attention Is All You Need](https://arxiv.org/pdf/1706.03762), checked 2026-09-02; also
 NOTE-ML-8-transformer-and-llm.md):
 
-```
-x'  = LayerNorm(x  + MultiHeadAttention(x, x, x))
-x'' = LayerNorm(x' + FeedForward(x'))
-```
+$$x' = \mathrm{LayerNorm}(x + \mathrm{MultiHeadAttention}(x, x, x)) \qquad
+x'' = \mathrm{LayerNorm}(x' + \mathrm{FeedForward}(x'))$$
 
 This is the **post-LN** arrangement from the original paper (NOTE-ML-8 also records a modern **pre-
 LN** variant, `LayerNorm(x) + Sublayer(x)`, used by many newer models for training stability — this
 chapter implements the paper's original arrangement, since it's what "Attention Is All You Need"
 itself specifies).
 
-Two new pieces:
+```mermaid
+flowchart TB
+    X["x"] --> MHA["MultiHeadAttention(x, x, x)<br/>Section 3's block"]
+    X --> ADD1(("+"))
+    MHA --> ADD1
+    ADD1 --> LN1["LayerNorm"]
+    LN1 --> FFN["FeedForward<br/>Linear -> ReLU -> Linear"]
+    LN1 --> ADD2(("+"))
+    FFN --> ADD2
+    ADD2 --> LN2["LayerNorm"]
+    LN2 --> OUT["block output x''<br/>same shape as x"]
+```
+
+Two new pieces, glossed before the code:
 
 - **Residual (skip) connection — `x + Sublayer(x)`.** Add the sub-layer's *input* back onto its
   *output*, unchanged. Mechanically this is one `+` operator on two same-shaped tensors — the
@@ -334,6 +454,8 @@ between them: block 2's input shape is guaranteed to match block 1's output shap
 
 ## 5. Positional encoding + causal masking
 
+*You are here:* Problem → Idea → Step 1 → Step 2 → Step 3 → **Step 4** → Step 5.
+
 ### Positional encoding — attention has no built-in sense of order
 
 Attention computes a weighted sum over positions using only the *content* of Q, K, and V. Shuffle the
@@ -348,10 +470,12 @@ paper's sinusoidal formula
 ([source: Attention Is All You Need, Section 3.5](https://arxiv.org/pdf/1706.03762), checked
 2026-09-02; also NOTE-ML-8-transformer-and-llm.md):
 
-```
-PE(pos, 2i)   = sin(pos / 10000^(2i/d_model))
-PE(pos, 2i+1) = cos(pos / 10000^(2i/d_model))
-```
+$$PE_{(pos,\,2i)} = \sin\!\left(\frac{pos}{10000^{2i/d_{model}}}\right) \qquad
+PE_{(pos,\,2i+1)} = \cos\!\left(\frac{pos}{10000^{2i/d_{model}}}\right)$$
+
+Gloss: $pos$ is the token's position in the sequence (0, 1, 2, …), $i$ indexes pairs of dimensions
+across the embedding width, and $d_{model}$ is the embedding width itself — even dimensions get a
+sine of the position, odd dimensions get a cosine, each pair oscillating at a different frequency.
 
 ```python
 def positional_encoding(seq_len: int, d_model: int) -> torch.Tensor:
@@ -451,6 +575,8 @@ Two things the picture makes obvious that the raw numbers don't:
 
 ## 6. Pitfalls
 
+*You are here:* Problem → Idea → Step 1 → Step 2 → Step 3 → Step 4 → **Step 5**.
+
 - **Forgetting `/ √d_k` doesn't crash — it just trains badly.** Section 2 showed unscaled scores have
   visibly higher variance; at real model dimensions (`d_k=64` and up) that variance is large enough
   to saturate softmax and stall gradient flow. No exception is raised either way — this bug is
@@ -477,6 +603,18 @@ Two things the picture makes obvious that the raw numbers don't:
   rather than trusting a bare tuple of integers.
 
 ## 7. Recap & what's next
+
+The whole journey, start to finish — the map from the cold open, now fully walked:
+
+```mermaid
+flowchart LR
+    S0["Problem<br/>RNNs read one<br/>token at a time"] --> S1["Idea<br/>look at every token<br/>at once, weighted<br/>by relevance"]
+    S1 --> S2["done: scaled<br/>dot-product<br/>attention"]
+    S2 --> S3["done: multi-head<br/>attention"]
+    S3 --> S4["done: one<br/>transformer block"]
+    S4 --> S5["done: position +<br/>causal masking"]
+    S5 --> S6["done: pitfalls<br/>-- you are here"]
+```
 
 - **Scaled dot-product attention** — `softmax(QKᵀ/√d_k)V` — is a differentiable weighted lookup:
   compare queries against keys, turn the comparison into a probability distribution per query, return

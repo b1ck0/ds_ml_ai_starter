@@ -2,32 +2,116 @@
 
 *Machine Learning · Worked Examples · Natural Language · SPEC-ML-8*
 
-A Java service that classifies support tickets by urgency, or reviews by sentiment, used to mean
-hand-rolling a feature pipeline: tokenize, count word frequencies (bag-of-words / TF-IDF), feed the
-counts into logistic regression. That still works, and DS-6 taught you the metrics that judge any
-such classifier. What's changed is *where the features come from*. This chapter swaps the
-hand-built feature pipeline for a **pretrained transformer encoder** — a model that already learned
-what language looks like from a huge corpus before it ever saw your task — and shows the two ways
-you can put that knowledge to work: use a checkpoint someone already fine-tuned for a task like
-yours, or fine-tune your own. Everything here runs on a CPU, in seconds, with a ~268MB model.
+## The word counter that can't tell "good" from "not good"
+
+The classical way to classify text — the way you'd have built it five years ago — is to count
+words. Tokenize the sentence, count how often each word appears, feed those counts into logistic
+regression. It's called **bag-of-words**: throw every word into a bag, keep the counts, throw away
+the order they came in. Watch it fail on the simplest possible example.
+
+**Step 1 — count the words in two sentences that mean opposite things.**
+
+```python
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+
+sentences = ["This movie was good.", "This movie was not good."]
+vectorizer = CountVectorizer()
+bow = vectorizer.fit_transform(sentences)
+print("vocabulary:", list(vectorizer.get_feature_names_out()))
+print(bow.toarray())
+print("cosine similarity:", round(float(cosine_similarity(bow)[0, 1]), 4))
+```
+
+```text
+vocabulary: ['good', 'movie', 'not', 'this', 'was']
+[[1 1 0 1 1]
+ [1 1 1 1 1]]
+cosine similarity: 0.8944
+```
+
+**Step 2 — measure how similar the word-counter thinks they are.** `cosine_similarity` (DS-6's
+similarity metric, reused here) says these two vectors are **0.8944 similar out of a possible
+1.0** — almost the same sentence, as far as a bag of word counts is concerned.
+
+**Step 3 — notice what that means.** One sentence is positive, the other is its exact negation, and
+a bag-of-words model rates them 89% identical. It saw one extra count in the `not` column and
+otherwise couldn't tell you these sentences disagree about anything. That's not a bug in the demo —
+it's structural: bag-of-words has no representation of *order*, so "not good" and "good, not [bad]"
+would count identically, and the model has to re-discover, from your labelled examples alone, that
+the word "not" sitting next to "good" flips the verdict. Every classifier built this way starts from
+**zero knowledge of English** — it learns whatever your training set teaches it and nothing more.
+
+**Step 4 — name the fix.** What's missing is a representation that reads the whole sentence and
+already knows how English works — that "not" negates the word after it, that "dreadful" and
+"terrible" mean similar things, that "the plot dragged, but the acting saved it" is a mixed review
+leaning positive. A **pretrained transformer encoder** builds exactly that: a vector for each word
+that depends on *every other word around it* (a **contextual representation**), learned once from
+enormous amounts of text, before it ever saw a single one of your labelled examples.
+
+Here's the one-sentence version you could repeat at dinner: **stand your classifier on a model that
+already read a huge slice of the internet, instead of teaching a blank word-counter your language
+from scratch.** That reuse — start from a general-purpose base instead of from zero — is called
+**transfer learning**, and it's the idea this whole chapter puts to work.
+
+```mermaid
+flowchart LR
+    A["'This movie was good.'"] --> BOW1["bag-of-words counts:<br/>good=1, movie=1, this=1, was=1"]
+    B["'This movie was not good.'"] --> BOW2["bag-of-words counts:<br/>good=1, movie=1, this=1, not=1, was=1"]
+    BOW1 --> SIM["cosine similarity = 0.8944<br/>('almost the same sentence')"]
+    BOW2 --> SIM
+    SIM --> FAIL["opposite sentiment,<br/>near-identical vector -- word order is gone"]
+
+    C["same two sentences"] --> ENC["pretrained transformer encoder<br/>(reads the whole sentence, in context)"]
+    ENC --> CTX["contextual vectors --<br/>'good' next to 'not' means<br/>something different than 'good' alone"]
+    CTX --> WIN["opposite sentiment,<br/>correctly separated"]
+```
+
+The origin of that pretrained encoder has a specific date attached to it. In October 2018, Devlin,
+Chang, Lee, and Toutanova at Google published **BERT** — "Bidirectional Encoder Representations from
+Transformers" — a model pretrained on masked-word prediction over huge amounts of unlabelled text,
+that could then be fine-tuned to state-of-the-art results across eleven different NLP benchmarks
+with only small, task-specific changes
+([source: Devlin et al., "BERT: Pre-training of Deep Bidirectional Transformers for Language
+Understanding," arXiv:1810.04805](https://arxiv.org/abs/1810.04805), checked 2026-09-03 — submitted
+2018-10-11). BERT is what made "download a model that already understands English, then adapt it"
+the default way to do NLP, replacing "build a bag-of-words pipeline and hope your training set is
+big enough." Everything in this chapter is that same idea, run on your own machine, on CPU, in
+seconds.
+
+```mermaid
+flowchart LR
+    COLD["cold open<br/>bag-of-words fails ◀ you are here"] --> WHY["Sec 1: What and why<br/>transfer learning"]
+    WHY --> CONCEPT["Sec 2: Concept<br/>tokenize -> encode -> logits -> label"]
+    CONCEPT --> WORKED["Sec 3: Worked example<br/>real inference + DS-6 metrics"]
+    WORKED --> ADAPT["Sec 4: Adaptation paths<br/>use a checkpoint vs fine-tune"]
+    ADAPT --> PITFALLS["Sec 5: Pitfalls"]
+```
 
 ## 1. What & why — transfer learning beats bag-of-words
 
-A bag-of-words classifier represents "the acting saved it" as a set of word counts: `{the: 2,
-acting: 1, saved: 1, it: 1}`. Word order is gone. `"not bad"` and `"bad"` share the token `bad`; the
-negation is, at best, a fragile bigram feature you have to remember to engineer. Every classifier
-built this way starts from **zero knowledge of English** — it has to learn, from *your* labelled
-examples alone, that "dreadful" and "terrible" mean similar things, that "not" flips a verdict, that
-"the plot dragged, but the acting saved it" is a mixed review leaning positive.
+A Java service that classifies support tickets by urgency, or reviews by sentiment, used to mean
+hand-rolling that bag-of-words pipeline: tokenize, count word frequencies (or the fancier TF-IDF
+weighting), feed the counts into logistic regression. That still works, and DS-6 taught you the
+metrics that judge any such classifier. What's changed since 2018 is *where the features come
+from*. This chapter swaps the hand-built feature pipeline for a **pretrained transformer encoder** —
+a model that already learned what language looks like from a huge corpus before it ever saw your
+task — and shows the two ways you can put that knowledge to work: use a checkpoint someone already
+fine-tuned for a task like yours, or fine-tune your own.
 
-A **pretrained transformer encoder** — BERT, RoBERTa, DistilBERT — has already done that learning.
-It was trained (via a self-supervised objective: predict masked-out words from context, across
-enormous amounts of unlabelled text) to build **contextual representations**: a vector for "bank"
-that differs depending on whether the sentence is about rivers or money, built from attention over
-every other token in the sentence, in both directions. That's the encoder architecture from
-SPEC-ML-10, applied here as a black box you consume rather than build. Fine-tuning that encoder for
-a downstream task — classification, in this chapter — means the classifier starts from "already
-understands English" instead of "knows nothing but which words co-occurred in my training set."
+A **pretrained transformer encoder** — BERT, RoBERTa, DistilBERT — is the fix the cold open just
+motivated. It was trained (via a self-supervised objective: predict masked-out words from context,
+across enormous amounts of unlabelled text) to build those **contextual representations** from the
+cold open: a vector for "bank" that differs depending on whether the sentence is about rivers or
+money, built from attention over every other token in the sentence, in both directions. That's the
+encoder architecture from SPEC-ML-10, applied here as a black box you consume rather than build. In
+plain terms: an **encoder** is the half of a transformer whose job is to *read* a full sequence and
+produce a representation of it — as opposed to a *decoder*, which generates new tokens one at a
+time (that's SPEC-ML-9's job, not this chapter's). **Fine-tuning** means continuing to train that
+already-pretrained encoder a little further on your own labelled examples, so it specializes for one
+task instead of starting from nothing. Doing that for classification means the classifier starts
+from "already understands English" instead of "knows nothing but which words co-occurred in my
+training set."
 
 **Java analogy:** think of the difference between hand-rolling a JSON parser for one project versus
 depending on a mature, battle-tested parsing library that a thousand other projects have already
@@ -35,24 +119,47 @@ exercised. Bag-of-words is the hand-rolled parser — it works, it's yours, but 
 your training data taught it. A pretrained encoder is the mature dependency: general-purpose
 language understanding, built once on a vastly larger corpus than any single labelled dataset could
 provide, that you specialize with a comparatively small amount of task-specific data (or none at
-all, as this chapter's first example shows). This reuse — start from a general-purpose base instead
-of from scratch — is what **transfer learning** means in this context.
+all, as this chapter's first worked example shows).
+
+```mermaid
+flowchart LR
+    CORPUS["huge unlabeled text corpus<br/>(web pages, books, Wikipedia)"] --> PRETRAIN["pretrain once:<br/>predict masked-out words<br/>(self-supervised, no labels needed)"]
+    PRETRAIN --> ENCODER["general-purpose encoder<br/>('already understands' English structure)"]
+    ENCODER -->|"Path 1: use an existing fine-tune"| CHECKPOINT["published checkpoint<br/>e.g. distilbert-sst2"]
+    ENCODER -->|"Path 2: fine-tune it yourself"| YOURDATA["your labelled data<br/>+ a new classification head"]
+    CHECKPOINT --> TASK["your task, ready to use"]
+    YOURDATA --> TASK
+```
+
+Section 4 comes back to this diagram and unpacks the choice between its two branches.
 
 ## 2. Concept — tokenizer, model, logits, label
 
-Classifying text with a HuggingFace `transformers` model is four steps:
+Classifying text with a HuggingFace `transformers` model is four steps, and they're the same four
+steps no matter which pretrained encoder you use:
 
 1. **Tokenize.** Text becomes a sequence of subword token IDs — not whole words, and not
    characters, but pieces in between (`AutoTokenizer`). This is the same tokenizer concept from
    embeddings/tokenizers (SPEC-ML-3): a fixed vocabulary of subword pieces, so a novel word like
    "unfathomable" becomes several known pieces rather than one `<UNK>` token.
 2. **Encode.** The token IDs pass through the transformer's stacked attention layers
-   (`AutoModelForSequenceClassification`), producing one contextual vector per token, then a
-   classification head reduces that to raw, unnormalized scores — **logits** — one per class.
+   (`AutoModelForSequenceClassification`), producing one contextual vector per token — the same
+   context-aware representations from the cold open — then a classification head reduces that to
+   raw, unnormalized scores: **logits**, plain-language "the model's opinion, before it's been
+   turned into a probability" — one score per class.
 3. **Softmax.** Logits get turned into a probability distribution over classes with `softmax` — the
    same idea as `predict_proba()` in scikit-learn (DS-6), just computed with `torch.softmax`.
 4. **Label.** `argmax` over the probabilities gives the predicted class index; `model.config.id2label`
    maps that index back to a human-readable string (`"NEGATIVE"` / `"POSITIVE"`).
+
+```mermaid
+flowchart LR
+    TEXT["raw text<br/>'The plot dragged, but the acting saved it.'"] --> TOK["1. tokenize<br/>AutoTokenizer"]
+    TOK --> ENC["2. encode<br/>AutoModelForSequenceClassification"]
+    ENC --> LOGITS["3. logits<br/>raw, unbounded scores"]
+    LOGITS --> SOFT["4. softmax<br/>probability distribution"]
+    SOFT --> LABEL["5. label<br/>argmax + id2label"]
+```
 
 `transformers` gives you both a high-level API that does all four steps in one call, and the
 low-level pieces so you can see logits directly — this chapter uses both
@@ -83,7 +190,8 @@ SST-2 (Stanford Sentiment Treebank). **Apache-2.0 licensed, free to download and
 ([source: NOTE-ML-7-nlp-models.md](../../../research/NOTE-ML-7-nlp-models.md);
 [model card](https://huggingface.co/distilbert/distilbert-base-uncased-finetuned-sst-2-english)
 (checked 2026-09-02)). First run downloads ~268MB to the local HuggingFace cache
-(`~/.cache/huggingface/hub`); every run after that loads from disk.
+(`~/.cache/huggingface/hub`); every run after that loads from disk. This is Path 1 from the previous
+section's diagram: someone already fine-tuned the encoder for you.
 
 ## 3. Worked example
 
@@ -119,10 +227,11 @@ NEGATIVE score=0.9998  'I want my two hours back. Absolutely dreadful.'
 are near-certain (>0.999) — these are the two "easy" sentences deliberately chosen to sanity-check
 the setup before the harder evaluation set in Section 3.3.
 
-### 3.2 The explicit path — tokenizer, logits, softmax
+### 3.2 The explicit path — tokenizer, logits, softmax, step by step
 
 `pipeline()` is convenient, but it hides exactly the mechanics DS-6 trained you to want to see
-before trusting a number. Here's the same prediction, unpacked:
+before trusting a number. Same code as Section 2's diagram, but you'll watch every intermediate
+value:
 
 ```python
 import torch
@@ -153,24 +262,27 @@ softmax probs: [0.127 0.873]
 id2label: {0: 'NEGATIVE', 1: 'POSITIVE'}
 ```
 
-Three things worth reading closely here:
+Read that output as the pipeline diagram's four steps, one real number at a time:
 
-- **`[CLS]` and `[SEP]` are special tokens the tokenizer inserts**, not part of your text —
-  `[CLS]`'s final hidden state is what the classification head actually reads; `[SEP]` marks the end
-  of the sequence. Every word here happened to tokenize whole (`dragged`, `acting`, `saved` are all
-  single WordPiece tokens) — a rarer word would split into several subword pieces.
-- **The raw logits (`-0.91`, `1.01`) are not probabilities** — they're unbounded scores; only after
-  `softmax` do they become `[0.127, 0.873]`, a distribution that sums to 1. Reading logits directly
-  (without softmax) to judge "how confident" a model is would be like reading Java `Comparable`
-  results as magnitudes instead of just sign — the raw number isn't calibrated to mean anything on
-  its own.
-- **`id2label` is `{0: 'NEGATIVE', 1: 'POSITIVE'}` for this checkpoint** — read from
-  `model.config`, not assumed. A different checkpoint could order or name its labels differently;
-  always check, don't hard-code index 1 as positive (Section 5's pitfalls return to this).
+- **Step 1, tokenize.** `[CLS]` and `[SEP]` are special tokens the tokenizer inserts, not part of
+  your text — `[CLS]`'s final hidden state is what the classification head actually reads; `[SEP]`
+  marks the end of the sequence. Every word here happened to tokenize whole (`dragged`, `acting`,
+  `saved` are all single WordPiece tokens) — a rarer word would split into several subword pieces.
+- **Step 2, encode → logits.** The raw logits (`-0.9135`, `1.0138`) are not probabilities — they're
+  unbounded scores, the model's raw opinion before calibration. Reading logits directly (without
+  softmax) to judge "how confident" a model is would be like reading Java `Comparable` results as
+  magnitudes instead of just sign — the raw number isn't calibrated to mean anything on its own.
+- **Step 3, softmax → label.** Only after `softmax` do the logits become `[0.127, 0.873]`, a
+  distribution that sums to 1. `id2label` is `{0: 'NEGATIVE', 1: 'POSITIVE'}` for this checkpoint —
+  read from `model.config`, not assumed. A different checkpoint could order or name its labels
+  differently; always check, don't hard-code index 1 as positive (Section 5's pitfalls return to
+  this).
 
 The mixed-sentiment sentence "The plot dragged, but the acting saved it." lands at 87.3% POSITIVE —
 a genuinely uncertain case scored with genuine (if imperfect) nuance, not the near-100% confidence
-of the two clear-cut sentences in 3.1.
+of the two clear-cut sentences in 3.1. Compare that to the cold open: a bag-of-words counter had no
+way to weigh "dragged" against "saved" at all; this encoder read the whole sentence and landed on a
+number that tracks how a human would actually call it — mixed, leaning positive.
 
 ### 3.3 Evaluating on a small labelled set (LO3 — DS-6 metrics)
 
@@ -223,7 +335,19 @@ confusion matrix [[TN, FP], [FN, TP]]:
 here `[[10, 2], [0, 12]]` — 10 true negatives, 2 false positives, 0 false negatives, 12 true
 positives. **Recall is a perfect 1.0** (every genuinely positive review was caught) while
 **precision is 0.857** (2 of the 14 sentences predicted POSITIVE were actually NEGATIVE) — both
-misses run in the same direction, visible directly in the confusion matrix
+misses run in the same direction. The diagram below walks the same four cells straight into the
+four metrics, so you can see exactly which counts feed which formula:
+
+```mermaid
+flowchart TD
+    CM["confusion matrix, 24 examples<br/>TN=10  FP=2  FN=0  TP=12"] --> ACC["accuracy = (TP + TN) / 24<br/>= 22 / 24 = 0.9167"]
+    CM --> PREC["precision = TP / (TP + FP)<br/>= 12 / 14 = 0.8571"]
+    CM --> REC["recall = TP / (TP + FN)<br/>= 12 / 12 = 1.0000"]
+    PREC --> F1["F1 = 2 x precision x recall / (precision + recall)<br/>= 0.9231"]
+    REC --> F1
+```
+
+Same visual evidence as a rendered plot
 ([`artefacts/confusion_matrix.png`](artefacts/confusion_matrix.png)):
 
 ![Confusion matrix for DistilBERT-SST2 on 24 hand-written examples: 10 true negatives, 2 false positives, 0 false negatives, 12 true positives, accuracy 0.917, F1 0.923](artefacts/confusion_matrix.png)
@@ -265,7 +389,7 @@ scope.
 
 ## 4. Two adaptation paths (LO4)
 
-This chapter used exactly one of two ways to make a pretrained encoder solve *your* task:
+This chapter used exactly one branch of Section 1's transfer-learning diagram. Time to name both:
 
 **Path 1 — use a task-specific pretrained head (what this chapter did).** Someone already
 fine-tuned `distilbert-base-uncased` on SST-2 sentiment data and published the result. If your task
@@ -283,6 +407,14 @@ classification head) and train on your own labelled examples. Two variants: free
 train only the new head (fast, needs less data, works when the pretrained representations already
 separate your classes reasonably well), or fine-tune the whole model end-to-end (slower, needs more
 labelled data, but can adapt the encoder's representations themselves to your domain's vocabulary).
+
+```mermaid
+flowchart TD
+    Q{"does a published checkpoint<br/>already cover your task's domain?"}
+    Q -->|"yes -- e.g. movie or product sentiment"| P1["Path 1: use the existing fine-tuned head<br/>fast, free, zero labelled data needed"]
+    Q -->|"no -- e.g. internal support tickets,<br/>a niche label set"| P2["Path 2: fine-tune your own head<br/>on your labelled data -- slower,<br/>needs data and compute"]
+```
+
 The shape of the code, using `transformers`' `Trainer` API — **not run in this chapter**, shown to
 convey the shape of the workflow, not as a claim about specific hyperparameters:
 
@@ -337,10 +469,11 @@ Path 2 becomes necessary.
 
 ## 6. Recap & what's next
 
-- **Transfer learning**: a pretrained transformer encoder already knows general language structure
-  from large-scale pretraining; fine-tuning (or, as here, using an already-fine-tuned checkpoint)
-  specializes that knowledge for one task, instead of learning language *and* the task from your
-  labelled data alone — the reason it beats bag-of-words.
+- **Transfer learning**: the cold open showed a bag-of-words counter rate "good" and "not good" as
+  89% similar; a pretrained transformer encoder already knows general language structure from
+  large-scale pretraining (BERT, 2018), so fine-tuning it — or, as here, using an already-fine-tuned
+  checkpoint — specializes that knowledge for one task instead of learning language *and* the task
+  from your labelled data alone.
 - **Tokenizer → model → logits → softmax → label** is the full inference pipeline
   ([source: NOTE-ML-7-nlp-models.md](../../../research/NOTE-ML-7-nlp-models.md)); `pipeline()` does
   all four steps in one call, `AutoTokenizer` + `AutoModelForSequenceClassification` expose them —
@@ -375,3 +508,15 @@ hand-written-examples path as an explicit alternative to the SST-2-subset path, 
 minimum) rather than `datasets.load_dataset`. `pandas`/`seaborn` are also not installed in
 `.venv-ml`; the predictions table is written with the standard-library `csv` module instead of
 pandas — no behavioural difference for a flat table, just a different (dependency-free) writer.
+
+**Restyle note (2026-09-03):** this chapter was restyled into the storytelling + heavy-visual house
+style (`docs/style-guide.md`) after its original review/merge. Every existing `python` code block,
+every artefact reference, and every real number from the original merged version is preserved
+byte-identical; `code/text_classification.py` and the committed artefacts were not touched. New
+material added during the restyle: the cold-open bag-of-words demo (a new, real, runnable
+`CountVectorizer`/`cosine_similarity` snippet, executed against the installed `.venv-ml` —
+`scikit-learn==1.9.0` — to produce the `0.8944` similarity number quoted above; not present in
+`code/text_classification.py`, shown inline only), the BERT/2018 historical citation
+(arXiv:1810.04805, checked 2026-09-03), and six Mermaid diagrams (bag-of-words-vs-contextual, the
+chapter roadmap, the transfer-learning pretrain/fine-tune idea, the inference pipeline, the
+confusion-matrix-to-metrics derivation, and the Path 1 vs Path 2 decision).
