@@ -2,40 +2,95 @@
 
 *Data Science · Worked Examples (advanced) · SPEC-DS-11*
 
+## The search nobody wants to run by hand
+
+In 2013, four researchers — Chris Thornton, Frank Hutter, Holger Hoos, and Kevin Leyton-Brown —
+published a paper with a deliberately unglamorous title: "Auto-WEKA: Combined Selection and
+Hyperparameter Optimization of Classification Algorithms." Buried in that title is the idea that
+later unlocked the whole field of AutoML. They gave a name to a problem every data scientist
+already had, but nobody had framed as *one* problem: **CASH**, Combined Algorithm Selection and
+Hyperparameter optimization — not "which model is best" and "what are its best settings" as two
+separate questions, but a single search over both at once
+([source: Wikipedia, "Auto-WEKA"](https://en.wikipedia.org/wiki/Auto-WEKA), checked 2026-09-03).
+
+Naming it mattered because everyone was already doing a manual, ad-hoc version of it. Picture the
+routine: pick `RandomForestClassifier`, hand-tune `n_estimators` and `max_depth` for an afternoon
+watching the validation score move, try `HistGradientBoostingClassifier` next, hand-tune *its*
+hyperparameters, compare, maybe fit a plain `LogisticRegression` too because someone on the team
+insists on a simple baseline. A day or two later you have three model families, each tuned
+inconsistently — one got twenty tries, another got three — and no principled way to know whether
+the fourth family you never got to would have won. That's exactly the routine SPEC-DS-6's Titanic
+chapter ran: `LogisticRegression`, `RandomForestClassifier`, and `HistGradientBoostingClassifier`,
+all at (mostly) default hyperparameters, hand-picked by the author
+([classification-titanic.md](06-classification-titanic.md)).
+
+**AutoML is what happens when you stop running that search by hand and let a machine run it
+instead — the same CASH search, done systematically rather than ad hoc.** One sentence you could
+repeat at dinner: *instead of you guessing which model and which settings to try next, the machine
+tries many combinations and remembers what worked.*
+
+That's the loop this whole chapter fills in, one box at a time — sample a pipeline, evaluate it,
+use what you learned to decide what to try next, repeat until the clock runs out:
+
+```mermaid
+flowchart LR
+    START(["training data<br/>+ task type<br/>+ time budget"]) --> SAMPLE["sample a pipeline<br/>(model family + hyperparameters)"]
+    SAMPLE --> EVAL["evaluate it<br/>(cross-validated score)"]
+    EVAL --> UPDATE["update belief:<br/>where looks promising?"]
+    UPDATE -->|"budget left"| SAMPLE
+    UPDATE -->|"budget exhausted"| BEST["return the best<br/>pipeline found"]
+```
+
+Keep this picture in mind as a map — §2 names the algorithm behind the "update belief" box, §3
+runs the whole loop for real on a familiar dataset, and §4 asks the question every automated
+search deserves before you trust it: **did it actually win?**
+
 ## 1. What & why
 
-Every prior Data Science chapter in this course followed the same manual loop: engineer features,
-pick one or three model families you already believe in, hand-tune their hyperparameters, and
-compare the results yourself. SPEC-DS-6's Titanic chapter did exactly that — `LogisticRegression`,
-`RandomForestClassifier`, and `HistGradientBoostingClassifier`, all at (mostly) default
-hyperparameters, hand-picked by the author
-([classification-titanic.md](06-classification-titanic.md)). That loop doesn't scale: every new dataset
-means re-running the same "try a handful of things, see what sticks" ritual, and there's no guarantee
-the three families you happened to try were the right three.
+Every prior Data Science chapter in this course ran the manual loop the cold open just described.
+It doesn't scale: every new dataset means re-running the same "try a handful of things, see what
+sticks" ritual, with no guarantee the three families you happened to try were the right three. So
+here's the problem-first question worth asking on the page, before reaching for a formal
+definition: **if trying more combinations is better, why not just try them all?**
 
-**AutoML automates that loop.** Give it a training set, a task type, and a time budget; it searches
-over model families *and* their hyperparameters *and* (depending on the framework) preprocessing
-choices, and hands back the best pipeline it found within the budget. It is not a different kind of
-machine learning — every model it tries is one you could have written yourself with
-`scikit-learn`. What's automated is the *search*.
+You could — that's called grid search. Lay out every hyperparameter as a grid axis and evaluate
+every point on the grid. It sounds like the responsible, exhaustive move, right up until you count
+the points: three hyperparameters at five values each is 125 combinations; five hyperparameters at
+five values each is 3,125. The grid grows exponentially with every knob you add, and most of those
+points are combinations a human could tell were bad ideas after the first few tries. Grid search
+burns almost all of its budget confirming what you already suspected.
 
-The Java analogy that holds up here: think of the space of "model family × hyperparameter values" as
-a giant, mostly-invalid configuration space — like tuning a JVM's GC (`-XX:NewRatio`,
-`-XX:SurvivorRatio`, `-XX:MaxGCPauseMillis`, ...) where most combinations are mediocre and a few are
-excellent, and the only way to know which is which is to actually run the application under load.
-Grid search — the classroom-standard "try every combination on a grid" approach — is the brute-force
-version of that: exhaustive, but the grid grows exponentially with every hyperparameter you add and
-wastes most of its budget on combinations a human could tell are bad ideas after the first few tries.
-**AutoML frameworks like the one this chapter uses are grid search on steroids**: instead of visiting
-every point on a grid blindly, they use the *results so far* to decide where to search next —
-spending more of the time budget near promising regions and cutting off clearly bad ones early. That
-one sentence is this chapter's framing for the rest of it: same search space a grid search would
-cover, smarter allocation of a fixed time budget.
+**AutoML frameworks like the one this chapter uses are grid search on steroids**: instead of
+visiting every point on the grid blindly, they use the *results so far* to decide where to search
+next — spending more of the time budget near promising regions and cutting off clearly bad ones
+early. Same search space a grid search would cover — model family × that family's hyperparameters,
+and (as §3 shows) sometimes a slice of preprocessing too — just a smarter way of spending a fixed
+time budget. That one sentence is this chapter's framing for everything that follows.
+
+The Java analogy that holds up here: think of "model family × hyperparameter values" as a giant,
+mostly-invalid configuration space — like tuning a JVM's GC (`-XX:NewRatio`, `-XX:SurvivorRatio`,
+`-XX:MaxGCPauseMillis`, ...) where most combinations are mediocre and a few are excellent, and the
+only way to know which is which is to actually run the application under load.
+
+Give AutoML a training set, a task type, and a time budget, and it hands back the best pipeline it
+found within that budget. Every model it tries is one you could have written yourself with
+`scikit-learn` — what's automated is the *search*, not the modelling.
+
+> **Three words this chapter leans on — plain English first:**
+> - **search space** — every model family and hyperparameter combination the search could try; the
+>   whole grid a grid search would otherwise have to cover point by point.
+> - **time budget** — how many seconds you let the search keep looking before it must hand back an
+>   answer (30, in this chapter's runs).
+> - **leaderboard** — one score per model family the search actually visited, ranked best to
+>   worst — not every point in the search space, just the ones it got to.
 
 Framed honestly, not magically: AutoML is a **productivity tool**, not a replacement for
-understanding what a model is doing. It will not fix a leaky feature, will not know your business's
-precision/recall trade-off, and will not explain itself the way a hand-derived `LogisticRegression`
-coefficient table does. Section 5 makes those limits concrete.
+understanding what a model is doing. It will not fix a leaky feature, will not know your
+business's precision/recall trade-off, and will not explain itself the way a hand-derived
+`LogisticRegression` coefficient table does. Hold onto one more question while you read: **did
+letting the machine search actually beat the model built by hand in `classification-titanic.md`?**
+§4 answers it with real numbers, and the answer is more interesting than a flat yes or no. §5 makes
+the limits concrete.
 
 ### Environment
 
@@ -82,24 +137,33 @@ for a CPU-only sandbox on Windows/Python 3.13: `auto-sklearn` **fails outright o
 ~450 dependencies (~1.5 GB). **FLAML 2.6.0** — a Microsoft Research project — installed cleanly in
 under 30 seconds and is the framework this chapter uses.
 
-FLAML's search algorithm is called **BlendSearch**
-([NOTE-15](../../research/NOTE-15-automl-framework.md), citing Microsoft's own FLAML documentation).
-It combines two ideas:
+Back to the loop from the cold open: for FLAML, the "update belief — where looks promising?" box
+has a name. FLAML's search algorithm is called **BlendSearch**
+([NOTE-15](../../research/NOTE-15-automl-framework.md), citing Microsoft's own FLAML documentation),
+and it blends two ideas:
 
-- **CFO (Cost-Frugal Optimization)** — a local search that prefers configurations *cheap to
-  evaluate* and nearby ones that look promising, similar to hill-climbing but aware of how expensive
-  each trial is (a shallow decision tree is cheaper to fit than a thousand-tree ensemble; BlendSearch
-  factors that cost in, not just the resulting score).
 - **Bayesian optimization** — a *global* exploration strategy that builds a probabilistic model of
-  "which regions of the search space look good" from every trial run so far, and samples new
-  configurations informed by that model instead of at random.
+  "which regions of the search space look good" from every trial run so far, and proposes new,
+  promising starting points instead of picking at random.
+- **CFO (Cost-Frugal Optimization)** — a *local* search, hill-climbing from each of those starting
+  points toward nearby configurations that look even better, while explicitly favouring
+  configurations that are *cheap to evaluate* (a shallow decision tree is cheaper to fit than a
+  thousand-tree ensemble; BlendSearch factors that cost in, not just the resulting score).
 
-BlendSearch runs local search *threads* seeded from the Bayesian layer's global proposals, and
-adaptively prioritizes which thread gets the next chunk of time budget
-([NOTE-15](../../research/NOTE-15-automl-framework.md)). The practical upshot for this chapter: the
-search space is **model family × that family's hyperparameters**, exactly the same space a grid
-search would need to cover — but BlendSearch decides *where in that space* to spend the next second of
-compute, instead of ticking off every grid cell in a fixed order the way a naive grid search would.
+```mermaid
+flowchart TB
+    HISTORY["every trial run so far<br/>(config -> CV score)"] --> BO["Bayesian layer (global):<br/>which regions of the<br/>search space look good?"]
+    BO --> PROPOSE["propose promising<br/>starting points"]
+    PROPOSE --> CFO["CFO layer (local):<br/>hill-climb from each point,<br/>favouring configs that are<br/>cheap to evaluate"]
+    CFO --> THREADS["several local search<br/>threads running at once,<br/>adaptively prioritized"]
+    THREADS --> HISTORY
+    THREADS -->|"time budget exhausted"| WINNER["best config found"]
+```
+
+The practical upshot for this chapter: the search space is **model family × that family's
+hyperparameters**, exactly the same space a grid search would need to cover — but BlendSearch
+decides *where in that space* to spend the next second of compute, instead of ticking off every
+grid cell in a fixed order the way a naive grid search would.
 
 Two things NOT in scope for this chapter, mentioned for completeness:
 
@@ -130,15 +194,20 @@ automl.predict_proba(X_test)
 `Pipeline` contract from [NOTE-5](../../research/NOTE-5-sklearn-core-apis.md), the same interface
 every hand-built model in this course has used.
 
-## 3. Worked example — Titanic, again
+## 3. Worked example — Titanic, again, but the machine drives
 
-This chapter reuses **the exact same dataset, feature engineering, and 75/25 stratified split** as
-[classification-titanic.md](06-classification-titanic.md) (`seaborn.load_dataset("titanic")`,
-`family_size`/`is_alone`/`fare_bin` engineered features, `random_state=42`) — see
+Time to run the loop from the cold open for real, thirty seconds' worth, on a dataset you've
+already seen. This section reuses **the exact same dataset, feature engineering, and 75/25
+stratified split** as [classification-titanic.md](06-classification-titanic.md)
+(`seaborn.load_dataset("titanic")`, `family_size`/`is_alone`/`fare_bin` engineered features,
+`random_state=42`) — see
 [NOTE-10-classification-datasets](../../research/NOTE-10-classification-datasets.md) for the
-dataset's licence (CC0) and shape. Reusing the dataset makes the comparison in Section 4 direct: same
-668 training rows, same 223 held-out test rows, same target, same features. The full script is
-[`code/automl_demo.py`](code/automl_demo.py); this section walks through what it does.
+dataset's licence (CC0) and shape. Reusing the dataset makes the comparison in §4 direct: same 668
+training rows, same 223 held-out test rows, same target, same features. The full script is
+[`code/automl_demo.py`](code/automl_demo.py); this section walks through what it does, step by
+step.
+
+**Step 1 — reuse the exact same data as the hand-built model.**
 
 ```python
 import pandas as pd
@@ -165,13 +234,12 @@ print(f"train={len(X_train)} test={len(X_test)}")
 train=668 test=223
 ```
 
-### One deliberate difference: FLAML gets the raw data
-
-`classification-titanic.md`'s hand-built pipeline needed a `ColumnTransformer` — impute `age`'s NaNs,
-scale numeric columns, ordinal-encode `fare_bin`, one-hot-encode `sex`/`embarked` — built by hand
-*before* any model saw the data. This chapter hands FLAML the **untransformed** `X_train` directly:
-NaNs in `age`, string/categorical columns for `fare_bin`/`sex`/`embarked`, no `ColumnTransformer` at
-all.
+**Step 2 — hand FLAML the raw, untransformed data.** This is one deliberate difference from
+`classification-titanic.md`'s hand-built pipeline, which needed a `ColumnTransformer` — impute
+`age`'s NaNs, scale numeric columns, ordinal-encode `fare_bin`, one-hot-encode `sex`/`embarked` —
+built by hand *before* any model saw the data. This chapter hands FLAML the **untransformed**
+`X_train` directly: NaNs in `age`, string/categorical columns for `fare_bin`/`sex`/`embarked`, no
+`ColumnTransformer` at all.
 
 ```python
 print(X_train.dtypes)
@@ -197,13 +265,14 @@ embarked         2
 dtype: int64
 ```
 
-FLAML imputes and encodes internally as part of what it fits — this is itself part of "what AutoML
-automates" from Section 1: not just model choice and hyperparameters, but a slice of preprocessing
-too. That's a genuine capability, not a trick — but it also means FLAML's internal choices (how it
-imputes, how it encodes categoricals) are *not* visible or controllable the way the hand-built
-`ColumnTransformer` was. Section 5 returns to this trade-off.
+FLAML imputes and encodes internally as part of what it fits — part of "what AutoML automates"
+from §1: not just model choice and hyperparameters, but a slice of preprocessing too. That's a
+genuine capability, not a trick — but it also means FLAML's internal choices (how it imputes, how
+it encodes categoricals) are *not* visible or controllable the way the hand-built
+`ColumnTransformer` was. §5 returns to this trade-off.
 
-### Running the search
+**Step 3 — run the search.** This is the `SAMPLE -> EVAL -> UPDATE` loop from the cold open,
+running for real:
 
 ```python
 from flaml import AutoML
@@ -226,14 +295,14 @@ Six estimator families, each contributing its own hyperparameter search space to
 `lrl2` (L1- and L2-penalised `LogisticRegression`). A 30-second budget is enough for BlendSearch to
 run dozens of trials across all six ([NOTE-15](../../research/NOTE-15-automl-framework.md)); this run
 actually found its eventual winner **11 seconds** in, per `automl.time_to_find_best_model`, and spent
-the remaining ~19 seconds confirming nothing better turned up.
+the remaining ~19 seconds confirming nothing better turned up — the `UPDATE -> budget exhausted ->
+BEST` branch of the loop diagram, playing out on real numbers.
 
-### Reading the leaderboard
-
-`automl.best_loss_per_estimator` is one cross-validated loss per estimator family FLAML tried during
-the search — the closest thing FLAML has to a leaderboard. Because `metric="accuracy"` was passed to
-`fit()`, FLAML's internal "loss" for each family is `1 − (best CV accuracy found for that family)`,
-so `cv_accuracy_estimate` below is the natural inverse — written by the companion script to
+**Step 4 — read the leaderboard.** `automl.best_loss_per_estimator` is one cross-validated loss per
+estimator family FLAML tried during the search — the closest thing FLAML has to a leaderboard.
+Because `metric="accuracy"` was passed to `fit()`, FLAML's internal "loss" for each family is
+`1 − (best CV accuracy found for that family)`, so `cv_accuracy_estimate` below is the natural
+inverse — written by the companion script to
 [`artefacts/automl_leaderboard.csv`](artefacts/automl_leaderboard.csv):
 
 | rank | estimator | cv_best_loss | cv_accuracy_estimate | is_overall_best |
@@ -248,10 +317,10 @@ so `cv_accuracy_estimate` below is the natural inverse — written by the compan
 `lgbm` (LightGBM, a gradient-boosted-tree library) won, narrowly ahead of `rf` and `xgboost`; the two
 logistic-regression variants (`lrl1`, `lrl2`) trailed — `lrl1`'s L1 penalty in particular scored
 worst, likely over-penalising on a feature set this small (nine columns after encoding). This is a
-**search-time, cross-validated** ranking, not the final test-set score — Section 4 checks the winner
+**search-time, cross-validated** ranking, not the final test-set score — §4 checks the winner
 against a genuinely held-out set.
 
-### Inspecting what it chose
+**Step 5 — inspect what it chose.**
 
 ```python
 print(automl.best_estimator)
@@ -270,13 +339,14 @@ converged on for a 668-row training set where a huge ensemble would mostly overf
 comparatively high (0.58) to compensate for the small `n_estimators`, and the two regularisation terms
 (`reg_alpha`, `reg_lambda`) are small but non-zero. None of this was hand-picked; it's the output of
 the search, and the *reason* it looks reasonable — small model, small dataset — is precisely
-BlendSearch's cost-frugality doing its job (Section 2).
+BlendSearch's cost-frugality doing its job (§2).
 
-## 4. Comparing AutoML's pipeline against the hand-built one
+## 4. So did it actually win?
 
-Same held-out 223-row test set both ways. **Hand-built** = the single `LogisticRegression` pipeline
-from `classification-titanic.md`, fit once, no search. **FLAML** = the `lgbm` model above, the product
-of the 30-second search. Written by the companion script to
+Time to answer the question §1 asked you to hold onto: **does a 30-second automated search beat the
+model a human built by hand?** Same held-out 223-row test set both ways. **Hand-built** = the single
+`LogisticRegression` pipeline from `classification-titanic.md`, fit once, no search. **FLAML** = the
+`lgbm` model from §3, the product of the search. Written by the companion script to
 [`artefacts/automl_vs_handbuilt_metrics.csv`](artefacts/automl_vs_handbuilt_metrics.csv) and plotted
 in [`artefacts/automl_vs_handbuilt_comparison.png`](artefacts/automl_vs_handbuilt_comparison.png):
 
@@ -287,6 +357,17 @@ in [`artefacts/automl_vs_handbuilt_comparison.png`](artefacts/automl_vs_handbuil
 
 ![Left: grouped bars comparing accuracy, precision, recall, F1, ROC-AUC, and PR-AUC for the hand-built logistic regression versus FLAML's lgbm model — FLAML wins accuracy, precision, ROC-AUC, and PR-AUC, loses recall and F1. Right: fit wall-clock time on a log scale — hand-built at 0.036 seconds, FLAML at 30.1 seconds.](artefacts/automl_vs_handbuilt_comparison.png)
 
+The honest answer is "partially, and it cost something" — not a knockout in either direction:
+
+```mermaid
+flowchart LR
+    Q{"does the 30-second search<br/>beat the hand-built model<br/>on every metric?"}
+    Q -->|"accuracy +0.027<br/>precision +0.133<br/>ROC-AUC +0.002, PR-AUC +0.003"| FLAML_WINS["FLAML's lgbm wins"]
+    Q -->|"recall -0.116<br/>F1 -0.007"| HAND_WINS["hand-built logistic<br/>regression wins"]
+    FLAML_WINS --> HONEST["no knockout either way --<br/>a real, partial improvement,<br/>bought with ~840x more compute"]
+    HAND_WINS --> HONEST
+```
+
 **Read the trade-off, not just the winner:**
 
 - **FLAML wins on accuracy (+0.027), precision (+0.133), ROC-AUC (+0.002), and PR-AUC (+0.003).** Its
@@ -294,7 +375,7 @@ in [`artefacts/automl_vs_handbuilt_comparison.png`](artefacts/automl_vs_handbuil
 - **The hand-built logistic regression wins on recall (0.744 vs 0.628) and, barely, F1 (0.727 vs
   0.720).** FLAML's `lgbm` model is *more conservative* about calling someone a survivor — it misses
   more actual survivors (lower recall) in exchange for being right more often when it does call one
-  (higher precision). This is the exact precision/recall dial `classification-titanic.md` Section 4
+  (higher precision). This is the exact precision/recall dial `classification-titanic.md` §4
   described — it didn't go away just because a search picked the model.
 - **This is the same lesson `classification-titanic.md` landed on with its own three hand-built
   models**: "the fancier model" (there, `HistGradientBoostingClassifier`; here, FLAML's `lgbm`) does
@@ -304,7 +385,7 @@ in [`artefacts/automl_vs_handbuilt_comparison.png`](artefacts/automl_vs_handbuil
 - **Cost is not free either: 30.077s vs 0.036s — FLAML's fit took roughly 840× longer.** That is by
   design (`time_budget=30`), not a flaw — the entire value proposition is "spend more compute, search
   more of the space." Whether 30 extra seconds (or 30 extra minutes, on a real budget) is worth a few
-  points of accuracy is a decision the framework cannot make for you; Section 5 returns to this.
+  points of accuracy is a decision the framework cannot make for you; §5 returns to this.
 
 ## 5. Limits & pitfalls
 
@@ -320,9 +401,9 @@ in [`artefacts/automl_vs_handbuilt_comparison.png`](artefacts/automl_vs_handbuil
   a hand-built one would have, and would have no way to flag that the perfection was fake. Feature
   hygiene — dropping leaky, redundant, or too-sparse columns — is still the engineer's job, done
   *before* the data reaches the AutoML call, exactly as it was before reaching the hand-built
-  `ColumnTransformer` in Section 3.
+  `ColumnTransformer` in §3.
 - **Interpretability drops.** `LogisticRegression.coef_` gave `classification-titanic.md` a signed,
-  directly-readable weight per feature (Section 5.1 there: `sex_male = -2.49`, immediately legible).
+  directly-readable weight per feature (§5.1 there: `sex_male = -2.49`, immediately legible).
   FLAML's winning `lgbm` model is a six-tree gradient-boosted ensemble with searched hyperparameters —
   reading "why did it predict this passenger survived" back out requires a separate technique
   (permutation importance, SHAP), not a glance at a coefficient table. If your application needs to
@@ -336,24 +417,36 @@ in [`artefacts/automl_vs_handbuilt_comparison.png`](artefacts/automl_vs_handbuil
   read time; an AutoML search's result depends on both the seed *and* how much compute it actually got
   to use.
 - **Over-trust is the subtlest failure mode.** A leaderboard number and a "best_estimator" string look
-  authoritative — they came from a systematic search, not a guess. But Section 4 showed the "winner"
+  authoritative — they came from a systematic search, not a guess. But §4 showed the "winner"
   losing on two of six metrics. Nothing about running an automated search changes the rule from every
   earlier chapter in this course: pick the metric that matches your actual use case *before* looking
   at results, and read more than one number.
-- **When NOT to reach for AutoML:** a well-understood problem where a single strong baseline (like
-  Section 4's logistic regression) already meets the bar; a setting where interpretability is a hard
-  requirement; a compute budget too small to afford even a 30-second search per iteration during rapid
-  experimentation; or a dataset small enough that hyperparameter search risks overfitting to the
-  cross-validation folds themselves. AutoML is a tool for "I have a time budget and want the search
-  automated," not a default first move.
+
+**When NOT to reach for AutoML** — walk this decision before you spend a time budget:
+
+```mermaid
+flowchart TD
+    Q1{"does a single strong<br/>baseline already meet the bar?"}
+    Q1 -->|"yes"| SKIP1["skip it --<br/>you already have the answer<br/>(e.g. §4's logistic regression)"]
+    Q1 -->|"no"| Q2{"does the application need to<br/>EXPLAIN individual predictions?"}
+    Q2 -->|"yes, a hard requirement"| SKIP2["skip it --<br/>the interpretability loss<br/>is a cost you can't afford"]
+    Q2 -->|"no"| Q3{"can you afford the time budget,<br/>repeated every iteration<br/>of rapid experimentation?"}
+    Q3 -->|"no"| SKIP3["skip it --<br/>too slow to iterate with"]
+    Q3 -->|"yes"| Q4{"is the dataset big enough that<br/>a search won't just overfit<br/>the cross-validation folds?"}
+    Q4 -->|"no, too small"| SKIP4["skip it --<br/>search risk outweighs the benefit"]
+    Q4 -->|"yes"| USE["reach for AutoML:<br/>a time budget you can spend,<br/>on a search worth automating"]
+```
+
+AutoML is a tool for "I have a time budget and want the search automated," not a default first move.
 
 ## 6. Recap & what's next
 
 - **AutoML automates the search**, not the modelling itself — every candidate FLAML tried is a
   scikit-learn-style estimator you could fit by hand; what's new is BlendSearch deciding *where* in
   the model-family × hyperparameter space to spend a fixed time budget, instead of a human guessing or
-  a grid search visiting every cell blindly
-  ([NOTE-15-automl-framework](../../research/NOTE-15-automl-framework.md)).
+  a grid search visiting every cell blindly. It's the systematic version of the CASH problem Auto-WEKA
+  named back in 2013 ([NOTE-15-automl-framework](../../research/NOTE-15-automl-framework.md);
+  [Auto-WEKA, Wikipedia](https://en.wikipedia.org/wiki/Auto-WEKA), checked 2026-09-03).
 - **FLAML 2.6.0** was the researched, grounded choice for this sandbox: `auto-sklearn` fails outright
   on Windows, `AutoGluon`/`H2O`/`TPOT` install but are heavyweight; FLAML installed cleanly and ran a
   real 30-second search across six estimator families
@@ -364,7 +457,8 @@ in [`artefacts/automl_vs_handbuilt_comparison.png`](artefacts/automl_vs_handbuil
 - **On the held-out test set, FLAML's `lgbm` beat the hand-built logistic regression on accuracy
   (0.812 vs 0.785), precision (0.844 vs 0.711), ROC-AUC, and PR-AUC — and lost on recall (0.628 vs
   0.744) and narrowly on F1.** It took roughly 840× longer to obtain (30.08s vs 0.036s). Both numbers
-  matter; neither model is a strict winner.
+  matter; neither model is a strict winner — the honest answer to §4's question is "partially, and it
+  cost something," not a flat yes.
 - **Limits that don't go away just because a search is automated:** budget-dependence, no protection
   from leakage, materially lower interpretability than a hand-derived coefficient table, an extra
   non-determinism axis (wall-clock budget, not just seed), and the same risk of over-trusting a single
