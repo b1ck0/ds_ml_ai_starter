@@ -1,0 +1,7 @@
+text,predicted_label,confidence
+"I can't believe I actually won the competition, I'm over the moon!",joy,0.9561
+"I keep checking the door, certain someone is about to break in.",fear,0.8828
+Losing my grandmother's ring in the move has left me hollow.,sadness,0.9899
+He slammed the laptop shut and stormed out of the meeting.,anger,0.97
+"Out of nowhere, the whole office started singing happy birthday to me.",joy,0.9897
+I love how the rain sounds against the window at night.,love,0.8675

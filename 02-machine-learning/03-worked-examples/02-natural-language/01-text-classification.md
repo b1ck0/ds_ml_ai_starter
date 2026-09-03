@@ -427,13 +427,16 @@ trainer = Trainer(model=model, args=training_args, train_dataset=my_labelled_dat
 trainer.train()  # backprop over your labelled data — needs real compute, out of scope here
 ```
 
-This chapter stays entirely in Path 1 territory, per SPEC-ML-8's scope: full-scale fine-tuning is
-conceptual-only here, deliberately, because it needs a GPU and real training time to be worth
-running rather than pseudocode. **The decision between the two paths is a data-and-distribution
-question, not a difficulty question**: if a checkpoint already covers your domain, fine-tuning your
-own would mostly re-derive what Path 1 already gives you for free; if it doesn't, Path 1's
-confidence numbers will look plausible while quietly being wrong on your domain's vocabulary, and
-Path 2 becomes necessary.
+This chapter stays entirely in Path 1 territory, per SPEC-ML-8's scope: fine-tuning is
+conceptual-only here, deliberately, so this chapter can stay focused on *inference* mechanics.
+**SPEC-ML-13 (fine-tuning a transformer)** picks up exactly this pseudocode and actually runs
+it — same `Trainer` shape, a real dataset, on CPU, watching loss fall and validation accuracy
+climb epoch by epoch — no GPU required, contrary to what you might expect from the size of these
+models. **The decision between the two paths is a data-and-distribution question, not a difficulty
+question**: if a checkpoint already covers your domain, fine-tuning your own would mostly re-derive
+what Path 1 already gives you for free; if it doesn't, Path 1's confidence numbers will look
+plausible while quietly being wrong on your domain's vocabulary, and Path 2 (SPEC-ML-13) becomes
+necessary.
 
 ## 5. Pitfalls
 

@@ -35,6 +35,10 @@ data/raw/
 *.h5
 mlruns/
 mlartifacts/
+# Fine-tuned transformer checkpoints (safetensors + config + tokenizer files) — regenerate by
+# rerunning the chapter's training script; the HF cache (~/.cache/huggingface) is never committed.
+**/fine_tuned_model/
+**/_trainer_scratch/
 
 # Local MLOps stores (MLflow sqlite, Feast registry/online store)
 *.db

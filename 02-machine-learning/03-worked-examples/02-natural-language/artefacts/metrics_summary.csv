@@ -1,0 +1,6 @@
+evaluation,accuracy,f1_macro
+baseline_untrained_head,0.0335,0.0127
+fine_tuned_test_set,0.9235,0.8824
+fine_tuned_on_train_slice,0.98,0.9719
+bad_lr_demo[normal (5e-5)],0.7733,
+bad_lr_demo[too high (1e-2)],0.3517,
