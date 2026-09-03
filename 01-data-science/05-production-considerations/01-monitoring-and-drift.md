@@ -2,16 +2,30 @@
 
 *Data Science · Production Considerations · SPEC-DS-17*
 
-A Java service that starts throwing `NullPointerException`s tells you something is wrong the moment
-it happens — a stack trace, a log line, a paged on-call engineer. A deployed ML model has no
-equivalent failure mode. It keeps returning `200 OK` with a confident-looking prediction on every
-single request, right up through the point where those predictions have quietly become wrong,
-because the world the model was trained on has moved on without it. There is no exception to catch,
-because nothing *throws* — the model's accuracy just erodes, one request at a time, until someone
-notices the business metric downstream of it looking off. This chapter is about closing that gap:
-the vocabulary for *why* a model rots (**drift**), how to detect it while it's happening, when that
-detection should trigger a retrain, and how to decide whether a freshly retrained candidate actually
-deserves to replace the model currently in production.
+## The model that was great at launch
+
+Picture a fraud-detection model that shipped nine months ago. Launch day: it scored 91% accuracy
+on a held-out test set, everyone was happy, the team moved on to the next project. Today, someone
+in finance is asking why chargebacks have crept up every month since. Nobody touched the model.
+Nobody deployed a bad config. The service has been up the entire time, answering every request with
+a `200 OK` and a confident-looking score.
+
+Here's the uncomfortable question before this chapter names anything: **how would you even know**
+the model quietly stopped being right? There's no stack trace. Nothing throws. A Java service that
+starts failing tells you immediately — an exception, a log line, a paged on-call engineer. A model
+that starts failing tells you nothing, because from the service's point of view nothing *is*
+failing: `model.predict(X)` returns a number for any `X` you hand it, whether or not that row still
+resembles anything the model ever learned from. The failure is silent by construction, and it's
+happening to real teams running fraud models, demand forecasts, and credit scores right now, one
+scored request at a time.
+
+That gap — a model rotting with no exception to catch — is what this chapter closes: the vocabulary
+for *why* a model rots (**drift**), how to detect it while it's happening, when detection should
+trigger a retrain, and how to decide whether a freshly retrained candidate actually deserves to
+replace the model currently in production.
+
+One sentence you could repeat at dinner: **a model doesn't tell you when it's wrong — you have to
+go looking, because the world it learned from keeps moving after you stop watching.**
 
 ## 1. What & why — a model is an assumption that nothing checks for you
 
@@ -53,11 +67,43 @@ is where the vocabulary starts.
 
 ## 2. The three drifts
 
+The precise names first appear below with citations, but here's the version you could say to a
+teammate who's never opened a stats textbook — one plain sentence per drift, plus an everyday
+example that has nothing to do with software:
+
+- **Data drift, in one sentence:** *the crowd walking in the door changed, but what makes them buy
+  hasn't.* Everyday version: a coffee shop's regulars move out of the neighbourhood and get
+  replaced by tourists — different faces, different accents, but "a customer who orders a latte
+  tips more" is exactly as true as it was last year.
+- **Concept drift, in one sentence:** *the same crowd keeps walking in, but the rule for reading
+  them quietly stopped working.* Everyday version: the shop starts adding an automatic service
+  charge to every bill — the customers look identical to last month's, but "cash left on the table
+  means a happy customer" stopped meaning anything the day that policy changed.
+- **Model / prediction drift, in one sentence:** *you're not watching the crowd or the rule, you're
+  watching the till.* Everyday version: you never see a single customer walk in — you just watch
+  the ratio of lattes to drip coffee rung up each hour. A shift there tells you *something* changed
+  upstream; it can't tell you whether it was the crowd or the rule.
+
+```mermaid
+flowchart LR
+    subgraph DD["Data drift"]
+        DD1["P(X) shifts:<br/>inputs look different"] --> DD2["X -> y rule:<br/>unchanged"]
+    end
+    subgraph CD["Concept drift"]
+        CD1["P(X) shifts:<br/>inputs look the same"] --> CD2["X -> y rule:<br/>changed"]
+    end
+    subgraph PD["Prediction drift"]
+        PD1["predict(X) output shifts"] --> PD2["a symptom, not a cause --<br/>needs no labels to compute"]
+    end
+```
+
+Now the precise version, because "the crowd changed" has to become something you can actually
+compute
 ([source: NOTE-20-drift-detection](../../research/NOTE-20-drift-detection.md), grounded against
 [Evidently AI — concept drift](https://www.evidentlyai.com/ml-in-production/concept-drift) (checked
 2026-09-02), [Deepchecks — data drift vs concept drift](https://deepchecks.com/data-drift-vs-concept-drift-what-are-the-main-differences/)
 (checked 2026-09-02), and [Wikipedia — concept drift](https://en.wikipedia.org/wiki/Concept_drift)
-(checked 2026-09-02).)
+(checked 2026-09-02)):
 
 - **Data drift** — the input distribution `P(X)` changes, while the true relationship between inputs
   and outputs (`X → y`) stays the same. Example: a churn model trained on a customer base whose
@@ -87,6 +133,23 @@ Data drift is visible on the *inputs* and detectable without any labels. Concept
 on the inputs and detectable only once labels arrive. That distinction is not just semantic — it
 determines which detector below catches which failure, and Section 3 demonstrates the gap directly
 instead of just asserting it.
+
+### The loop this chapter builds, one piece at a time
+
+Every remaining section of this chapter is one stage of a single loop. Keep this picture in mind —
+it comes back, trimmed to whichever stage is current, at the start of Sections 4 and 5:
+
+```mermaid
+flowchart LR
+    SERVE["serve<br/>model.predict(X) in production"] --> LOG["log<br/>inputs + predictions<br/>(+ labels, once they arrive)"]
+    LOG --> COMPARE["compare<br/>Section 3: PSI / KS on inputs,<br/>live accuracy on labelled slice"]
+    COMPARE --> ALERT{"threshold crossed?<br/>Section 4"}
+    ALERT -->|no| SERVE
+    ALERT -->|yes| RETRAIN["retrain the pipeline<br/>Section 4"]
+    RETRAIN --> PROMOTE["champion/challenger<br/>promotion decision<br/>Section 5"]
+    PROMOTE -->|challenger wins both gates| SERVE
+    PROMOTE -->|champion keeps its job| SERVE
+```
 
 ## 3. Detect it — PSI, a KS-test, and a metric that decays (RUNNABLE)
 
@@ -222,6 +285,28 @@ def run_ks_test(reference: np.ndarray, current: np.ndarray) -> tuple[float, floa
     return float(result.statistic), float(result.pvalue)
 ```
 
+### Turning a number into a decision
+
+Both detectors above answer the same underlying question — "does this distribution still look like
+the one I trained on?" — but with two different decision rules. Read PSI against the three-band
+table above; read the KS-test against its p-value cutoff:
+
+```mermaid
+flowchart TD
+    PSIN["compute_psi(reference, current)"] --> T1{"PSI < 0.10 ?"}
+    T1 -->|yes| STABLE["stable -- no action"]
+    T1 -->|no| T2{"PSI < 0.25 ?"}
+    T2 -->|yes| INVESTIGATE["moderate shift --<br/>investigate"]
+    T2 -->|no| SIGNIFICANT["significant drift --<br/>retrain recommended"]
+
+    KS["run_ks_test(reference, current)"] --> T3{"p-value < 0.05 ?"}
+    T3 -->|yes| REJECT["reject 'same distribution' --<br/>drift flagged"]
+    T3 -->|no| NOFLAG["fail to reject --<br/>no drift flagged"]
+```
+
+Keep both branches in mind as you read the next table: they are about to agree loudly on one stream
+and disagree completely with what live accuracy is doing on the other.
+
 ### Running both streams, week by week
 
 ```python
@@ -335,6 +420,15 @@ Evidently as of this chapter's grounding date.
 
 ## 4. When to retrain — schedule vs trigger
 
+We're back on the loop from Section 2, now standing at `COMPARE -> ALERT -> RETRAIN`:
+
+```mermaid
+flowchart LR
+    COMPARE["compare<br/>(Section 3, just built)"] --> ALERT{"threshold crossed?<br/>you are here"}
+    ALERT -->|no| SERVE["...back to serve"]
+    ALERT -->|yes| RETRAIN["retrain<br/>(this section)"]
+```
+
 Two policies decide *when* a retrain happens, and they are not mutually exclusive:
 
 - **Scheduled retraining** — retrain every week / month / quarter, regardless of whether anything
@@ -374,6 +468,16 @@ are telling us" — which is exactly the decision the next section formalises.
 
 ## 5. Should the new model win? — champion/challenger and the golden set
 
+One more step around the loop: `RETRAIN` just produced a candidate. It doesn't get to serve traffic
+just because it exists.
+
+```mermaid
+flowchart LR
+    RETRAIN["retrain<br/>(Section 4, just finished)"] --> PROMOTE{"promotion decision<br/>you are here"}
+    PROMOTE -->|wins both gates| SERVE1["challenger becomes<br/>the new champion"]
+    PROMOTE -->|fails a gate| SERVE2["old champion<br/>keeps serving"]
+```
+
 A freshly retrained model — the **challenger** — earns its promotion over the model currently serving
 traffic — the **champion** — only by beating it on **two** separate evaluation sets, not one:
 
@@ -390,12 +494,23 @@ traffic — the **champion** — only by beating it on **two** separate evaluati
 
 ![Champion/challenger promotion decision: both models are scored on the recent window AND the frozen golden set; promotion requires winning (or tying) on both](artefacts/promotion_decision.png)
 
-The rule the diagram encodes: **promote the challenger only if it is at least as good as the champion
-on *both* sets.** Winning on the recent window alone is not sufficient — that is precisely the
-scenario the golden set exists to catch. Winning on the golden set alone is not sufficient either —
-that would mean shipping a model that hasn't demonstrated it actually addresses whatever drift
-motivated the retrain in the first place. This double-gate is also why the *reference window* used
-for PSI/KS in Section 3 and the *golden set* used here are conceptually related but not the same
+```mermaid
+flowchart TD
+    CH["challenger<br/>(freshly retrained candidate)"] --> EVAL["evaluate on TWO sets"]
+    EVAL --> RECENT["recent labelled window --<br/>did it adapt?"]
+    EVAL --> GOLDEN["frozen golden set --<br/>did it forget anything?"]
+    RECENT --> GATE{"wins or ties on<br/>BOTH sets?"}
+    GOLDEN --> GATE
+    GATE -->|yes| PROMOTE["promote:<br/>challenger becomes the new champion"]
+    GATE -->|no| KEEP["reject:<br/>champion keeps serving"]
+```
+
+The rule both diagrams encode: **promote the challenger only if it is at least as good as the
+champion on *both* sets.** Winning on the recent window alone is not sufficient — that is precisely
+the scenario the golden set exists to catch. Winning on the golden set alone is not sufficient
+either — that would mean shipping a model that hasn't demonstrated it actually addresses whatever
+drift motivated the retrain in the first place. This double-gate is also why the *reference window*
+used for PSI/KS in Section 3 and the *golden set* used here are conceptually related but not the same
 artefact: the reference window is "what training looked like," used to detect that something moved;
 the golden set is "what must never break," used to gate whether a candidate is safe to ship. A
 mature setup usually keeps them separate, because the second one should be curated by hand, not just
@@ -437,11 +552,15 @@ snapshotted from whatever data happened to be around at training time.
 
 ## 7. Recap & what's next
 
-- **Three drifts, three different footprints.** Data drift moves `P(X)` and is visible on the inputs;
-  concept drift moves `X → y` and is invisible on the inputs; prediction drift moves the model's own
-  output distribution and needs no labels at all — but, because it is computed from `predict(X)`
-  alone, it is exactly as blind to concept drift as PSI and the KS-test are
-  ([NOTE-20](../../research/NOTE-20-drift-detection.md)).
+- **A model rots silently.** No exception, no failed health check — just a slowly wrong answer on
+  every request, which is why this chapter opened by asking "how would you even know?" before naming
+  anything.
+- **Three drifts, three different footprints.** Data drift moves `P(X)` and is visible on the inputs
+  (the coffee shop's regulars are replaced by tourists, the rule stays true); concept drift moves
+  `X → y` and is invisible on the inputs (the same customers, but the tipping rule silently changed);
+  prediction drift moves the model's own output distribution and needs no labels at all — but,
+  because it is computed from `predict(X)` alone, it is exactly as blind to concept drift as PSI and
+  the KS-test are ([NOTE-20](../../research/NOTE-20-drift-detection.md)).
 - **PSI and a KS-test detect data drift, and only data drift.** This chapter's own simulation put
   that to the test directly: `data_drift`'s PSI hit **5.283** (>20x the "significant" threshold of
   0.25) while accuracy *improved* to 0.987; `concept_drift`'s PSI stayed under 0.07 the entire time
