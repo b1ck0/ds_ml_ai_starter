@@ -82,3 +82,31 @@ The book is taught as a **story**, one idea at a time, with a picture on nearly 
 - Do **NOT** commit third-party images embedded in those decks (dataset photos, ImageNet/Ranger-7
   imagery, logos, book/paper figures) into this public repo — recreate the idea as a diagram instead.
 - When you do embed an owner-original image, put it under the chapter's `artefacts/` and attribute it.
+
+## Tailored for people (accessibility)
+Write so a smart person with **no IT/maths background** could follow — the owner's "for non-IT" and
+Galton "regression to the mean" decks are the bar. Concretely:
+- **Plain-language intuition BEFORE notation or code.** Say what it *means* in one human sentence, then
+  show the formula, then the code. Never open a concept with a formula.
+- **Every symbol gets a plain gloss** the first time (`$\mu$` = "the average", `SSE` = "how wrong the
+  model is", `SST` = "how wrong the dumbest model is").
+- **Analogies over jargon.** Compare to something the reader already lives (a courtroom, a pricing
+  function, a flaky test), then retire the analogy once the real idea stands on its own.
+
+## Explanatory patterns worth reusing (from the owner's decks)
+Two set-piece explanations to reuse (recreated as runnable plots + Mermaid/LaTeX, not slide screenshots):
+- **R² as "beat the dumbest model."** Show two residual pictures side by side: residuals to the fitted
+  line ($SSE=\sum_i (y_i-\hat y_i)^2$, "variance of the model's errors") vs residuals to the flat
+  baseline $\hat y=\bar y$ ($SST=\sum_i (y_i-\bar y)^2=\text{VAR}(Y)$, "variance of the data"). Then
+  $R^2 = 1-\frac{SSE}{SST}$ = "the fraction of the data's variance the model explains": $R^2=0$ when the
+  model is no better than predicting the average, $R^2=1$ when it's perfect. Generate the two-residual
+  plot with real code as an artefact.
+- **Collinearity via "multiple simple regressions vs one multiple regression."** Rank each feature by
+  its OWN single-feature $R^2$ (many simple regressions). Then fit ONE multiple regression on
+  **standardised** features so coefficient *magnitude* ≈ importance, and compare the coefficient ordering
+  to that single-feature ranking. When features are collinear (e.g. `Age = base − Year`, a population
+  proxy that also tracks `Year` — "three features secretly measuring time"), the multiple-regression
+  weights go unstable and the ordering breaks (a redundant twin collapses to ≈0; the design matrix's
+  **condition number**/VIF explodes). Drop the redundant twins → the coefficient ordering snaps back to
+  the single-feature importance ranking. Show the pairplot, the coefficient-vs-single-R² comparison, and
+  the condition number, all from runnable code.
