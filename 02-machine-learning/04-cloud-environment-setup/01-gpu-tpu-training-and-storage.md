@@ -428,7 +428,265 @@ on-demand where your workload tolerates interruption, and treat egress and idle-
 real line items to watch, not afterthoughts. The cloud accelerator earns its cost when it turns a
 week of laptop time into an afternoon — not by being the default starting point.
 
-## 8. Recap & what's next
+## 8. Scaling training across devices and machines
+
+**A note before this section, not after it.** Everything in Sections 1–7 could plausibly run on one
+cloud VM you provisioned yourself. Multi-machine training genuinely needs a *cluster* — two or more
+networked hosts, each with its own accelerator, that can already reach each other by IP before the
+first line of Python runs. There is no such cluster in this sandbox, so **nothing below is executed
+here.** It's described from a real project the owner has actually run — three complete variants of
+the same training job, referenced by file path but not imported or committed into this repository —
+cross-checked against TensorFlow's own current documentation. No timing number appears anywhere in
+this section, because none was measured here; that would be inventing a console output, which the
+top of this chapter already promised not to do.
+
+**The trigger: one accelerator is maxed out, or the model doesn't fit it.** Section 7 said "start
+with the smallest GPU that fits." Sooner or later — a bigger model, a longer run, a deadline — that
+GPU sits at 100% utilisation and the job still takes three days. Two different moves fix that, and
+they're easy to conflate:
+
+| | Data parallelism | Model parallelism |
+|---|---|---|
+| What gets split | the **data** — each replica trains on a different slice of the batch | the **model** itself — different layers/parameters live on different devices |
+| Every replica holds | a full copy of the model | only part of the model |
+| Reach for it when | the model fits on one device, but you want more throughput | the model itself doesn't fit in one device's memory |
+| Covered below | yes — this is what the rest of this section is about | no — out of scope here; a narrower case with its own tooling (e.g. PyTorch's FSDP) |
+
+For a Java engineer, data parallelism is the familiar move: **the same job, running on a sharded
+dataset, across a worker pool, then reduced** — a fork-join over data, not over code. That's the
+ladder this section climbs.
+
+### A real case study — the same model, three ways
+
+The owner has three working variants of one training job: an EfficientNetB0-shaped CNN (the
+`tf.keras.applications.EfficientNetB0` architecture, but with `weights=None` — trained from scratch,
+not fine-tuned from pretrained weights) classifying MNIST digits, upsampled from grayscale 28×28 to
+RGB 32×32 to match what the architecture expects. All three variants share the identical
+`get_model()`/data-loading code; only the `if __name__ == "__main__":` block — the distribution
+strategy — differs. That's the cleanest way to see what each strategy actually changes: everything
+except the bottom few lines stays fixed.
+
+```mermaid
+flowchart LR
+    R1["Rung 1<br/>one accelerator<br/>no strategy"] --> R2["Rung 2<br/>one machine,<br/>several GPUs<br/>MirroredStrategy"]
+    R2 --> R3["Rung 3<br/>several machines<br/>MultiWorkerMirroredStrategy"]
+    R3 --> R4["Rung 4<br/>parameter server<br/>ParameterServerStrategy"]
+    R1 -.->|"still too slow?<br/>climb one rung"| R2
+    R2 -.->|"out of machine?<br/>climb one rung"| R3
+    R3 -.->|"want workers to run<br/>independently, no barrier?"| R4
+```
+
+**Rung 1 — one accelerator, no strategy.** The owner's `tf-mnist-efficientnetb0-single-node` variant
+is the plainest possible script: build the model, build the dataset, call `model.fit(train,
+validation_data=valid, epochs=10)`. There's no `tf.distribute` import anywhere in it. Its Docker
+image is the stock `tensorflow/tensorflow:latest-gpu` base, launched with `docker run --gpus all`.
+With no strategy object, TensorFlow places every op on whichever single device it finds first —
+Section 2 and Section 7's "start here" advice, in code.
+
+**Rung 2 — one machine, several GPUs: `MirroredStrategy`.** This is the natural next rung — add more
+GPUs to the *same* box before reaching for a second machine — and it's the one piece of this ladder
+the owner's case study skips (their jump goes straight from one device to two machines). It's still
+worth knowing, because it's usually the cheaper move: no cluster to provision, no network between
+hosts to configure. Illustrative only — not run in this sandbox, no multi-GPU host here — the shape
+below is verified against TensorFlow's own distributed-training guide
+[source: Distributed training with TensorFlow](https://www.tensorflow.org/guide/distributed_training)
+(checked 2026-09-03), which describes `MirroredStrategy` as creating "one replica per GPU device,"
+with each model variable "mirrored across all the replicas" and "kept in sync with each other by
+applying identical updates":
+
+```python
+# ILLUSTRATIVE -- one machine, several GPUs. Not executed in this sandbox.
+import tensorflow as tf
+
+strategy = tf.distribute.MirroredStrategy()
+print(f"replicas in sync: {strategy.num_replicas_in_sync}")  # one per visible GPU
+
+per_replica_batch = 32
+global_batch_size = per_replica_batch * strategy.num_replicas_in_sync
+
+with strategy.scope():
+    # same get_model() as the single-node script above
+    model = get_model(input_size=(28, 28, 1))
+    model.compile(
+        optimizer=tf.keras.optimizers.Adam(learning_rate=0.001),
+        loss=tf.keras.losses.SparseCategoricalCrossentropy(),
+        metrics=["accuracy"],
+    )
+
+# train, valid = get_data(batch_size=global_batch_size)
+# model.fit(train, validation_data=valid, epochs=10)
+```
+
+Everything in `strategy.scope()` — model construction, in this sketch — gets replicated across every
+visible GPU; TensorFlow handles the "mirror the variables, average the gradients" mechanics.
+
+**"Why we do it this way" — all-reduce, in one sentence.** Each replica computes its own gradients
+from its own slice of the batch; before anyone updates a single weight, every replica exchanges
+gradients with every other replica and averages them (**all-reduce**), so all copies of the model
+stay bit-for-bit identical after every step. For a Java engineer, that's the same shape as a
+synchronised barrier followed by a merge in a fork-join pool: every worker must arrive before the
+combined result is used, and nobody proceeds on a partial answer.
+
+**Rung 3 — several machines: `MultiWorkerMirroredStrategy`.** This is where the owner's
+`tf-mnist-efficientnetb0-multi-node` variant picks up, and it's the same all-reduce idea from Rung 2
+stretched across a network instead of a PCIe bus inside one box. Concretely, from that script:
+
+- **`TF_CONFIG`** — an environment variable, built from a `ROLE` variable the container is started
+  with (`master` or `worker`) — describes the cluster as JSON: one `chief` at one private IP, one
+  `worker` at another, both listening on port `2222`. Every worker process reads this same shape and
+  figures out its own identity from it (`strategy.cluster_resolver.task_type` /  `.task_id`).
+- **`CommunicationOptions(implementation=... .NCCL)`** picks NCCL (NVIDIA's GPU-to-GPU collective
+  communication library) as the transport for the all-reduce step. TensorFlow's current guide
+  ([source: Distributed training with TensorFlow](https://www.tensorflow.org/guide/distributed_training),
+  checked 2026-09-03) shows this same option under a renamed enum,
+  `tf.distribute.experimental.CommunicationImplementation.NCCL`, where the owner's script — built
+  against an older, pinned `tf-gpu.2-6` base image — uses
+  `tf.distribute.experimental.CollectiveCommunication.NCCL`. Same idea, different TensorFlow minor
+  version's spelling of it: distributed-training APIs move faster between TF releases than the
+  single-device ones this curriculum has used so far, so pin and re-test against the exact TF version
+  your cluster actually runs.
+- **The global-vs-per-replica batch size, with real numbers.** The script sets
+  `per_worker_batch = 32` and then `global_batch_size = strategy.num_replicas_in_sync *
+  per_worker_batch`. With one chief and one worker (two replicas total in this sample cluster), that's
+  $32 \times 2 = 64$ — every step, the *effective* batch the optimiser sees is 64 examples, even
+  though each machine only ever materialises 32 of them locally. Generalised:
+  $$\text{global\_batch\_size} = \text{per\_replica\_batch} \times \text{num\_replicas\_in\_sync}$$
+  Get this backwards — hardcode the *global* size as if it were per-replica — and adding machines
+  silently shrinks the amount of data each device trains on per step, which is a common, quiet way
+  distributed training runs end up *less* stable than the single-GPU version they were scaled up from.
+- **Sharding the input pipeline across workers, not just across files.** Section 5 covered sharding a
+  dataset into files so one machine can read it in parallel. At this rung there's a second sharding
+  layer: `tf.data.Options().experimental_distribute.auto_shard_policy =
+  AutoShardPolicy.DATA`, applied to the dataset inside `strategy.scope()`, tells each worker to take
+  a different slice of the *same* dataset instead of every worker training on everything. Skip this
+  and every machine redundantly trains on the full dataset every epoch — more compute burned, no
+  extra signal gained.
+
+**Checkpointing across workers — why "just write a checkpoint" isn't enough here.** Section 6 already
+covered why checkpointing matters (preemption resilience). At this rung it gets one wrinkle: every
+worker must *participate* in a checkpoint save (it's a collective operation, same as the gradient
+all-reduce), but only the chief's copy should land in the final, shared location. TensorFlow's own
+multi-worker guide is explicit about why:
+
+> "The reason for saving on the chief and workers at the same time is because you might be
+> aggregating variables during checkpointing, which requires both the chief and workers to
+> participate in the allreduce communication protocol. On the other hand, letting chief and workers
+> save to the same model directory will result in errors due to contention."
+> [source: Multi-worker training with Keras](https://www.tensorflow.org/tutorials/distribute/multi_worker_with_keras)
+> (checked 2026-09-03)
+
+The documented pattern: every worker calls save, but non-chief workers write to a throwaway
+worker-specific temp directory and delete it afterward, while only the chief's write lands — and
+persists — in the real checkpoint path.
+
+**Rung 4 — the parameter-server pattern: `ParameterServerStrategy`.** The owner's
+`tf-mnist-efficientnetb0-parameter-server` variant adds a third role to the cluster: alongside
+`chief` and `worker`, a `ps` (parameter server) at its own IP. This is a genuinely different pattern
+from Rungs 2–3, not just "more machines" — worth a full picture:
+
+```mermaid
+flowchart TB
+    subgraph T1["one machine, several GPUs -- MirroredStrategy"]
+        D1["batch"] --> G1["GPU 0<br/>replica"]
+        D1 --> G2["GPU 1<br/>replica"]
+        G1 <-->|"all-reduce<br/>(sync, PCIe/NVLink)"| G2
+    end
+    subgraph T2["several machines -- MultiWorkerMirroredStrategy"]
+        D2["sharded dataset"] --> C1["chief<br/>(replica)"]
+        D2 --> W1["worker<br/>(replica)"]
+        C1 <-->|"all-reduce over the network<br/>(NCCL / RING)"| W1
+    end
+    subgraph T3["parameter server -- ParameterServerStrategy"]
+        PS["parameter server(s)<br/>hold the canonical weights"]
+        WK1["worker"] -->|"push gradients"| PS
+        PS -->|"pull latest weights"| WK1
+        WK2["worker"] -->|"push gradients<br/>(async, no shared barrier)"| PS
+        PS -->|"pull latest weights"| WK2
+    end
+```
+
+**Why we do it this way — async instead of a barrier.** In Rungs 2–3, every replica blocks until
+all others reach the all-reduce step; a stalled or crashed replica stalls the whole job. Under a
+parameter server, workers don't wait on each other at all: each one computes gradients from its own
+data, pushes them to the parameter server(s), and pulls back whatever the current weights happen to
+be — no synchronised barrier, so one slow or dead worker just falls behind instead of stalling
+everyone. For a Java engineer, that's closer to a **shared, write-through cache of the weights** —
+workers read/write against it the way a service reads/writes a Redis-backed store that also applies
+the `+=` update server-side — than to a synchronised join. The trade-off is real: a worker can compute
+gradients against a slightly older version of the weights than the one another worker already pushed
+("stale gradients") — a cost the all-reduce pattern doesn't have, because every replica is always
+bit-for-bit identical.
+
+| | All-reduce (`MirroredStrategy` / `MultiWorkerMirroredStrategy`) | Parameter server (`ParameterServerStrategy`) |
+|---|---|---|
+| Who holds the weights | every replica — kept identical | a separate parameter-server process; workers hold none |
+| Combining gradients | synchronous barrier, then average (all-reduce) | asynchronous push/pull, no shared barrier |
+| A slow or dead worker | stalls every other replica | falls behind; the job keeps going |
+| Weight staleness | none — every replica identical each step | possible — a documented trade-off of the pattern |
+| API maturity (TF, checked 2026-09-03) | supported for `Model.fit` and custom loops | **experimental**, per TensorFlow's own guide — the API surface moves faster here than anywhere else in this ladder |
+
+TensorFlow's own guide confirms both the maturity gap and the mechanism: `ParameterServerStrategy` is
+listed as "Experimental (under active development)" and routes Keras `Model.fit` through a
+coordinator process (`tf.distribute.experimental.coordinator.ClusterCoordinator`) rather than having
+every worker run the training loop directly
+([source: Distributed training with TensorFlow](https://www.tensorflow.org/guide/distributed_training),
+checked 2026-09-03) — which is exactly what shows up in the owner's script as two API differences
+from Rung 3:
+
+- **`steps_per_execution=10`** in `model.compile(...)`. Under an all-reduce strategy, each `fit` step
+  is one network round-trip anyway (the all-reduce itself). Under a parameter server, every gradient
+  push/pull is its own RPC to a separate process — more round-trips per step by construction — so
+  batching several training steps into one Python-to-TensorFlow-runtime call amortises that overhead.
+- **`tf.keras.utils.experimental.DatasetCreator(dataset_fn)`**, not a plain dataset. Each worker calls
+  `dataset_fn` itself, independently, to build its *own* input pipeline — a different sharding
+  mechanism from Rung 3's shared-dataset `AutoShardPolicy`. Inside it, the owner's script derives the
+  per-replica batch size with `input_context.get_per_replica_batch_size(global_batch_size)` (global
+  batch fixed at 64) and calls `dataset.shard(...)`, `.batch(...)`, `.prefetch(...)` on it.
+
+**A "why we do it this way" aside, caught by actually reading the code.** Those three calls in the
+owner's `dataset_fn` — `dataset.shard(...)`, `.batch(...)`, `.prefetch(...)` — are called but their
+return values are never reassigned back to `dataset`. `tf.data.Dataset` methods don't mutate in
+place; each one returns a *new* `Dataset`, exactly like a Java `Stream.filter()`/`.map()` call returns
+a new stream rather than changing the one you called it on. Written this way, the sharding, batching,
+and prefetching silently no-op — the pattern to write instead is `dataset = dataset.shard(...)`,
+reassigning at every step of the chain (or chaining the calls: `dataset.shard(...).batch(...)
+.prefetch(...)`, using the returned value directly). It's a small, easy-to-miss bug, and it's exactly
+the kind a Java engineer's instinct for immutable collection APIs should catch on sight once the
+parallel is named.
+
+One more detail worth noticing in the deployment scripts: `run_ps.sh` — the script that launches the
+`ps` role — is the only one of the three role-launch scripts that **doesn't** pass `--gpus all` to
+`docker run`. A parameter server holds and serves variables; it never runs a forward or backward
+pass, so it never needs an accelerator — a cheap CPU host is enough for that role, even in a cluster
+where every worker needs a GPU.
+
+### The same idea in PyTorch
+
+TensorFlow's `tf.distribute` strategies aren't a TensorFlow-only concept — PyTorch answers the same
+data-parallelism problem with `torch.nn.parallel.DistributedDataParallel` (DDP), launched via
+`torchrun` across processes/machines, and it uses the identical all-reduce mechanism under the hood:
+"the model is replicated on all the devices; each replica calculates gradients and simultaneously
+synchronizes with the others using the ring all-reduce algorithm"
+[source: PyTorch Distributed Data Parallel — theory](https://docs.pytorch.org/tutorials/beginner/ddp_series_theory.html)
+(checked 2026-09-03). If a future chapter or project moves this curriculum's PyTorch code past a
+single GPU, `DistributedDataParallel` is the direct equivalent of Rungs 2–3 above — the same synced,
+mirrored-replica pattern, not the parameter-server one.
+
+### The cost/complexity tradeoff — climb the ladder only when you have to
+
+Every rung above adds real operational cost: a cluster to provision and network, a `TF_CONFIG` to get
+right per host, a coordination pattern (all-reduce or a parameter server) that has its own failure
+modes on top of the ones Section 6 already listed. None of it is worth reaching for until Rung 1 is
+demonstrably the bottleneck — the same "don't distribute a batch job until a laptop script genuinely
+can't keep up" judgement call from Section 1, one level further out. Concretely: stay on Rung 1 while
+a single accelerator's utilisation has headroom; climb to Rung 2 before Rung 3 if the constraint is
+throughput and a bigger single machine is available (no cluster to build, no cross-host network to
+debug); reach for Rung 3 only once one machine's worth of accelerators is genuinely saturated; and
+reach for Rung 4 only when the workload specifically benefits from workers that don't block on each
+other — very large clusters where stragglers are common, not a two-machine training job like the
+owner's sample cluster above.
+
+## 9. Recap & what's next
 
 - CPU training (this curriculum's default so far) breaks down on wall-clock time or dataset size,
   not because it's the "wrong" tool — a GPU/TPU only pays for itself once one of those two walls is
@@ -479,3 +737,22 @@ cell, or code snippet changed; `code/training_workflow_diagram.py` and
 `artefacts/training_workflow_diagram.png` were not touched. The two new cold-open figures (206,922
 MNIST params / 62s; 135M-param SmolLM / 2.3s load) are cross-references to this project's own
 already-gated chapters, not new external claims.
+
+**Distributed-training addendum (2026-09-03):** Section 8 ("Scaling training across devices and
+machines") was added by this pass; Sections 1–7 and the notes above are untouched, and the former
+Section 8 ("Recap") was renumbered to Section 9 with no change to its wording. Section 8's `tf.distribute`
+API claims and the checkpoint-contention quote were grounded fresh today against TensorFlow's own
+current docs —
+[Distributed training with TensorFlow](https://www.tensorflow.org/guide/distributed_training) and
+[Multi-worker training with Keras](https://www.tensorflow.org/tutorials/distribute/multi_worker_with_keras),
+both fetched and confirmed live (checked 2026-09-03) — and against
+[PyTorch's DDP theory tutorial](https://docs.pytorch.org/tutorials/beginner/ddp_series_theory.html)
+(checked 2026-09-03) for the one-paragraph PyTorch pointer. The `tensorflow==2.21.0` version cited
+reuses [NOTE-ML-1](../../research/NOTE-ML-1-torch-install.md), already grounding that number for this
+project. The three-variant case study (single-node / multi-node / parameter-server EfficientNetB0-on-MNIST
+training scripts) is real code the owner has run before, read directly from its source files under
+`transfer-training-samples/` for this pass — it was **not** imported, copied, or committed into this
+repository, and none of its distributed runs were re-executed here (no multi-machine cluster exists
+in this sandbox); every fact attributed to it (TF_CONFIG shapes, strategy classes, batch-size math,
+the `dataset.shard()`/`.batch()`/`.prefetch()` non-reassignment, the GPU-less `ps` role) was read
+directly from those scripts, not inferred or reconstructed from memory.
