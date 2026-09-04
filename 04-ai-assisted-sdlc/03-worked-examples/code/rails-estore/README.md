@@ -1,16 +1,26 @@
 # rails-estore
 
-A small Rails e-store — sign-up, login, a cart, checkout with a stubbed Stripe seam, and a public
-product catalog — built under a governed, spec-driven SDLC. This README is a **standalone, zero-to-
-running guide for macOS**: everything you need is here, whether or not you've read the book chapter
-this project ships as a worked example for
+**The point of this project is not to read finished code — it's to build it yourself.** Everything
+committed here — the models, controllers, views, specs, and the whole governed `.claude/` scaffold —
+is the **reference destination**: what you get if you install Claude Code, open this folder, and
+drive sign-up/login → checkout → catalog through the same governed loop this project's book chapter
+narrates. This README is that walkthrough, standalone, for macOS: install Claude Code, read a feature
+spec, prompt the implementer, watch the gates fire, get an independent review, repeat, then run what
+you built with `docker compose up`. Everything you need is here whether or not you've read the
+chapter this project ships as a worked example for
 ([`04-ai-assisted-sdlc/03-worked-examples/03-rails-estore-sdlc.md`](../../03-rails-estore-sdlc.md) —
-that chapter explains the *governance* story: the `.claude/` scaffold, the spec → ground → implement
-→ gate → review → merge loop, and a real authorization bug a fresh reviewer caught that three
-automated gates missed. This file is the "make it actually run on my Mac" companion to that story.
+it narrates the same loop end to end, including a real authorization bug a fresh reviewer caught that
+three automated gates missed).
+
+Two ways through this file: **"Set up Claude Code"** and **"Build it yourself with Claude Code"**
+below walk you through building this project with your own hands on the keyboard — the actual point.
+If you'd rather see the destination first, **"Quickest start — Docker Compose"** runs the
+already-committed code in under a minute.
 
 Every command below is grounded and dated 2026-09-04
-(`docs/research/NOTE-SDLC-4-ADD-macos-setup.md`, `docs/research/NOTE-SDLC-4-ADD-1-gem-npm-versions.md`)
+(`docs/research/NOTE-SDLC-4-ADD-macos-setup.md`, `docs/research/NOTE-SDLC-4-ADD-1-gem-npm-versions.md`,
+and `research/NOTE-SDLC-4-ADD3-claude-code.md` for the Claude Code sections, verified against
+[code.claude.com/docs](https://code.claude.com/docs) as of 2026-09-04)
 — re-check current versions before you rely on this for a new project; software moves.
 
 ## What you get
@@ -82,9 +92,76 @@ compose build`, `docker compose up`, `curl`, and `bundle exec rspec` output, cap
 unlike the rest of this Rails example (correct-but-not-executed in the book's own repo, since no
 Ruby toolchain runs there), this is the one part that was genuinely exercised end-to-end.
 
-Everything below — native macOS setup, the individual gates, the frontend gate, project layout,
-troubleshooting — is the alternative path for when you want to run Ruby directly on your Mac (to use
-a debugger, an editor's inline test runner, etc.) rather than inside a container.
+Everything below — setting up Claude Code, building this store yourself through the governed loop,
+native macOS setup, the individual gates, project layout, and troubleshooting — is for when you want
+to build (or run) this directly on your Mac, with a debugger and an editor's inline test runner
+available, rather than only look at the finished container.
+
+## Set up Claude Code
+
+Everything in this project — the store, the specs, the governance scaffold — gets built by **you**,
+steering [Claude Code](https://code.claude.com/docs/en/overview), Anthropic's agentic coding tool for
+the terminal, checked against its official docs 2026-09-04. Point it at this folder and it does three
+things a plain chat window can't: it reads this project's [`CLAUDE.md`](CLAUDE.md) as persistent
+instructions every session, it dispatches the specialist sub-agents in
+[`.claude/agents/`](.claude/agents/) — researcher, implementer, reviewer, `seo-optimizer`,
+`frontend-qa` — instead of doing everything itself in one undifferentiated pass, and it runs the
+[`.claude/hooks/`](.claude/hooks/) gates automatically on every edit, so a broken test or a leaked
+secret gets caught before you even see the diff [source: `research/NOTE-SDLC-4-ADD3-claude-code.md`].
+
+**Install.** Native install is recommended — it auto-updates in the background; Homebrew
+(`brew install --cask claude-code`) and WinGet (`winget install Anthropic.ClaudeCode`) both work too,
+but neither auto-updates, so you'd run `brew upgrade claude-code` yourself
+[source: [Claude Code — Overview](https://code.claude.com/docs/en/overview) (checked 2026-09-04)]:
+
+```bash
+# macOS, Linux, WSL
+curl -fsSL https://claude.ai/install.sh | bash
+```
+
+```powershell
+# Windows PowerShell
+irm https://claude.ai/install.ps1 | iex
+```
+
+**Sign in.**
+
+```bash
+claude
+```
+
+First run prompts you to authenticate in a browser — a Claude Pro, Max, Team, or Enterprise
+subscription, or a Claude Console (API) account. If you've already set the `ANTHROPIC_API_KEY`
+environment variable, Claude Code skips the browser prompt and asks you to approve the key instead.
+Credentials are stored after that first login; `/login` inside a running session switches accounts or
+re-authenticates
+[source: [Claude Code — Quickstart](https://code.claude.com/docs/en/quickstart) (checked 2026-09-04)].
+
+**Open this project.**
+
+```bash
+cd code/rails-estore
+claude
+```
+
+Claude Code reads [`CLAUDE.md`](CLAUDE.md) from this directory (and any directory above it) at the
+start of the session — the architect charter the book chapter's §2 walks through: the golden rules,
+the gates, and which sub-agent does what
+[source: [Claude Code — Memory](https://code.claude.com/docs/en/memory) (checked 2026-09-04)].
+
+**Permission modes — why it keeps asking.** Claude Code asks before it runs shell commands or edits
+files, unless you're on a plan where **Auto mode** is the default for interactive sessions
+(Pro/Max/Team — a classifier reviews most actions instead of prompting you); everyone else starts in
+**Manual mode**, which asks every time. Either way, you can approve an action once, or choose "Yes,
+and don't ask again" to save it as a standing allow rule in `.claude/settings.local.json`
+[source: [Claude Code — Quickstart](https://code.claude.com/docs/en/quickstart) and
+[Claude Code — Permissions](https://code.claude.com/docs/en/permissions) (both checked 2026-09-04)].
+
+That's the built-in layer. This project's [`guard.sh`](.claude/hooks/guard.sh) sits **underneath** it
+as a hard block, not a prompt: it vetoes a handful of commands outright — `git commit --no-verify`, a
+live-looking Stripe key pattern appearing in any shell command, `rm -rf /` — regardless of which
+permission mode you're in or how many times you've clicked "don't ask again." A permission prompt is
+a checkpoint you can approve past; `guard.sh`'s non-zero exit is a wall.
 
 ## 1. Prerequisites
 
@@ -144,10 +221,121 @@ nothing else to install. (If you later want PostgreSQL for something closer to a
 `docs/research/NOTE-SDLC-4-ADD-macos-setup.md` §3 has the full `brew install postgresql@16` +
 `libpq` + `bundle config build.pg` sequence — out of scope for this quick-start.)
 
+## Build it yourself with Claude Code
+
+This is the loop the book chapter narrates happening (§6) — now with your hands on the keyboard.
+`bundle`/`rspec`/`rubocop`/`brakeman` need to already be on your `PATH` for this (§1–2 above) —
+Claude Code runs the gate through your shell, on your machine, exactly the way
+[`verify.sh`](.claude/hooks/verify.sh) does; a container running the *finished* app doesn't give the
+loop anything to gate against while you're still building it.
+
+The same six-step rhythm repeats for every feature: **you steer, the implementer builds tests-first,
+the gates fire, a fresh reviewer — and, for UI features, two specialists — catches what you'd miss,
+you decide.**
+
+```mermaid
+flowchart LR
+    YOU["1. You read the spec<br/>docs/features/FEATURE-N-*.md"] --> PROMPT["2. You prompt Claude Code"]
+    PROMPT --> IMPL["implementer sub-agent<br/>failing RSpec first, then code"]
+    IMPL --> GATE["3. verify.sh + guard.sh fire<br/>rspec / rubocop / brakeman"]
+    GATE -->|"red"| IMPL
+    GATE -->|"green"| REVIEW["4. reviewer -- and for UI,<br/>seo-optimizer + frontend-qa -- by hand"]
+    REVIEW -->|"changes requested"| IMPL
+    REVIEW -->|"approve"| DECIDE["you review the diff, merge"]
+    DECIDE -.->|"5. repeat, next feature"| YOU
+```
+
+**1. Read the feature spec.** Open
+[`docs/features/FEATURE-1-user-login.md`](docs/features/FEATURE-1-user-login.md). Its six acceptance
+criteria are the contract — not a suggestion the implementer can round off. Read all of them before
+you prompt anything; you're about to be the one judging whether the diff actually satisfies AC3 ("an
+extra `admin` param must NOT be settable"), not the tool that wrote it.
+
+**2. Ask Claude Code to implement it.** A concrete starting prompt:
+
+> Implement FEATURE-1 (`docs/features/FEATURE-1-user-login.md`). Use the implementer sub-agent: write
+> the failing RSpec examples for all six acceptance criteria first, confirm each one fails for the
+> right reason (the behaviour doesn't exist yet, not a typo), then write the Rails 8 native-auth code
+> that makes them pass. Run the full gate — rspec, rubocop, brakeman — before telling me it's done.
+
+Claude Code either dispatches `implementer.md` on its own (natural language — it decides the
+sub-agent is relevant) or you can force it with an @-mention (`@agent-implementer ...`)
+[source: [Claude Code — Sub-agents](https://code.claude.com/docs/en/sub-agents) (checked 2026-09-04)].
+Either way, expect to see the RSpec file land first, run, and fail — that's correct, not broken; a
+test that has never failed hasn't proven anything yet.
+
+**3. Watch the gates fire.** Every time the implementer edits an `.rb` file,
+[`verify.sh`](.claude/hooks/verify.sh) runs `bundle exec rspec`, then `rubocop`, then
+`brakeman -q --no-summary`, automatically — you'll see the commands and their output stream past. A
+**red** gate looks like a failing spec count (`6 examples, 6 failures` right after the implementer
+commits the RSpec file — expected) or a RuboCop offense (a controller action over the 15-line
+`Metrics/MethodLength` cap, the chapter's §5); either way, the implementer sees the same output you
+do and iterates until every check is green. Separately, [`guard.sh`](.claude/hooks/guard.sh) fires on
+every shell command *before* it runs — if the implementer ever tries `git commit --no-verify` or a
+command containing a live-looking Stripe key, `guard.sh` exits non-zero and the command never
+executes. **A green gate is necessary, not sufficient — step 4 is why.**
+
+**4. Get an independent review.** Once the gate is green:
+
+> Use the reviewer sub-agent to review the FEATURE-1 diff against the spec's acceptance criteria.
+> Check authorization and mass assignment by hand, not just the gate output.
+
+This is the step that catches what RSpec/RuboCop/Brakeman structurally can't. The chapter's own
+FEATURE-2 run (§6) is the real example: all three gates reported clean on `Order.find(params[:id])` —
+an IDOR that lets any signed-in user read anyone else's order — because none of the three tools has a
+check for "is this the right user's data," only a reviewer instructed to check by hand does. For a
+UI-facing feature (the catalog, FEATURE-3), dispatch the other two specialists alongside the general
+reviewer:
+
+> FEATURE-3 is ready for review. Dispatch `seo-optimizer` and `frontend-qa` in parallel on the product
+> catalog pages, alongside the general reviewer. Report each verdict separately.
+
+`frontend-qa` is the one that catches a search field shipped with a `placeholder` instead of a
+`<label>` (axe rule `label`, impact critical); `seo-optimizer` is the one that catches a product page
+shipped with no `<script type="application/ld+json">` Product block at all — both real defects the
+chapter's §6 FEATURE-3 walkthrough narrates, both invisible to `rspec`/`rubocop`/`brakeman`. When a
+reviewer requests changes, that's not friction to route around — tell Claude Code to apply the fix,
+let the implementer address the specific line named, and re-run the gate. **You** decide when a diff
+actually merges; no sub-agent merges for you.
+
+**5. Repeat for FEATURE-2 and FEATURE-3.** Same six steps, same rhythm —
+[`docs/features/FEATURE-2-checkout.md`](docs/features/FEATURE-2-checkout.md), then
+[`docs/features/FEATURE-3-product-catalog-seo-a11y.md`](docs/features/FEATURE-3-product-catalog-seo-a11y.md).
+Nothing about the loop changes; only which defect class each spec's acceptance criteria guard against
+does.
+
+**6. Run what you built.**
+
+```bash
+docker compose up
+```
+
+Open <http://localhost:3000> — the storefront in the screenshot at the top of this file is what a
+fully governed run of this loop produces.
+
+### How to steer well
+
+- **Be specific, and point at the spec.** "Implement FEATURE-1" plus its acceptance criteria beats
+  "add login" — the implementer's failing tests are only as good as the contract you hand it.
+- **Let the gates and reviewers do the catching.** Don't hand-check every RuboCop rule yourself —
+  that's what `verify.sh` is for. Spend your attention on the judgment calls nothing automated makes,
+  which is exactly what step 4's "by hand" checks exist to surface for you.
+- **Review every diff yourself, every time.** A reviewer's **APPROVE** is a strong signal, not a
+  merge button — you're the one who decides a change actually lands, the same architect role
+  [`CLAUDE.md`](CLAUDE.md) describes.
+
+**Honest notes.** Model outputs vary run to run — your own FEATURE-2 attempt might ship the IDOR the
+chapter describes, or it might not; either way, the reviewer step is what makes the loop safe, not a
+promise that the first draft is already correct. You stay in the loop at every decision point —
+approve, reject, merge — which is exactly what makes it safe to let the *hands-off* stretches run
+without narrating every keystroke yourself: the implementer's edit-test-fix cycle inside step 2, and
+the gate firing automatically inside step 3.
+
 ## 3. Run every gate
 
 Each of these is what `.claude/hooks/verify.sh` runs automatically on every file edit when you're
-driving this project through Claude Code — running them by hand here is the same checks, on demand.
+driving this project through Claude Code — the walkthrough above already showed them firing live;
+running them by hand here is the same checks, on demand.
 
 | Command | What it's for |
 |---|---|
@@ -259,7 +447,9 @@ the port in both `.lighthouserc.json` and the command you run.
 
 ## 6. What's next
 
-Read the book chapter this project ships as a worked example for:
+If you followed "Build it yourself with Claude Code" above, you already ran this loop — read the book
+chapter next to see the same catches narrated in full, including the parts that may have gone
+differently on your run:
 [`04-ai-assisted-sdlc/03-worked-examples/03-rails-estore-sdlc.md`](../../03-rails-estore-sdlc.md) —
 it walks the governed loop (spec → ground → implement → gate → review → merge) through this exact
 codebase, including the real authorization bug a fresh reviewer caught that RSpec, RuboCop, and

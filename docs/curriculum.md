@@ -177,7 +177,10 @@ Every subject folder is organised under the same five sections:
   to work on, and a polished **standalone macOS README** so the example runs from zero on a Mac. Also
   ships a **verified `docker compose up`** local run (the project completed into a bootable Rails 8 app,
   actually built + booted + tested in Docker) with a Docker primer for newcomers and real screenshots
-  of the running store.
+  of the running store. Framed as a **do-it-yourself walkthrough**: the reader sets up Claude Code and
+  *vibe-engineers* the store himself — read a feature spec → prompt the implementer → watch the gates
+  fire → get an independent review → iterate → `docker compose up` — with the committed code as the
+  reference destination.
 
 ---
 

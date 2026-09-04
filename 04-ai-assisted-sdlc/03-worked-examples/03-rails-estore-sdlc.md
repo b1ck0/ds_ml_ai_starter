@@ -2,6 +2,15 @@
 
 *AI-assisted-sdlc · Worked Examples · SPEC-SDLC-4 + SPEC-SDLC-4-ADDENDUM-seo-frontend-qa-agents*
 
+> **The point of this chapter is not to hand you a finished Rails store to read — it's for you to
+> build one.** Everything narrated below happened when a governed loop, driven by a human steering
+> Claude Code, built this app feature by feature; §6a is the step-by-step version of that same loop
+> with your hands on the keyboard, and
+> [`code/rails-estore/README.md`](code/rails-estore/README.md#build-it-yourself-with-claude-code) is
+> the same walkthrough written to run standalone, without this chapter open. The committed
+> `rails-estore/` code is the **destination** — where you end up after driving the loop yourself —
+> not the point of reading this chapter.
+
 ## The bug that only requires being logged in as anyone
 
 Ask an agent, with no gates in place, to "let a signed-in user view their past orders," and here is
@@ -61,7 +70,9 @@ this addendum adds — `seo-optimizer` and `frontend-qa`; §4–5 cover the hook
 three features — login, then checkout, then the product catalog — through the full loop, including
 the moment a fresh reviewer catches a real vulnerability that three green automated gates missed, and
 the moment the two new specialists each catch a defect in their own lane that those same gates don't
-even attempt to check. §7 lists what breaks the loop if you skip a step. §8 is the direct comparison:
+even attempt to check. §6a hands you the keyboard: the same loop, condensed into a repeatable
+checklist with paste-ready prompts, so you drive FEATURE-1/2/3 yourself instead of only reading how
+they went. §7 lists what breaks the loop if you skip a step. §8 is the direct comparison:
 this repo's own scaffold, `java-project/`, and `rails-estore/`, side by side. §9 is honest about what
 actually ran where, and points to [`code/rails-estore/README.md`](code/rails-estore/README.md) for
 running the whole thing for real on a Mac.
@@ -414,6 +425,74 @@ verbatim and the illustrative axe/html-proofer output:
 reference axe/html-proofer/Lighthouse CI output:
 [`artefacts/rails-validation-log.md`](artefacts/rails-validation-log.md) §6.
 
+## 6a. Build it yourself — the same loop, with your hands on the keyboard
+
+§6 narrated what happened when this loop ran. This section is the same six-step rhythm, written as
+something you actually do: install Claude Code, open `code/rails-estore/`, and drive
+FEATURE-1 → FEATURE-2 → FEATURE-3 yourself. Every step below, with its paste-ready prompt, the
+install/sign-in instructions, and the `docker compose up` finish line, lives in
+[`code/rails-estore/README.md`](code/rails-estore/README.md#build-it-yourself-with-claude-code) so it
+runs standalone, without this chapter open. Here is the shape of it.
+
+```mermaid
+flowchart LR
+    YOU["you read the spec"] --> PROMPT["you prompt Claude Code"]
+    PROMPT --> IMPL["implementer sub-agent<br/>failing RSpec first, then code"]
+    IMPL --> GATE["verify.sh + guard.sh fire"]
+    GATE -->|"red"| IMPL
+    GATE -->|"green"| REVIEW["reviewer -- + seo-optimizer,<br/>frontend-qa for UI -- by hand"]
+    REVIEW -->|"changes requested"| IMPL
+    REVIEW -->|"approve"| DECIDE["you review the diff, merge"]
+    DECIDE -.->|"repeat, next feature"| YOU
+```
+
+**The loop, once per feature:**
+
+1. **Read the spec.** [`docs/features/FEATURE-1-user-login.md`](code/rails-estore/docs/features/FEATURE-1-user-login.md),
+   then `FEATURE-2-checkout.md`, then `FEATURE-3-product-catalog-seo-a11y.md` — the acceptance
+   criteria are the contract you're about to hold the implementer to, not a suggestion.
+2. **Prompt Claude Code to implement it.** A starting point:
+
+   > Implement FEATURE-1 (`docs/features/FEATURE-1-user-login.md`). Use the implementer sub-agent:
+   > write the failing RSpec examples for every acceptance criterion first, confirm each fails for the
+   > right reason, then write the code that makes them pass. Run the full gate before telling me it's
+   > done.
+
+   Claude Code dispatches `implementer.md` — by natural-language inference, or a forced
+   `@agent-implementer` mention — which writes the failing test before a single line of `app/` code
+   [source: [Claude Code — Sub-agents](https://code.claude.com/docs/en/sub-agents) (checked
+   2026-09-04)].
+3. **Watch the gates fire.** `verify.sh` runs `rspec`/`rubocop`/`brakeman` on every `.rb` edit (§4);
+   `guard.sh` vetoes dangerous shell before it runs at all. A red gate on the first pass — a fresh
+   RSpec file with every example failing — is correct, not broken; that's the test-first discipline
+   §2's golden rule 2 names, made visible in your own terminal instead of read about.
+4. **Get an independent review.**
+
+   > Use the reviewer sub-agent to review the diff against the spec's acceptance criteria. Check
+   > authorization and mass assignment by hand, not just the gate output.
+
+   This is the step §6's FEATURE-2 narration exists to justify: three green gates and a real IDOR,
+   caught only because the reviewer read `Order.find(params[:id])` and asked whose order that query
+   is actually scoped to. For FEATURE-3, add `seo-optimizer` and `frontend-qa` to the same prompt —
+   they're the roles that catch the unlabelled search field and the missing Product JSON-LD block §6
+   walks through, neither of which `rspec`/`rubocop`/`brakeman` has a check for at all.
+5. **Repeat for FEATURE-2, then FEATURE-3.** Same rhythm; only the acceptance criteria — and which
+   defect class they guard against — change.
+6. **Run what you built.** `docker compose up`, then <http://localhost:3000> — the storefront §9's
+   screenshot shows.
+
+**How to steer well:** be specific and point at the spec rather than describing the feature from
+memory; let the gates and reviewers do the catching instead of hand-checking every RuboCop rule
+yourself; review every diff before you call it merged — an **APPROVE** from `reviewer.md` is a strong
+signal, not a merge button.
+
+**Honest notes:** model outputs vary run to run — your own FEATURE-2 attempt might ship the IDOR §6
+describes, or it might not; either way, the reviewer step is what makes the loop safe, not a promise
+that the first draft is already correct. You stay in the loop at every decision point — approve,
+reject, merge — which is exactly what makes the *hands-off* stretches (the implementer's edit-test-fix
+cycle inside step 2, the gate firing automatically inside step 3) safe to let run without narrating
+every keystroke yourself.
+
 ## 7. Pitfalls
 
 - **Trusting a green security scanner to mean "no vulnerabilities."** Brakeman reporting zero
@@ -545,6 +624,12 @@ output, including four boot-time bugs the Docker run surfaced and fixed along th
 
 ## 10. Recap & what's next
 
+Read the last two sections again with one word changed: not "*the reviewer* caught it," but "*you*,
+having dispatched the reviewer, watched it get caught." That is the whole reframe this chapter has
+been building toward — §6a (and the standalone [README](code/rails-estore/README.md)) turn every
+catch narrated below into something reproducible, keystroke for keystroke, the next time you open
+`code/rails-estore/` in Claude Code yourself.
+
 The cold open's bug — `Order.find(params[:id])`, any signed-in user reading anyone's order — got
 written twice in this chapter: once as an ungoverned agent's actual first attempt at FEATURE-2 (§6),
 and once as this chapter's opening hook, deliberately, before you knew a governed loop was about to
@@ -578,8 +663,9 @@ version of everything this chapter just proved concretely, and
 loop, a stack with no login form to get wrong. [**How this repo was built**](02-how-this-repo-was-built.md)
 (SPEC-SDLC-3) turns the camera on this very book, tracing the same loop through this repository's
 own real commits. If you're setting up a governed loop on your own Rails project right now,
-`code/rails-estore/` is a complete, ready-to-adapt starting point — copy `.claude/`, `CLAUDE.md`, and
-`docs/`, point `Gemfile` at whatever your own researcher grounds as current when you do it (the
+`code/rails-estore/` is a complete, ready-to-adapt starting point — install Claude Code (§6a / the
+README's "Set up Claude Code" section), copy `.claude/`, `CLAUDE.md`, and `docs/`, point `Gemfile` at
+whatever your own researcher grounds as current when you do it (the
 versions pinned here were current 2026-09-04 — check again), replace `FEATURE-1`/`FEATURE-2`/
 `FEATURE-3` with your project's actual first features, and run the loop for real, with real `bundle`
 on `PATH` — or, to just get the app running on your own Mac first,
