@@ -594,6 +594,13 @@ flowchart LR
   exact-duplicate rows across the train/test boundary in this chapter's demo; splitting first made
   that leak structurally impossible (0 duplicates), at zero cost.
 
+Every remedy in this chapter was graded on recall and PR-AUC — ranking metrics. None of it asked
+whether `predict_proba`'s actual *numbers* still mean anything after undersampling. They don't:
+[DS-20, Trustworthy probabilities on imbalanced data](15-calibration-ranking-imbalanced.md) picks up
+exactly this undersampled model and shows its predicted probabilities are inflated by roughly 10x
+versus the true base rate — then fixes it with isotonic/Platt calibration on a true-prevalence
+hold-out, without giving up any of the recall this chapter worked to earn.
+
 The next chapter, **Forecasting**, picks up a different kind of split discipline: once your rows are
 ordered in time, a random `train_test_split` (stratified or not) leaks the future into the past the
 same way resampling-before-split leaked test rows into training here — the fix there is

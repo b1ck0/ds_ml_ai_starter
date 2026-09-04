@@ -452,6 +452,12 @@ untouched for a full quarter even if every detector stays quiet), plus triggers 
 actually matter for the specific model, tuned to that model's own noise floor rather than borrowed
 verbatim from a blog post's default.
 
+Not every drift alert needs a full retrain, either. If the *ranking* still holds up but the predicted
+*probabilities* have quietly drifted off the diagonal — exactly the reliability-diagram check
+[DS-20](../03-worked-examples/15-calibration-ranking-imbalanced.md) builds — refitting a calibrator
+(isotonic or Platt) on a fresh true-prevalence hold-out is a far cheaper fix than retraining the whole
+classifier, and it's worth checking for before reaching for the heavier option.
+
 ### Why a pipeline makes this cheap
 
 None of the above matters if a "retrain" is a multi-day manual project — someone re-pulling data by

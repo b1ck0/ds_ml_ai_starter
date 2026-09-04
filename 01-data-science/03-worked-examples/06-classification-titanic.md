@@ -698,6 +698,9 @@ This chapter doesn't run a calibration curve (out of scope per SPEC-DS-6 — `sk
 - **Calibration** is a different question from ranking or thresholding: a model can separate classes
   well while still over- or under-stating its own confidence — worth checking before treating
   `predict_proba()`'s output as a literal probability.
+  [DS-20](15-calibration-ranking-imbalanced.md) makes this concrete on a rare-event dataset: a model
+  can rank perfectly while its predicted probabilities are off by 10x, and shows the reliability
+  diagram and the fix (isotonic/Platt calibration) this chapter only named.
 
 **SPEC-DS-7** (multi-class & multi-label) picks up the natural next question: this chapter's
 `survived` was exactly one of two classes — what changes when there are more than two, and what

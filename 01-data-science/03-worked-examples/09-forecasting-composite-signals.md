@@ -1105,6 +1105,13 @@ fit the same way in spirit but with a posterior *distribution* over $\phi$ inste
 maximum-likelihood point — the same "how sure are we" question this chapter's point-estimate
 `ARIMA` fits never asked.
 
+[DS-20, Trustworthy probabilities on imbalanced data](15-calibration-ranking-imbalanced.md) also
+splits by time, but for a genuinely different reason than this chapter: these rows aren't a single
+autocorrelated series the way this chapter's four signals are, so there's no "future value leaking
+into training" to guard against — the risk there is *distribution shift* between the training-era
+population and the future one, which a single out-of-time split (train ≤ cutoff, test > cutoff)
+exposes without needing `TimeSeriesSplit`'s many-fold walk-forward machinery.
+
 ---
 
 ### Environment

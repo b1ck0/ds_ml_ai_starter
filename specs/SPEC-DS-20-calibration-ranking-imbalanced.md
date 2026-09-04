@@ -1,6 +1,6 @@
 # SPEC-DS-20: Trustworthy probabilities on imbalanced data — out-of-time validation, Brier, precision@top-N, and isotonic calibration
 
-**Status:** approved
+**Status:** written by Sonnet, grounded by Haiku (NOTE-DS-20-1..7) — pending independent review + architect merge
 **Subject:** Data Science
 **Section:** Worked Examples
 **Routing:** writer=Sonnet 4.6 · research=Haiku · review=Sonnet (fresh) · architect=Opus 4.8

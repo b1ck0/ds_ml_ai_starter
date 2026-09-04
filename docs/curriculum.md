@@ -63,6 +63,14 @@ Every subject folder is organised under the same five sections:
   owner's own use-cases; credible vs. confidence intervals; posterior-predictive bands; MCMC
   diagnostics (R-hat, ESS) with a deliberately non-converging model as the pitfall. Ties back to DS-5
   (regression) and DS-9 (the AR model returns).
+- **Trustworthy probabilities on imbalanced data** (SPEC-DS-20) — the rare-event practitioner's
+  toolkit for when a model must drive real decisions: **out-of-time validation** (split by time, not
+  a random shuffle — the honest, lower number); the **Brier score** (+ Murphy decomposition and the
+  base-rate-robust Brier skill score); **precision@top-N** and **lift** (the metric a capacity-limited
+  team actually lives by); and **isotonic calibration fit on a true-prevalence hold-out** to fix the
+  base-rate shift that undersampling introduces — with the King & Zeng prior-correction as the
+  analytic intuition and a Platt-scaling contrast (and the honest note that isotonic's step function
+  can tie ranks, where Platt preserves them exactly). Builds on DS-4/DS-6/DS-8; relates to DS-17.
 
 ### Cloud Environment Setup
 - **Google Vertex AI** — notebooks, training via Vertex AI Pipelines, MLOps advantages over ad-hoc

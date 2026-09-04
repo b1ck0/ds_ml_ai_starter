@@ -651,7 +651,11 @@ reported number is now optimistic.
 
 Everything here assumed independent, order-free rows. **SPEC-DS-9 (forecasting)** picks up exactly
 where this chapter drew its boundary: what changes when rows are time-ordered and a random shuffle
-would let the model train on the future. Before that, **SPEC-DS-5 (regression on NYC taxi fares)**
+would let the model train on the future. **[DS-20](15-calibration-ranking-imbalanced.md)** picks up a
+related but distinct case: independent rows (not one sequential series) that each carry a *timestamp*
+— the risk there isn't leaking a correlated future value, it's a random split hiding population drift
+between the training era and the future; a single out-of-time cutoff (train ≤ cutoff, test > cutoff)
+exposes it. Before that, **SPEC-DS-5 (regression on NYC taxi fares)**
 is the next chapter — it puts this chapter's split-and-validate discipline to work training and
 comparing real regression models, and is the first chapter where `Pipeline` graduates from "the fix
 for leakage" to "how you build every model from here on."
