@@ -1,0 +1,8 @@
+{
+  "name": "rails-estore-frontend-gate",
+  "private": true,
+  "description": "Node-side reference gate (Lighthouse CI) for rails-estore's frontend quality checks. See README.md.",
+  "devDependencies": {
+    "@lhci/cli": "0.15.1"
+  }
+}

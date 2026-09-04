@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # PostToolUse(Edit|Write): fast content gate for the edited file.
 #   * app/**/*.rb, spec/**/*.rb -> bundle exec rspec, then rubocop, then brakeman
+#   * app/views/**/*.erb        -> the FRONTEND gate: the axe + SEO system specs, then html-proofer
+#                                   (SPEC-SDLC-4-ADDENDUM-seo-frontend-qa-agents — the seo-optimizer
+#                                   and frontend-qa agents drive these same tools by hand at review
+#                                   time; this hook just runs them fast, on every view edit)
 #   * Gemfile                   -> bundle check (catches an unresolvable/broken Gemfile immediately,
 #                                   before the next full gate run bothers running anything)
 # Reads the hook payload on stdin to find the edited file. Non-zero exit signals a failing gate.
@@ -26,6 +30,16 @@ case "$file" in
       run "$BUNDLE" exec brakeman -q --no-summary
     else
       echo "[verify] bundle not on PATH — skipping gate for $file"
+    fi
+    ;;
+  *.erb)
+    if [ -n "$BUNDLE" ]; then
+      echo "[verify] frontend gate: $file"
+      run "$BUNDLE" exec rspec spec/system/accessibility_spec.rb spec/system/seo_spec.rb
+      run "$BUNDLE" exec rake html_proofer:check
+      echo "  (reference only, not run by this hook -- Node toolchain: npx lhci autorun)"
+    else
+      echo "[verify] bundle not on PATH — skipping frontend gate for $file"
     fi
     ;;
   *Gemfile)

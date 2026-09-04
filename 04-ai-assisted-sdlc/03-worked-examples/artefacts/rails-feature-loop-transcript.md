@@ -265,14 +265,166 @@ the final green checkmark.
 
 ---
 
-## What this pair of transcripts is actually showing
+---
+
+## Part C — FEATURE-3: product catalog (two specialist defects, caught and fixed)
+
+> Added by SPEC-SDLC-4-ADDENDUM-seo-frontend-qa-agents. Same convention as Parts A and B: real file
+> names, real spec, real committed code, real review reasoning; illustrative console bytes for any
+> RSpec/html-proofer/axe run, because this sandbox has neither a Ruby toolchain nor a browser (no
+> `chromedriver` on `PATH` here either — see [`03-rails-estore-sdlc.md`](../03-rails-estore-sdlc.md)'s
+> Environment note).
+
+### Stage 1 — Request → spec
+
+**Owner prompt to the architect:**
+> "Sign-up and checkout work. Now make the actual product pages something a search engine can index
+> and something a screen-reader user can use — right now there isn't even a layout file."
+
+**Architect** writes
+[`docs/features/FEATURE-3-product-catalog-seo-a11y.md`](../code/rails-estore/docs/features/FEATURE-3-product-catalog-seo-a11y.md):
+nine acceptance criteria (AC1–AC9) covering semantic/labelled markup, unique titles, Open Graph,
+Product + BreadcrumbList JSON-LD, `robots.txt`/sitemap, and the axe/html-proofer gate — and, in
+`docs/architecture.md` terms, names two NEW reviewer roles this feature exists to exercise:
+`seo-optimizer.md` and `frontend-qa.md`, dispatched alongside the general `reviewer.md`, not instead
+of it.
+
+### Stage 2 — Ground the unknowns
+
+All four claims the spec cites were already grounded: `NOTE-SDLC-4-ADD-1-gem-npm-versions.md` (the
+five gems + `@lhci/cli`, pinned), `NOTE-SDLC-4-ADD-2-schema-product.md` (the Product JSON-LD shape),
+`NOTE-SDLC-4-ADD-3-wcag-a11y-checks.md` (the WCAG checks axe enforces), `NOTE-SDLC-4-ADD-4-robots-sitemap-og.md`
+(`robots.txt`/sitemap/Open Graph). No new dispatch needed.
+
+### Stage 3 — Failing test first, then implement (two slips, one per specialist's lane)
+
+**Implementer, step 1:** writes `spec/system/accessibility_spec.rb` and `spec/system/seo_spec.rb`
+against stub views, confirms both fail for the right reason (no layout, no meta tags, no JSON-LD
+exist yet).
+
+**Implementer, step 2:** writes the real
+[`ProductsController`](../code/rails-estore/app/controllers/products_controller.rb),
+[`ProductsHelper`](../code/rails-estore/app/helpers/products_helper.rb), and the layout. Two slips
+ship, one in each new specialist's lane:
+
+```erb
+<%# app/views/products/index.html.erb — AS FIRST WRITTEN (the planted frontend-qa slip) %>
+<%= form_with url: products_path, method: :get, role: "search" do |f| %>
+  <div>
+    <%= f.search_field :q, value: params[:q], placeholder: "Search products" %>
+    <%= f.submit "Search" %>
+  </div>
+<% end %>
+```
+
+No `<%= f.label :q, ... %>` — a placeholder is not a label (WCAG 1.3.1 / 4.1.2;
+`NOTE-SDLC-4-ADD-3-wcag-a11y-checks.md`'s own quote: "Placeholder text is not enough — it disappears
+as soon as you type and is not announced reliably"). And:
+
+```erb
+<%# app/views/products/show.html.erb — AS FIRST WRITTEN (the planted seo-optimizer slip) %>
+<h1><%= @product.name %></h1>
+<p><%= @product.description %></p>
+<p>$<%= "%.2f" % @product.price_dollars %></p>
+<%# ... no <script type="application/ld+json"> block at all %>
+```
+
+No Product JSON-LD anywhere on the page.
+
+### Stage 4 — Gate (green on what it could run)
+
+```text
+[REFERENCE — illustrative]
+$ bundle exec rspec spec/models spec/requests
+..........................
+26 examples, 0 failures
+
+$ bundle exec rspec spec/system/accessibility_spec.rb spec/system/seo_spec.rb
+[verify] no chromedriver on PATH in this environment — system specs requiring `js: true` cannot run
+here; reproduce on a machine with Chrome + chromedriver installed (README.md, "Frontend gate").
+2 examples, 0 failures, 2 not run
+```
+
+`bundle exec rubocop` and `bundle exec brakeman -q --no-summary` both report clean — style has no
+opinion on a missing `<label>`, and Brakeman's checks don't cover either WCAG or SEO categories at
+all [source: `NOTE-SDLC-4-3-brakeman-checks.md`, same "not in its catalog" gap this chapter's IDOR
+case already showed for authorization]. The implementer reports every gate it could actually run as
+green and hands off for review, honestly believing FEATURE-3 is done.
+
+### Stage 5 — Review (two CHANGES REQUESTED, in parallel)
+
+**Architect dispatches three reviewers**: the general `reviewer.md` (fidelity/test-first/grounded/
+scope — nothing to flag here, there's no `Current.user`-scoped query or `permit()` call on this
+controller at all), and — new to this feature — `seo-optimizer.md` and `frontend-qa.md` in parallel.
+Both actually run their tools rather than trusting the "system specs didn't run" note above.
+
+**`frontend-qa` verdict:**
+> **CHANGES REQUESTED.**
+> 1. `app/views/products/index.html.erb` — the search `<input type="search" name="q">` has no
+>    associated `<label>`, `aria-label`, or `aria-labelledby`. axe rule `label`, impact **critical**,
+>    WCAG 1.3.1 / 4.1.2. A screen-reader user hears "edit text, blank" with no indication of what to
+>    type. Fix: add `<%= f.label :q, "Search products" %>` before the field.
+>
+> Coverage note: axe automated checks catch ~30–40% of real WCAG issues
+> (`NOTE-SDLC-4-ADD-3-wcag-a11y-checks.md`); I also read the rendered markup by hand and found nothing
+> else — that is not the same claim as "this page is fully accessible."
+
+**`seo-optimizer` verdict:**
+> **CHANGES REQUESTED.**
+> 1. `app/views/products/show.html.erb` — no `<script type="application/ld+json">` Product block
+>    anywhere on the page. Google Merchant Listing requires `name`, `image`, `offers.price`,
+>    `offers.priceCurrency` at minimum (`NOTE-SDLC-4-ADD-2-schema-product.md`); without it this page
+>    is not eligible for a merchant listing rich result at all, and AC5 is unmet. Fix: render
+>    `product_json_ld(@product)` (already defined in `ProductsHelper`, just not called from the view).
+
+### Stage 3, again — the fix
+
+**Implementer** adds the missing `<%= f.label :q, "Search products" %>` to `index.html.erb`, and adds
+the two `<script type="application/ld+json">` lines (Product + BreadcrumbList) to `show.html.erb` —
+exactly the versions committed under
+[`app/views/products/`](../code/rails-estore/app/views/products/). Re-runs the gate:
+
+```text
+[REFERENCE — illustrative, on a machine with chromedriver on PATH]
+$ bundle exec rspec spec/system/accessibility_spec.rb spec/system/seo_spec.rb
+....
+4 examples, 0 failures
+
+$ bundle exec rake html_proofer:check
+Running ["ScriptCheck", "LinkCheck", "ImageCheck"] on ["tmp/html_proofer/index.html", "tmp/html_proofer/show.html"] ... 
+
+HTML-Proofer finished successfully.
+```
+
+### Stage 5, again — Review (APPROVE, both specialists + the general reviewer)
+
+`frontend-qa` re-runs `accessibility_spec.rb` and confirms the label fix resolves the axe finding.
+`seo-optimizer` re-parses the rendered JSON-LD and confirms `name`/`image`/`offers.price`/
+`offers.priceCurrency` are all present and valid, plus the recommended `sku`/`brand`/`availability`.
+The general `reviewer.md` re-confirms fidelity and scope. All three: **APPROVE**.
+
+### Stage 6 — Merge
+
+**Architect merges.** PR body maps AC1–AC9 to their evidence, and names both specialist sign-offs
+alongside the general reviewer's — `docs/definition-of-done.md`'s SEO & Accessibility section
+requires both, not either.
+
+---
+
+## What these three transcripts are actually showing
 
 Part A is what "the loop worked" looks like: spec → ground → test-first → green gate → clean
-review → merge, no surprises. Part B is the more important lesson, because it's the realistic case —
-an agent under no malicious intent, following the spec, writing real tests, and still shipping a real
-vulnerability, because three automated gates all had a legitimate reason to stay green. The fresh
-reviewer's authorization-by-hand step — not a tool, a deliberate instruction in
-[`.claude/agents/reviewer.md`](../code/rails-estore/.claude/agents/reviewer.md) to distrust a green
-gate on exactly this class of bug — is the thing that actually caught it. That is the chapter's
-whole argument in miniature: governance is what makes AI-assisted development safe, not the model's
-good intentions, and not even a good automated gate alone.
+review → merge, no surprises. Part B is the security lesson: an agent under no malicious intent,
+following the spec, writing real tests, and still shipping a real vulnerability, because three
+automated gates all had a legitimate reason to stay green — the fresh reviewer's authorization-by-hand
+step, a deliberate instruction in
+[`.claude/agents/reviewer.md`](../code/rails-estore/.claude/agents/reviewer.md), is what caught it.
+Part C makes the same point about a *different* pair of quality dimensions: RuboCop and Brakeman have
+no SEO or accessibility checks in their catalog at all — not a gap in an otherwise-broad scanner, a
+category they were never built to cover — so a missing `<label>` and a missing Product JSON-LD block
+sail through every gate this project had *before* this addendum. `seo-optimizer.md` and
+`frontend-qa.md` are what closes that gap, the same way a fresh reviewer closed the authorization gap
+in Part B: a named specialist, with a checklist, instructed to check by hand what no available tool
+checks automatically. That is the chapter's whole argument, now proven on three different classes of
+defect: governance is what makes AI-assisted development safe, not the model's good intentions, and
+not even a good automated gate alone.

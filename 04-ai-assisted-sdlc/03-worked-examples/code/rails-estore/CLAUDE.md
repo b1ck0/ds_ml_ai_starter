@@ -27,7 +27,9 @@ Read `docs/architecture.md` and `docs/definition-of-done.md` before scoping anyt
    Passwords are never stored, logged, or compared as plaintext.
 5. **Every gate must pass before merge**: `bundle exec rspec`, `bundle exec rubocop`,
    `bundle exec brakeman -q --no-summary` (zero High-confidence warnings). All three, every time —
-   see `docs/definition-of-done.md`.
+   see `docs/definition-of-done.md`. A feature that adds or changes a rendered, public-facing page
+   (anything under `app/views/`) additionally clears the **frontend gate**: the axe accessibility
+   system spec, `html-proofer`, and sign-off from both `seo-optimizer.md` and `frontend-qa.md`.
 6. **One feature per PR.** The PR body maps each acceptance criterion to the evidence that satisfies
    it (the passing RSpec example, the gate output, the grounding note if one was needed).
 7. **Secrets live in env only.** Never commit a Stripe key, database credential, or any token; only
@@ -43,6 +45,12 @@ Read `docs/architecture.md` and `docs/definition-of-done.md` before scoping anyt
   (`.claude/agents/researcher.md`).
 - Independent review before merge → a **fresh Sonnet** (`.claude/agents/reviewer.md`), never the
   implementer that wrote the feature.
+- Independent SEO review of any UI-facing feature → **Sonnet**
+  (`.claude/agents/seo-optimizer.md`): unique titles, canonical URLs, Open Graph, Product JSON-LD,
+  robots.txt/sitemap.
+- Independent frontend-quality review of any UI-facing feature → **Sonnet**
+  (`.claude/agents/frontend-qa.md`): axe/WCAG accessibility, valid/semantic/responsive HTML, broken
+  links.
 
 ## Escalation
 

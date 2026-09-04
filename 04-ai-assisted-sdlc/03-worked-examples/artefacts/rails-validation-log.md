@@ -6,10 +6,13 @@ this repository's own sandbox (Windows 11, Python 3.13, Git Bash) while writing 
 same sandbox and the same method the Java chapter's
 [`validation-log.md`](../../02-local-environment-setup/../03-worked-examples/artefacts/validation-log.md)
 used. **§§1–3 and §5 below are real, captured evidence** — every command was actually executed.
-**§4 is illustrative** — this repository has no Ruby/Rails toolchain (`bundle`, `rspec`, `rubocop`,
-`brakeman` are not installed here), so RSpec/RuboCop/Brakeman output is presented as a grounded
-reference (exact command, exact pinned versions from `research/NOTE-SDLC-4-1-versions.md`), not a
-captured run — see [`03-rails-estore-sdlc.md`](../03-rails-estore-sdlc.md)'s Environment note for why.
+**§4 and §6 are illustrative** — this repository has no Ruby/Rails toolchain (`bundle`, `rspec`,
+`rubocop`, `brakeman` are not installed here) and no browser/chromedriver/Node either, so
+RSpec/RuboCop/Brakeman (§4) and axe/html-proofer/Lighthouse CI (§6, added by
+SPEC-SDLC-4-ADDENDUM-seo-frontend-qa-agents) output is presented as a grounded reference (exact
+command, exact pinned versions from `research/NOTE-SDLC-4-1-versions.md` and
+`research/NOTE-SDLC-4-ADD-1-gem-npm-versions.md`), not a captured run — see
+[`03-rails-estore-sdlc.md`](../03-rails-estore-sdlc.md)'s Environment note for why.
 
 ## 1. `settings.json` parses as valid JSON
 
@@ -55,20 +58,25 @@ is the pass signal.
 
 `code/validate_frontmatter.py` (parses the `---`-delimited frontmatter with PyYAML, checks `name` +
 `description` are present, `model` is one of the documented values, every other key is in the
-documented optional-field set) run against all three roster files:
+documented optional-field set) run against all five roster files:
 
 ```
 $ .venv/Scripts/python.exe code/validate_frontmatter.py \
     code/rails-estore/.claude/agents/researcher.md \
     code/rails-estore/.claude/agents/implementer.md \
-    code/rails-estore/.claude/agents/reviewer.md
+    code/rails-estore/.claude/agents/reviewer.md \
+    code/rails-estore/.claude/agents/seo-optimizer.md \
+    code/rails-estore/.claude/agents/frontend-qa.md
 OK   code/rails-estore/.claude/agents/researcher.md: name='researcher' model='haiku' fields=['description', 'model', 'name', 'tools']
 OK   code/rails-estore/.claude/agents/implementer.md: name='implementer' model='sonnet' fields=['description', 'model', 'name', 'tools']
 OK   code/rails-estore/.claude/agents/reviewer.md: name='reviewer' model='sonnet' fields=['description', 'model', 'name', 'tools']
+OK   code/rails-estore/.claude/agents/seo-optimizer.md: name='seo-optimizer' model='sonnet' fields=['description', 'model', 'name', 'tools']
+OK   code/rails-estore/.claude/agents/frontend-qa.md: name='frontend-qa' model='sonnet' fields=['description', 'model', 'name', 'tools']
 ```
 
-Model routing matches `docs/architecture.md` §2 exactly: researcher on Haiku, implementer and
-reviewer on Sonnet.
+Model routing matches `docs/architecture.md` §2 (researcher on Haiku, implementer/reviewer on
+Sonnet) plus the two specialists this addendum adds (`seo-optimizer`, `frontend-qa`, both Sonnet) —
+see `CLAUDE.md`'s Model routing section.
 
 ## 3. Hooks actually execute and enforce what they claim to
 
@@ -254,16 +262,95 @@ key-shaped string, so there is nothing for a scanner to trip on. **Clean.**
 > to use a spelled-out placeholder with no key-length character run. That is the same defence-in-depth
 > this chapter preaches, caught one layer further out than our own `guard.sh` — exactly the point.
 
+## 6. Frontend gate — axe / html-proofer / Lighthouse CI reference output (added by this addendum)
+
+Same convention as §4: no browser (no `chromedriver`) and no Node/`npx` are installed in this
+sandbox, so every block below is a **grounded reference reproduction**, not a captured run — exact
+commands and exact pinned versions from `docs/research/NOTE-SDLC-4-ADD-1-gem-npm-versions.md`.
+Reproduce for real on a machine with Ruby 4.0.6 + Chrome/chromedriver + Node 24 installed, from
+inside `code/rails-estore/` after `bundle install` and `npm install` (see `README.md`, "Frontend
+gate").
+
+**axe, catching the FEATURE-3 planted a11y slip** (before the fix in
+[`app/views/products/index.html.erb`](../code/rails-estore/app/views/products/index.html.erb) — see
+the loop transcript, Part C):
+
+```text
+[REFERENCE — illustrative axe violation shape, per NOTE-SDLC-4-ADD-3-wcag-a11y-checks.md's documented
+ axe output fields (id, impact, description, help, helpUrl, nodes, tags)]
+$ bundle exec rspec spec/system/accessibility_spec.rb
+F.
+
+Failures:
+
+  1) Product catalog accessibility has no automatically detectable WCAG 2.1 AA violations on the catalog index
+     Failure/Error: expect(page).to be_axe_clean.according_to(:wcag21aa)
+       expected no accessibility violations, but got 1:
+
+       Violation: label (critical)
+         Form elements must have labels
+         https://dequeuniversity.com/rules/axe/4.13/label
+         Node: input[name="q"]
+         Tags: wcag2a, wcag412, wcag131, section508
+
+2 examples, 1 failure
+```
+
+**axe, after the fix:**
+
+```text
+[REFERENCE — illustrative]
+$ bundle exec rspec spec/system/accessibility_spec.rb
+..
+
+2 examples, 0 failures
+```
+
+**html-proofer**, run via `lib/tasks/html_proofer.rake` (5.2.2 — programmatic
+`HTMLProofer.check_directory(...).run`, exactly `NOTE-SDLC-4-ADD-1-gem-npm-versions.md`'s cited
+usage):
+
+```text
+[REFERENCE — illustrative]
+$ bundle exec rake html_proofer:check
+Running ["ScriptCheck", "LinkCheck", "ImageCheck"] on ["tmp/html_proofer/index.html", "tmp/html_proofer/show.html"] ...
+
+HTML-Proofer finished successfully.
+```
+
+**Lighthouse CI** (`@lhci/cli` 0.15.1, npm — Node reference gate only; not invoked by
+`.claude/hooks/verify.sh`, which is a Ruby-only script):
+
+```text
+[REFERENCE — illustrative Lighthouse CI summary shape]
+$ npm install
+$ npx lhci autorun
+✅  1 result(s) for http://localhost:3000/products
+Accessibility:    98/100
+SEO:              100/100
+Best Practices:   96/100
+Performance:      89/100
+
+No LHCI budget assertions failed.
+```
+
+Contrast this section with §4's Brakeman example the same way the chapter's Part B/Part C pairing
+does: automated tools are real and each catches a real class of defect (a `.html_safe` XSS for
+Brakeman; a missing `<label>` for axe) — and each has a boundary drawn by what it checks at all,
+which is exactly why `seo-optimizer.md` and `frontend-qa.md` exist as named, by-hand review steps
+rather than "wait for the tool to catch it."
+
 ## Summary
 
 | Check | Result |
 |---|---|
 | `settings.json` well-formed JSON | PASS (real) |
-| 3× agent frontmatter well-formed + schema-valid | PASS (3/3, real) |
+| 5× agent frontmatter well-formed + schema-valid | PASS (5/5, real) |
 | `context.sh` runs clean | PASS (exit 0, real) |
 | `guard.sh` allows benign, blocks `rm -rf /`, `--no-verify`, a live Stripe key, and printing a secret | PASS (5/5 cases, real) |
 | `verify.sh` degrades gracefully without `bundle` | PASS (3/3 cases, real) |
 | Secret scan across `code/rails-estore/` | PASS — clean (real) |
 | `bundle exec rspec` / `rubocop` / `brakeman -q --no-summary` | **NOT run — no Ruby/Rails toolchain in this sandbox.** Presented as grounded reference (exact commands, exact pinned versions); reproduce on a machine with Ruby 4.0.6 / Rails 8.1.3.1 installed. |
+| axe / html-proofer / `npx lhci autorun` (frontend gate) | **NOT run — no browser/chromedriver/Node in this sandbox.** Presented as grounded reference (§6); reproduce per `README.md`'s "Frontend gate" section. |
 
 Date verified: 2026-09-04.

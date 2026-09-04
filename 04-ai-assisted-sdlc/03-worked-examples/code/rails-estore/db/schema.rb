@@ -3,9 +3,11 @@
 # run against, since no Ruby toolchain runs in this book's own repository (see the chapter's
 # Environment note). Column choices are grounded: `password_digest` per NOTE-SDLC-4-5-auth-security.md;
 # `status` as an integer enum column and the Order/LineItem shape per
-# NOTE-SDLC-4-4-stripe-checkout.md.
+# NOTE-SDLC-4-4-stripe-checkout.md. `products.image_url`/`products.sku` (version _007) added by
+# SPEC-SDLC-4-ADDENDUM-seo-frontend-qa-agents for the schema.org Product JSON-LD block —
+# NOTE-SDLC-4-ADD-2-schema-product.md.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_04_000_006) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_04_000_007) do
   create_table "users", force: :cascade do |t|
     t.string "email_address", null: false
     t.string "password_digest", null: false
@@ -28,7 +30,10 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_04_000_006) do
     t.string "name", null: false
     t.text "description"
     t.integer "price_cents", null: false
+    t.string "image_url"
+    t.string "sku"
     t.timestamps
+    t.index ["sku"], name: "index_products_on_sku", unique: true
   end
 
   create_table "carts", force: :cascade do |t|

@@ -18,9 +18,25 @@ gem "bcrypt", "3.1.22" # includes the CVE-2026-33306 fix — NOTE-SDLC-4-1-versi
 # Payment integration seam — the gem the stubbed PaymentService wraps. See app/services/payment_service.rb.
 gem "stripe", "19.3.0" # NOTE-SDLC-4-4-stripe-checkout.md
 
+# SEO helpers the product catalog views depend on at runtime (not test-only) — the seo-optimizer
+# agent's checklist and FEATURE-3 both cite these. NOTE-SDLC-4-ADD-1-gem-npm-versions.md.
+gem "meta-tags", "2.24.0"          # set_meta_tags / display_meta_tags — title, description, canonical, OG
+gem "sitemap_generator", "7.1.1"   # config/sitemap.rb DSL, `rake sitemap:refresh`
+
 group :development, :test do
   gem "rspec-rails", "8.0.4"       # NOTE-SDLC-4-1-versions.md
   gem "rubocop", "1.86.0", require: false        # NOTE-SDLC-4-1-versions.md
   gem "rubocop-rails", "2.37.0", require: false  # NOTE-SDLC-4-1-versions.md
   gem "brakeman", "8.0.6", require: false        # NOTE-SDLC-4-1-versions.md / NOTE-SDLC-4-3-brakeman-checks.md
+end
+
+# Frontend gate (FEATURE-3: SEO-optimizer + frontend-QA agents) — test-only, drives
+# spec/system/accessibility_spec.rb, spec/system/seo_spec.rb, and lib/tasks/html_proofer.rake.
+# Versions per NOTE-SDLC-4-ADD-1-gem-npm-versions.md (checked 2026-09-04).
+group :test do
+  gem "capybara"                     # no version claim asserted — ships with rspec-rails' system spec support
+  gem "selenium-webdriver"           # no version claim asserted — the JS-capable driver axe needs; see spec/support/capybara_driver.rb
+  gem "axe-core-rspec", "4.13.0"     # the `be_axe_clean` RSpec matcher
+  gem "axe-core-capybara", "4.13.0"  # injects axe into the Capybara-driven browser
+  gem "html-proofer", "5.2.2"        # HTML validity + broken internal links, run via lib/tasks/html_proofer.rake
 end

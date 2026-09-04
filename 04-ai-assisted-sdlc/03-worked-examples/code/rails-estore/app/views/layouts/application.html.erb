@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<%# app/views/layouts/application.html.erb — did not exist before FEATURE-3
+    (SPEC-SDLC-4-ADDENDUM-seo-frontend-qa-agents): every prior feature's views rendered with no
+    layout at all, which is also why `<html lang>`, viewport, and the skip link had nowhere to live.
+    Landmarks (header/nav/main/footer), the skip link, and `lang` are frontend-qa's checklist items
+    6-8; `display_meta_tags` is what makes every controller's `set_meta_tags` call actually render.
+    NOTE-SDLC-4-ADD-3-wcag-a11y-checks.md, NOTE-SDLC-4-ADD-4-robots-sitemap-og.md. %>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <%= csrf_meta_tags %>
+    <%= display_meta_tags site: "Rails E-Store" %>
+    <style>
+      /* Skip link: off-screen until it receives keyboard focus (WCAG 2.4.1 / 2.4.7) -- a skip link
+         that is merely `display: none` is invisible to everyone, sighted keyboard users included. */
+      .skip-link {
+        position: absolute;
+        left: -9999px;
+        top: 0;
+        background: #000;
+        color: #fff;
+        padding: 0.5rem 1rem;
+        z-index: 100;
+      }
+      .skip-link:focus {
+        left: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Skip to main content</a>
+
+    <header>
+      <nav aria-label="Primary">
+        <%= link_to "Rails E-Store", root_path %>
+        <%= link_to "Products", products_path %>
+        <% if authenticated? %>
+          <%= link_to "Cart", cart_path %>
+          <%= button_to "Sign out", session_path, method: :delete %>
+        <% else %>
+          <%= link_to "Sign in", new_session_path %>
+        <% end %>
+      </nav>
+    </header>
+
+    <main id="main-content">
+      <% flash.each do |type, message| %>
+        <p role="status"><%= message %></p>
+      <% end %>
+      <%= yield %>
+    </main>
+
+    <footer>
+      <p>&copy; <%= Date.current.year %> Rails E-Store</p>
+    </footer>
+  </body>
+</html>

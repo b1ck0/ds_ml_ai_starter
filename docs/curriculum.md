@@ -171,7 +171,10 @@ Every subject folder is organised under the same five sections:
   RSpec, and Brakeman for a static security scan) and shows the fresh reviewer catching an
   authorization hole (an IDOR) that all three automated gates miss — because a static scanner can't
   see an authorization gap. A full runnable-in-Rails project tree (`code/rails-estore/`) with a
-  stubbed payment seam, so it needs no external account and no live credentials.
+  stubbed payment seam, so it needs no external account and no live credentials. Extended with two
+  more specialist agents — **seo-optimizer** (titles/canonical/Open Graph/Product JSON-LD/sitemap) and
+  **frontend-qa** (axe/WCAG accessibility, valid/responsive HTML) — a product-catalog surface for them
+  to work on, and a polished **standalone macOS README** so the example runs from zero on a Mac.
 
 ---
 

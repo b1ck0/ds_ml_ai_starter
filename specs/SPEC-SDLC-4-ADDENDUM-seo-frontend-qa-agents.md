@@ -1,6 +1,6 @@
 # SPEC-SDLC-4-ADDENDUM: add SEO-optimization and frontend-QA agents to the Rails e-store scaffold
 
-**Status:** approved
+**Status:** in-review
 **Subject:** AI-assisted-sdlc
 **Section:** Worked Examples (amends `04-ai-assisted-sdlc/03-worked-examples/03-rails-estore-sdlc.md`
 and its `code/rails-estore/` project, SPEC-SDLC-4)

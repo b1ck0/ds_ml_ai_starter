@@ -1,0 +1,11 @@
+# public/robots.txt — FEATURE-3 (SPEC-SDLC-4-ADDENDUM-seo-frontend-qa-agents).
+# Format grounded in Google Search Central's robots.txt spec: NOTE-SDLC-4-ADD-4-robots-sitemap-og.md.
+# robots.txt and the sitemap MUST agree -- nothing Disallow'd here appears in config/sitemap.rb, and
+# nothing listed in the sitemap is Disallow'd here. Replace https://example.com with the real
+# production host before deploying (see README.md).
+User-agent: *
+Disallow: /cart
+Disallow: /checkout
+Allow: /products
+
+Sitemap: https://example.com/sitemap.xml

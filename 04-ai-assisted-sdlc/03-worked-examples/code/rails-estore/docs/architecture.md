@@ -26,6 +26,12 @@ architect merges. Nothing merges until its exit gate (§5) passes.
 | Implementer | Sonnet (`.claude/agents/implementer.md`) | Implement ONE approved feature: failing test → production code → green gate |
 | Researcher | Haiku (`.claude/agents/researcher.md`) | Ground external claims (gem versions, API behaviour, CVEs) → a note the implementer cites |
 | Reviewer | Sonnet, fresh (`.claude/agents/reviewer.md`) | Independent QA against the spec + Definition of Done before merge, with authorization/mass-assignment as first-class checks |
+| SEO optimizer | Sonnet (`.claude/agents/seo-optimizer.md`) | Specialist review of any UI-facing feature: unique title/meta, canonical, Open Graph, Product JSON-LD, robots.txt/sitemap, one `<h1>` |
+| Frontend QA | Sonnet (`.claude/agents/frontend-qa.md`) | Specialist review of any UI-facing feature: axe/WCAG accessibility, valid/semantic/responsive HTML, no broken links or console errors |
+
+The last two run only on features that add or change a rendered page (anything under `app/views/`);
+each catches a class of defect — a missing Product schema, an unlabelled input — that the security
+and general reviewers plus RuboCop/RSpec/Brakeman do not.
 
 ## 3. Workflow (per feature)
 
@@ -52,7 +58,7 @@ architect merges. Nothing merges until its exit gate (§5) passes.
 - `spec/` — RSpec model + request specs, one file per feature area, including the security cases.
 - `docs/features/` — one `FEATURE-<n>-<slug>.md` per feature.
 - `docs/` — this file + `definition-of-done.md`.
-- `.claude/` — `agents/` (researcher, implementer, reviewer), `hooks/` (verify, guard, context),
+- `.claude/` — `agents/` (researcher, implementer, reviewer, seo-optimizer, frontend-qa), `hooks/` (verify, guard, context),
   `settings.json`.
 - `Gemfile`, `.rubocop.yml` — dependencies and the two style/security gate gems' configuration.
 - `.env.example` — every config variable, documented, never a real value.

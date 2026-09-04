@@ -8,6 +8,7 @@ echo "────────────────────────�
 echo " Read first: docs/architecture.md · docs/definition-of-done.md · CLAUDE.md"
 echo " Roles: Opus (architect, main session) · .claude/agents/researcher.md (Haiku) ·"
 echo "        .claude/agents/implementer.md (Sonnet) · .claude/agents/reviewer.md (fresh Sonnet)"
+echo "        UI features also: .claude/agents/seo-optimizer.md · .claude/agents/frontend-qa.md (Sonnet)"
 echo
 
 if ls docs/features/FEATURE-*.md >/dev/null 2>&1; then

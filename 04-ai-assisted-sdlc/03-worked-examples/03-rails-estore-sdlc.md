@@ -1,6 +1,6 @@
 # Governing an AI-Built Rails E-Store — User Login and Checkout Under Gates
 
-*AI-assisted-sdlc · Worked Examples · SPEC-SDLC-4*
+*AI-assisted-sdlc · Worked Examples · SPEC-SDLC-4 + SPEC-SDLC-4-ADDENDUM-seo-frontend-qa-agents*
 
 ## The bug that only requires being logged in as anyone
 
@@ -56,10 +56,15 @@ and a payment integration behind it.
 
 Everything below lives under [`code/rails-estore/`](code/rails-estore/) — a complete Rails project
 scaffold with its own `.claude/` governance layer nested inside it, exactly as it would sit in a real
-repository. §2–5 tour that scaffold; §6 runs both features — login, then checkout — through the full
-loop, including the moment a fresh reviewer catches a real vulnerability that three green automated
-gates missed. §7 lists what breaks the loop if you skip a step. §8 is the direct comparison: this
-repo's own scaffold, `java-project/`, and `rails-estore/`, side by side.
+repository. §2–3 tour the original three-role scaffold; §3a introduces two more specialist reviewers
+this addendum adds — `seo-optimizer` and `frontend-qa`; §4–5 cover the hooks and gates. §6 runs all
+three features — login, then checkout, then the product catalog — through the full loop, including
+the moment a fresh reviewer catches a real vulnerability that three green automated gates missed, and
+the moment the two new specialists each catch a defect in their own lane that those same gates don't
+even attempt to check. §7 lists what breaks the loop if you skip a step. §8 is the direct comparison:
+this repo's own scaffold, `java-project/`, and `rails-estore/`, side by side. §9 is honest about what
+actually ran where, and points to [`code/rails-estore/README.md`](code/rails-estore/README.md) for
+running the whole thing for real on a Mac.
 
 **Toolchain baseline**, grounded in
 [`research/NOTE-SDLC-4-1-versions.md`](../../research/NOTE-SDLC-4-1-versions.md) (checked
@@ -85,6 +90,8 @@ flowchart TB
         RESEARCHERMD[".claude/agents/researcher.md -- Haiku"]
         IMPLEMENTERMD[".claude/agents/implementer.md -- Sonnet"]
         REVIEWERMD[".claude/agents/reviewer.md -- fresh Sonnet"]
+        SEOMD[".claude/agents/seo-optimizer.md -- Sonnet"]
+        FRONTENDQAMD[".claude/agents/frontend-qa.md -- Sonnet"]
     end
     subgraph GATEBOX["Hooks and gates -- the only layer that can block"]
         GUARDSH[".claude/hooks/guard.sh -- PreToolUse on Bash"]
@@ -153,6 +160,46 @@ check for. Reading `Order.find(params[:id])` and asking "whose order is this all
 judgment call about what the *feature* is supposed to authorize, not a pattern match against a known
 CWE — which is exactly why §6's checkout loop shows this line passing RuboCop and Brakeman *both
 clean*, and why the reviewer's instructions say "by hand" twice rather than once.
+
+## 3a. Two more specialists — SEO and frontend quality (this addendum)
+
+FEATURE-1 and FEATURE-2 gave this store an account system and a checkout, both genuinely
+security-sensitive. But neither the general `reviewer.md` above nor RuboCop/Brakeman has any opinion
+on two other dimensions an e-store cannot ship without: **can a search engine (or a shared link)
+find and correctly represent this page**, and **can a person using a keyboard or a screen reader
+actually use it**. Those are different failure modes from an IDOR — not a missing authorization
+check, a missing *category of check entirely*. RuboCop's rule catalog has no "form input needs a
+label" rule; Brakeman's 86 checks (§5) cover injection and mass-assignment classes of bug, never
+WCAG or schema.org. So the roster grows by two, each earning its place the same way `reviewer.md`
+did: by catching something real, in its own lane, that nothing else in this project's gate catches.
+
+| Specialist | Checks | Real tooling | Catches what security/style gates don't |
+|---|---|---|---|
+| [`seo-optimizer.md`](code/rails-estore/.claude/agents/seo-optimizer.md) | Unique title/description, canonical, Open Graph, schema.org **Product** JSON-LD, `robots.txt`/sitemap, heading hierarchy | `meta-tags` 2.24.0, `sitemap_generator` 7.1.1, `@lhci/cli` 0.15.1 (reference) | A missing/invalid Product JSON-LD block — the page is syntactically fine, renders correctly, and is simply invisible to a merchant-listing search result |
+| [`frontend-qa.md`](code/rails-estore/.claude/agents/frontend-qa.md) | WCAG/axe (labels, alt, contrast, heading order, `lang`, focus/skip link, landmarks), valid/semantic/responsive HTML, broken links | `axe-core-rspec`/`axe-core-capybara` 4.13.0, `html-proofer` 5.2.2 | An unlabelled form field or a broken heading order — code that is stylistically perfect Ruby and a stylistically perfect view, unusable by a screen-reader user |
+
+Both are structured exactly like `reviewer.md`: a numbered checklist, "output a verdict, do not
+merge." Both are wired the same three places every role in this project is wired:
+[`CLAUDE.md`](code/rails-estore/CLAUDE.md)'s Model routing and Gates sections name them (a feature
+that adds or changes a rendered page additionally clears the *frontend gate*, in addition to
+`rspec`/`rubocop`/`brakeman`), and
+[`docs/definition-of-done.md`](code/rails-estore/docs/definition-of-done.md) gets a new **SEO &
+Accessibility** section — parallel in shape to the existing "Security" section (§5's authorization/
+mass-assignment/password-hashing checklist), with its own required evidence per checkbox rather than
+folded into "correctness." `frontend-qa.md`'s own instructions carry the same caveat
+[NOTE-SDLC-4-ADD-3-wcag-a11y-checks.md](../../research/NOTE-SDLC-4-ADD-3-wcag-a11y-checks.md) states
+plainly: automated axe checks catch roughly 30–40% of real WCAG issues, so a clean axe run is a
+floor for this checklist, never the whole verdict.
+
+*Why we do it this way:* the same argument §3's authorization/mass-assignment addition made for
+security applies here with the words swapped. A linter has a fixed catalog of patterns; "is this
+input's label programmatically associated with it" and "is this JSON-LD block valid per Google's
+Merchant Listing requirements" are judgment calls about what the *page* needs to do, not pattern
+matches against a known rule — which is exactly why both new agents' checklists say "by hand" and
+"re-run it yourself" rather than "trust the implementer's report," the same discipline §3's reviewer
+process already established. §6's FEATURE-3 walkthrough shows both specialists catching a real,
+planted defect each — one in a form field, one in a missing structured-data block — that a fully
+green `rspec`/`rubocop`/`brakeman` run reported nothing about.
 
 ## 4. Hooks + settings — the gate's content is where the stack actually matters
 
@@ -246,19 +293,31 @@ flowchart LR
     GROUND -->|"yes"| RESEARCH["researcher.md (Haiku)<br/>grounds it, writes it down"]
     GROUND -->|"no -- already landed"| IMPL
     RESEARCH --> IMPL["implementer.md (Sonnet)<br/>failing RSpec example first, then the code"]
-    IMPL --> GATEBOX2["gate: guard.sh + verify.sh<br/>rspec + rubocop + brakeman -q"]
+    IMPL --> GATEBOX2["gate: guard.sh + verify.sh<br/>rspec + rubocop + brakeman -q<br/>(+ axe + html-proofer on view edits)"]
     GATEBOX2 -->|"red"| IMPL
     GATEBOX2 -->|"green"| REVIEW["reviewer.md (fresh Sonnet)<br/>re-runs the gate AND checks authorization by hand"]
+    GATEBOX2 -->|"green, UI-facing"| SEOREVIEW["seo-optimizer.md (Sonnet)<br/>titles, OG, Product JSON-LD, sitemap"]
+    GATEBOX2 -->|"green, UI-facing"| QAREVIEW["frontend-qa.md (Sonnet)<br/>axe/WCAG, valid HTML, broken links"]
     REVIEW -->|"changes requested"| IMPL
+    SEOREVIEW -->|"changes requested"| IMPL
+    QAREVIEW -->|"changes requested"| IMPL
     REVIEW -->|"approve"| MERGE["merge (architect, Opus)"]
+    SEOREVIEW -->|"approve"| MERGE
+    QAREVIEW -->|"approve"| MERGE
     MERGE -.->|"loop closes -- next feature"| SPEC
 ```
 
-The full stage-by-stage narration for both features is
+`seo-optimizer.md` and `frontend-qa.md` run **in parallel** with the general reviewer, not instead of
+it, and only for features that add or change a rendered page — FEATURE-1's sign-in form and
+FEATURE-2's checkout flow predate this addendum and were reviewed by `reviewer.md` alone; FEATURE-3
+(§3a, below) is the first feature all three review together.
+
+The full stage-by-stage narration for all three features is
 [`artefacts/rails-feature-loop-transcript.md`](artefacts/rails-feature-loop-transcript.md), explicitly
 labelled a **reference transcript** — real file names, real spec, real committed code, real review
-reasoning; illustrative `bundle exec rspec`/`rubocop`/`brakeman` console bytes, because this sandbox
-has no Ruby toolchain (§9). Here is the shape of what it shows.
+reasoning; illustrative `bundle exec rspec`/`rubocop`/`brakeman`/axe/html-proofer console bytes,
+because this sandbox has no Ruby toolchain and no browser either (§9). Here is the shape of what it
+shows.
 
 ### FEATURE-1 — user login (clean pass)
 
@@ -316,6 +375,41 @@ automated gates were not lying — each was reporting exactly what it is built t
 is built to answer "is this the right user's data." A fresh reviewer instructed to ask that question
 by hand, on every action, every time, is.
 
+### FEATURE-3 — product catalog (two specialist defects, one per new agent)
+
+[`docs/features/FEATURE-3-product-catalog-seo-a11y.md`](code/rails-estore/docs/features/FEATURE-3-product-catalog-seo-a11y.md)
+(this addendum) sets nine acceptance criteria for a public, SEO-complete, accessible product catalog
+— the first feature `seo-optimizer.md` and `frontend-qa.md` review. The implementer writes
+[`spec/system/accessibility_spec.rb`](code/rails-estore/spec/system/accessibility_spec.rb) and
+[`spec/system/seo_spec.rb`](code/rails-estore/spec/system/seo_spec.rb), confirms both fail for the
+right reason, then writes the real
+[`ProductsController`](code/rails-estore/app/controllers/products_controller.rb),
+[`ProductsHelper`](code/rails-estore/app/helpers/products_helper.rb), and — new to this project —
+[`app/views/layouts/application.html.erb`](code/rails-estore/app/views/layouts/application.html.erb),
+which did not exist before this addendum. Two slips ship, one per specialist's lane: the catalog's
+search field ships as a bare `<input type="search" name="q" placeholder="Search products">` with no
+`<label>` — placeholder text is not a label, and disappears the moment a user starts typing — and the
+product show page ships with **no** `<script type="application/ld+json">` block at all.
+
+`bundle exec rspec`, `rubocop`, and `brakeman -q --no-summary` all report clean, for the same reason
+§6's IDOR case did: none of the three has a check in this category at all — not a blind spot in an
+otherwise-broad tool, a category none of them was ever built to cover. The implementer reports every
+check it could run as green.
+
+Dispatched in parallel, `frontend-qa.md` runs the axe system spec for real and finds the missing
+label immediately (axe rule `label`, impact **critical**, WCAG 1.3.1/4.1.2) — **CHANGES REQUESTED**.
+`seo-optimizer.md` parses the rendered show page and finds no Product JSON-LD anywhere on it — Google
+Merchant Listing requires `name`/`image`/`offers.price`/`offers.priceCurrency` at minimum
+[NOTE-SDLC-4-ADD-2-schema-product.md](../../research/NOTE-SDLC-4-ADD-2-schema-product.md) —
+**CHANGES REQUESTED**. The implementer adds the missing `<%= f.label %>` and the two JSON-LD
+`<script>` tags (Product + BreadcrumbList), re-runs the gate, and both specialists — plus the general
+`reviewer.md`, which had nothing to flag since this controller touches no `Current.user`-scoped query
+or `permit()` call — return **APPROVE**. Architect merges. Full transcript, including both verdicts
+verbatim and the illustrative axe/html-proofer output:
+[`artefacts/rails-feature-loop-transcript.md`](artefacts/rails-feature-loop-transcript.md) Part C;
+reference axe/html-proofer/Lighthouse CI output:
+[`artefacts/rails-validation-log.md`](artefacts/rails-validation-log.md) §6.
+
 ## 7. Pitfalls
 
 - **Trusting a green security scanner to mean "no vulnerabilities."** Brakeman reporting zero
@@ -336,6 +430,11 @@ by hand, on every action, every time, is.
 - **Storing money as a float.** `Product#price_cents` and `Order#total_cents` are integers on
   purpose — a `decimal`/`float` price accumulates rounding error across enough line items and
   discounts to matter; storing cents as an integer makes that class of bug structurally impossible.
+- **Assuming "RSpec/RuboCop/Brakeman all green" means the page is done.** FEATURE-3 (§3a, §6) is the
+  concrete counter-example for a second class of bug, alongside §6's IDOR: none of those three tools
+  has ANY check for a missing form label or a missing structured-data block — not a partial-coverage
+  gap, a category outside their remit entirely. `seo-optimizer.md`/`frontend-qa.md` exist because
+  "the gate is green" and "this page is finished" are, again, not the same claim.
 - **A stub that quietly becomes the real call.** `PaymentService`'s test-mode branch
   (`Rails.env.test? || ENV["STRIPE_STUB"] == "true"`) must stay the FIRST branch checked — the
   reviewer's step 8 explicitly flags "a stubbed `PaymentService` accidentally calling the real Stripe
@@ -365,19 +464,41 @@ them. On a content-authoring repo, that extra question doesn't exist. On a Java 
 network-facing auth surface, it doesn't either. On a Rails app that stores passwords and talks to a
 payment gateway, it is the single most important check in the whole loop.
 
+*Roster footnote (this addendum):* the table above compares the three scaffolds' **shape**, which is
+still unchanged — `rails-estore/`'s roster grows from four roles to six (architect, researcher,
+implementer, reviewer, `seo-optimizer`, `frontend-qa`) without touching the settings schema, the
+frontmatter schema, or the model-routing pattern any of those roles are wired through. §3a covers the
+two additions in full; neither `java-project/` nor this repo's own scaffold has a UI-facing surface
+for either role to apply to.
+
 ## 9. Environment note, secret scan, and honesty about what ran where
 
 **This code is correct and idiomatic Ruby/Rails 8.1, written to run in a declared Rails environment
 — it was not executed inside this Python book repository**, which has no Ruby toolchain (`which
-bundle`, `which rspec`, `which brakeman` all resolve to nothing here). What WAS actually run, for
-real, in this repository's own sandbox: `python -m json.tool` against `.claude/settings.json`;
-`validate_frontmatter.py` against all three agent files; all three hook scripts
-(`context.sh`/`guard.sh`/`verify.sh`) fed real synthetic Claude Code hook payloads on stdin, with
-real captured output for every case, including all five `guard.sh` deny-rules; and a real `grep`
+bundle`, `which rspec`, `which brakeman` all resolve to nothing here) **and no browser or Node
+toolchain either** (`which chromedriver`, `which node` also resolve to nothing) — so the frontend
+gate this addendum adds (axe, html-proofer, `npx lhci autorun`) is reference-only for the same reason
+the Ruby gate is. What WAS actually run, for real, in this repository's own sandbox:
+`python -m json.tool` against `.claude/settings.json`; `validate_frontmatter.py` against all **five**
+agent files (researcher, implementer, reviewer, `seo-optimizer`, `frontend-qa`); all three hook
+scripts (`context.sh`/`guard.sh`/`verify.sh`) fed real synthetic Claude Code hook payloads on stdin,
+with real captured output for every case, including all five `guard.sh` deny-rules; and a real `grep`
 secret scan across the entire `code/rails-estore/` tree. Every one of those is in
 [`artefacts/rails-validation-log.md`](artefacts/rails-validation-log.md) with its exact command and
-output, §§1, 2, 3, and 5 marked real, §4 (RSpec/RuboCop/Brakeman) marked as a grounded reference
-reproduction. The feature-loop transcript follows the same convention — see its own header.
+output, §§1, 2, 3, and 5 marked real, §4 (RSpec/RuboCop/Brakeman) and §6 (axe/html-proofer/Lighthouse
+CI) marked as grounded reference reproductions. The feature-loop transcript follows the same
+convention — see its own header.
+
+**Running it on macOS.** Everything above is about what ran inside *this* book's own sandbox. If you
+want to actually run `rails-estore` — sign up, add a product to a cart, check out, and run every gate
+including the frontend one — [`code/rails-estore/README.md`](code/rails-estore/README.md) is a
+complete, standalone, zero-to-running guide for a real Mac: Homebrew → rbenv → Ruby 4.0.6 → Rails
+8.1.3.1, `bin/rails db:setup` (seeded with four sample products), `bin/rails server`, and every gate
+(`rspec`/`rubocop`/`brakeman`, plus the frontend gate's `axe`/`html-proofer`/`npx lhci autorun`),
+each with a one-line "what it's for" and a troubleshooting section for the usual native-gem/
+Apple-Silicon snags. It is written to be read on its own — a friend cloning just
+`code/rails-estore/` doesn't need this chapter to get the app running, only to understand *why* it's
+built the way it is.
 
 **Secret scan, required before this chapter could be reported done:**
 `grep -rniE 'sk_live|pk_live|rk_live' code/rails-estore/` and a second pass matching any
@@ -387,14 +508,18 @@ of the two `pk_test_XXXX...`/`sk_test_XXXX...` placeholders in `.env.example`, b
 [`artefacts/rails-validation-log.md`](artefacts/rails-validation-log.md) §5.
 
 One more honest gap, named rather than hidden: `code/rails-estore/` ships the governed scaffold plus
-every feature-specific file FEATURE-1 and FEATURE-2 touch — models, controllers, views, services,
-specs. It does **not** include the surrounding files a fresh `rails new rails-estore` generates
-(`config/application.rb`, `config/boot.rb`, `bin/rails`, and the rest of the standard app skeleton) —
-the same scoping choice `java-project/` made by shipping `pom.xml` + `src/` without a full IDE
-project file. To run this for real: `rails new rails-estore --minimal`, then drop this chapter's
-`app/`, `config/`, `spec/`, `docs/`, `.claude/`, `Gemfile`, `.rubocop.yml`, and `.env.example` on top,
-`bundle install`, `bin/rails db:schema:load` (using the committed
-[`db/schema.rb`](code/rails-estore/db/schema.rb)), then `bundle exec rspec`.
+every feature-specific file FEATURE-1, FEATURE-2, and FEATURE-3 touch — models, controllers, views,
+helpers, services, specs. It does **not** include the surrounding files a fresh `rails new
+rails-estore` generates (`config/application.rb`, `config/boot.rb`, `bin/rails`, and the rest of the
+standard app skeleton) — the same scoping choice `java-project/` made by shipping `pom.xml` + `src/`
+without a full IDE project file. To run this for real: `rails new rails-estore --minimal`, then drop
+this chapter's `app/`, `config/`, `db/seeds.rb`, `lib/tasks/`, `spec/`, `docs/`, `.claude/`,
+`public/robots.txt`, `Gemfile`, `.rubocop.yml`, `.env.example`, `.lighthouserc.json`, and
+`package.json` on top, `bundle install`, `bin/rails db:schema:load` (using the committed
+[`db/schema.rb`](code/rails-estore/db/schema.rb)), then `bundle exec rspec` —
+[`code/rails-estore/README.md`](code/rails-estore/README.md) walks every one of these steps in full
+for a real macOS machine, including the frontend gate's extra prerequisites (Chrome/chromedriver,
+Node).
 
 ## 10. Recap & what's next
 
@@ -402,18 +527,28 @@ The cold open's bug — `Order.find(params[:id])`, any signed-in user reading an
 written twice in this chapter: once as an ungoverned agent's actual first attempt at FEATURE-2 (§6),
 and once as this chapter's opening hook, deliberately, before you knew a governed loop was about to
 catch it. That's the concrete difference a fresh reviewer instructed to check authorization *by
-hand, every time* makes, proven against a real diff, not asserted in the abstract.
+hand, every time* makes, proven against a real diff, not asserted in the abstract. FEATURE-3 (§3a,
+§6) proves the same shape of argument twice more, on two dimensions a security reviewer was never
+meant to cover: `frontend-qa.md` caught an unlabelled search field axe was built specifically to
+catch; `seo-optimizer.md` caught a missing Product JSON-LD block Google's own merchant-listing
+requirements name explicitly. Three specialist findings, three different categories of defect
+(authorization, accessibility, discoverability), one shared cause: an automated gate that is green
+*in every category it checks* is not the same claim as "this feature is done," and the fix in every
+case was the same — a named role, with a checklist, instructed to check by hand what nothing
+automated in this project checks at all.
 
-Four primitive categories, one governed loop, now proven three times: a textbook chapter
-([SPEC-SDLC-1](../01-theory/01-theory.md)), a Java feature ([SPEC-SDLC-2](01-java-sdlc-scaffold.md)),
-and — this chapter — a security-sensitive Rails feature. What ported unchanged: the settings schema,
-the agent frontmatter schema, the roster, the model routing. What didn't: the gate's actual content,
-and — the finding this chapter adds to the other two — the specific, named judgment calls a fresh
-human-directed reviewer has to make *by hand* because no available automated tool makes them for you.
-Brakeman is real and it is good at what it does; it does not do everything, and knowing exactly where
-that line falls (`docs/research/NOTE-SDLC-4-3-brakeman-checks.md`'s own words: it "will not catch
-logic errors ... that require dynamic analysis or test coverage") is what makes the reviewer's role
-non-optional rather than a formality.
+Four primitive categories, one governed loop, now proven three times over four features: a textbook
+chapter ([SPEC-SDLC-1](../01-theory/01-theory.md)), a Java feature
+([SPEC-SDLC-2](01-java-sdlc-scaffold.md)), and — this chapter — a security-sensitive, now also
+SEO/accessibility-governed, Rails feature set. What ported unchanged: the settings schema, the agent
+frontmatter schema, the roster *shape* (fresh-context specialists dispatched by the architect,
+grounded first, gated always), the model routing. What didn't: the gate's actual content, and the
+specific, named judgment calls a human-directed reviewer has to make *by hand* because no available
+automated tool makes them for you — first for authorization (§6), now for accessibility and SEO
+(§3a, §6's FEATURE-3). Brakeman is real and it is good at what it does; it does not do everything,
+and knowing exactly where that line falls (`docs/research/NOTE-SDLC-4-3-brakeman-checks.md`'s own
+words: it "will not catch logic errors ... that require dynamic analysis or test coverage") is what
+makes every one of these specialist roles non-optional rather than a formality.
 
 If you haven't read them yet, [SPEC-SDLC-1 (Theory)](../01-theory/01-theory.md) is the abstract
 version of everything this chapter just proved concretely, and
@@ -423,5 +558,7 @@ loop, a stack with no login form to get wrong. [**How this repo was built**](02-
 own real commits. If you're setting up a governed loop on your own Rails project right now,
 `code/rails-estore/` is a complete, ready-to-adapt starting point — copy `.claude/`, `CLAUDE.md`, and
 `docs/`, point `Gemfile` at whatever your own researcher grounds as current when you do it (the
-versions pinned here were current 2026-09-04 — check again), replace `FEATURE-1`/`FEATURE-2` with
-your project's actual first features, and run the loop for real, with real `bundle` on `PATH`.
+versions pinned here were current 2026-09-04 — check again), replace `FEATURE-1`/`FEATURE-2`/
+`FEATURE-3` with your project's actual first features, and run the loop for real, with real `bundle`
+on `PATH` — or, to just get the app running on your own Mac first,
+[`code/rails-estore/README.md`](code/rails-estore/README.md) is the standalone path there.

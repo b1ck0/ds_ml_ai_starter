@@ -1,4 +1,9 @@
 <h1><%= @product.name %></h1>
+
+<% if @product.image_url.present? %>
+  <%= image_tag @product.image_url, alt: @product.name, width: 320, height: 320 %>
+<% end %>
+
 <p><%= @product.description %></p>
 <p>$<%= "%.2f" % @product.price_dollars %></p>
 
@@ -7,3 +12,11 @@
 <% else %>
   <%= link_to "Sign in to buy", new_session_path %>
 <% end %>
+
+<%# schema.org Product + BreadcrumbList JSON-LD (FEATURE-3, NOTE-SDLC-4-ADD-2-schema-product.md).
+    `json_escape` neutralizes '<', '>', '&' in the JSON text BEFORE `.html_safe` marks it -- that
+    ordering is what makes this safe, unlike the raw `.html_safe` on unescaped user input that
+    artefacts/rails-validation-log.md #4 shows Brakeman correctly flagging elsewhere in this app's
+    history. Do not reorder these two calls. %>
+<script type="application/ld+json"><%= json_escape(product_json_ld(@product).to_json).html_safe %></script>
+<script type="application/ld+json"><%= json_escape(breadcrumb_json_ld(@product).to_json).html_safe %></script>

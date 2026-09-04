@@ -26,8 +26,15 @@ Java · Claude Code.
   loop as the Java scaffold, ported to a different stack (Ruby on Rails 8.1) and raised to a genuinely
   security-sensitive app: sign-up/login/logout and cart→checkout with a stubbed Stripe seam, driven
   through security-first gates (RuboCop, RSpec, Brakeman) with a fresh reviewer catching a planted
-  authorization hole three green automated gates missed. Sibling to the Java scaffold above; see
-  [`03-worked-examples/03-rails-estore-sdlc.md`](03-worked-examples/03-rails-estore-sdlc.md).
+  authorization hole three green automated gates missed. An addendum grows the roster to a
+  **five-agent team** (researcher, implementer, reviewer, plus two specialist reviewers —
+  `seo-optimizer` and `frontend-qa` — for a public product catalog): axe/WCAG accessibility and
+  schema.org/Open-Graph SEO checks, each catching a real defect (an unlabelled form field, a missing
+  Product JSON-LD block) that RuboCop/RSpec/Brakeman have no check for at all. Sibling to the Java
+  scaffold above; see
+  [`03-worked-examples/03-rails-estore-sdlc.md`](03-worked-examples/03-rails-estore-sdlc.md) and its
+  standalone macOS setup guide,
+  [`03-worked-examples/code/rails-estore/README.md`](03-worked-examples/code/rails-estore/README.md).
 
 ## Cloud Environment Setup
 CI integration and running agents in a pipeline (cross-reference the team's CI/CD conventions).

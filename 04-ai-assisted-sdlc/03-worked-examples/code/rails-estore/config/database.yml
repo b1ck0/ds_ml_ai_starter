@@ -1,0 +1,21 @@
+# config/database.yml — SQLite, the Rails 8 zero-config default (no server process to install or
+# run, correct for this project's scale) -- NOTE-SDLC-4-ADD-macos-setup.md §3 recommends exactly
+# this for a friend's first run: "SQLite (built-in, zero setup)", and this file's shape matches that
+# note's cited example verbatim. `bin/rails db:setup` creates these files from db/schema.rb; nothing
+# else to configure.
+default: &default
+  adapter: sqlite3
+  pool: 5
+  timeout: 5000
+
+development:
+  <<: *default
+  database: db/development.sqlite3
+
+test:
+  <<: *default
+  database: db/test.sqlite3
+
+production:
+  <<: *default
+  database: db/production.sqlite3
