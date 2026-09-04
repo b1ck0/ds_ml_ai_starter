@@ -19,7 +19,7 @@ class RegistrationsController < ApplicationController
 
     if @user.save
       start_new_session_for(@user)
-      redirect_to root_path, notice: "Welcome! Your account was created."
+      redirect_to root_path, notice: "Добре дошли! Профилът ви беше създаден."
     else
       render :new, status: :unprocessable_entity
     end

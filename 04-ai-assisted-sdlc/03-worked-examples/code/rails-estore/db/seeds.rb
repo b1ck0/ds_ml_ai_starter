@@ -8,29 +8,29 @@
 [
   {
     sku: "MUG-001",
-    name: "Rails Mug",
-    description: "A ceramic mug for Rubyists. Holds 350ml of coffee and zero N+1 queries.",
+    name: "Чаша Rails",
+    description: "Керамична чаша за Ruby разработчици. Побира 350 мл кафе и нула N+1 заявки.",
     price_cents: 1_500,
     image_url: "https://placehold.co/600x600?text=Rails+Mug"
   },
   {
     sku: "TSHIRT-001",
-    name: "Convention Over Configuration T-Shirt",
-    description: "100% cotton. Comes in exactly one size: correct.",
+    name: "Тениска Convention Over Configuration",
+    description: "100% памук. Предлага се в точно един размер — правилния.",
     price_cents: 2_500,
     image_url: "https://placehold.co/600x600?text=Rails+T-Shirt"
   },
   {
     sku: "STICKER-001",
-    name: "Omakase Sticker Pack",
-    description: "Five vinyl stickers. Weatherproof, laptop-lid-proof.",
+    name: "Пакет стикери Omakase",
+    description: "Пет винилови стикера. Устойчиви на атмосферни влияния, устойчиви на капака на лаптопа.",
     price_cents: 800,
     image_url: "https://placehold.co/600x600?text=Sticker+Pack"
   },
   {
     sku: "NOTEBOOK-001",
-    name: "Migration Notebook",
-    description: "192 dot-grid pages. Never actually reversible, unlike a real migration.",
+    name: "Тефтер за миграции",
+    description: "192 страници на точки. За разлика от истинска миграция, никога не е обратим.",
     price_cents: 1_200,
     image_url: "https://placehold.co/600x600?text=Notebook"
   }

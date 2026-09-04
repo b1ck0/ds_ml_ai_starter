@@ -1,5 +1,5 @@
-<h1>Confirm your order</h1>
+<h1>Потвърдете поръчката си</h1>
 
-<p>Total: $<%= "%.2f" % (@cart.total_cents / 100.0) %></p>
+<p>Общо: $<%= "%.2f" % (@cart.total_cents / 100.0) %></p>
 
-<%= button_to "Place order", checkout_orders_path, method: :post %>
+<%= button_to "Направи поръчка", checkout_orders_path, method: :post %>

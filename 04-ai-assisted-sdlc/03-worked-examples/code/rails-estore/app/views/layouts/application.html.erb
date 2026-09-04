@@ -5,7 +5,7 @@
     Landmarks (header/nav/main/footer), the skip link, and `lang` are frontend-qa's checklist items
     6-8; `display_meta_tags` is what makes every controller's `set_meta_tags` call actually render.
     NOTE-SDLC-4-ADD-3-wcag-a11y-checks.md, NOTE-SDLC-4-ADD-4-robots-sitemap-og.md. %>
-<html lang="en">
+<html lang="bg">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -29,17 +29,17 @@
     </style>
   </head>
   <body>
-    <a class="skip-link" href="#main-content">Skip to main content</a>
+    <a class="skip-link" href="#main-content">Към основното съдържание</a>
 
     <header>
-      <nav aria-label="Primary">
+      <nav aria-label="Основна">
         <%= link_to "Rails E-Store", root_path %>
-        <%= link_to "Products", products_path %>
+        <%= link_to "Продукти", products_path %>
         <% if authenticated? %>
-          <%= link_to "Cart", cart_path %>
-          <%= button_to "Sign out", session_path, method: :delete %>
+          <%= link_to "Количка", cart_path %>
+          <%= button_to "Изход", session_path, method: :delete %>
         <% else %>
-          <%= link_to "Sign in", new_session_path %>
+          <%= link_to "Вход", new_session_path %>
         <% end %>
       </nav>
     </header>

@@ -13,7 +13,7 @@ module Checkout
 
     def create
       if @cart.line_items.none?
-        redirect_to cart_path, alert: "Your cart is empty." and return
+        redirect_to cart_path, alert: "Количката ви е празна." and return
       end
 
       order = build_order_from_cart
@@ -21,7 +21,7 @@ module Checkout
       order.update!(stripe_session_id: session_data[:id], status: :processing)
       @cart.line_items.destroy_all
 
-      redirect_to checkout_order_path(order), notice: "Order placed."
+      redirect_to checkout_order_path(order), notice: "Поръчката е направена."
     end
 
     def show

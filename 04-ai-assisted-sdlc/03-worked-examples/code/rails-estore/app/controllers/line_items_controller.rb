@@ -10,12 +10,12 @@ class LineItemsController < ApplicationController
     line_item = @cart.line_items.find_or_initialize_by(product: product)
     line_item.quantity = line_item.quantity.to_i + quantity_param
     line_item.save!
-    redirect_to cart_path, notice: "Added #{product.name} to your cart."
+    redirect_to cart_path, notice: "#{product.name} беше добавен в количката ви."
   end
 
   def destroy
     @cart.line_items.find(params[:id]).destroy
-    redirect_to cart_path, notice: "Removed from your cart."
+    redirect_to cart_path, notice: "Продуктът беше премахнат от количката ви."
   end
 
   private

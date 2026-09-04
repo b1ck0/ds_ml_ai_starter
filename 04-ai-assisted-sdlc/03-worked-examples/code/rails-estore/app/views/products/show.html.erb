@@ -8,9 +8,9 @@
 <p>$<%= "%.2f" % @product.price_dollars %></p>
 
 <% if authenticated? %>
-  <%= button_to "Add to cart", line_items_path(product_id: @product.id), method: :post %>
+  <%= button_to "Добави в количката", line_items_path(product_id: @product.id), method: :post %>
 <% else %>
-  <%= link_to "Sign in to buy", new_session_path %>
+  <%= link_to "Влезте, за да купите", new_session_path %>
 <% end %>
 
 <%# schema.org Product + BreadcrumbList JSON-LD (FEATURE-3, NOTE-SDLC-4-ADD-2-schema-product.md).

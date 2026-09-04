@@ -13,14 +13,14 @@ class SessionsController < ApplicationController
 
     if user&.authenticate(params[:password])
       start_new_session_for(user)
-      redirect_to after_authentication_url, notice: "Signed in."
+      redirect_to after_authentication_url, notice: "Влязохте успешно."
     else
-      redirect_to new_session_path, alert: "Invalid email or password."
+      redirect_to new_session_path, alert: "Невалиден имейл или парола."
     end
   end
 
   def destroy
     terminate_session
-    redirect_to new_session_path, notice: "Signed out."
+    redirect_to new_session_path, notice: "Излязохте успешно."
   end
 end

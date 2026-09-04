@@ -1,17 +1,17 @@
-<h1>Your cart</h1>
+<h1>Вашата количка</h1>
 
 <% if @cart.line_items.none? %>
-  <p>Your cart is empty.</p>
+  <p>Количката ви е празна.</p>
 <% else %>
   <ul>
     <% @cart.line_items.each do |item| %>
       <li>
         <%= item.quantity %> &times; <%= item.product.name %>
         &mdash; $<%= "%.2f" % (item.subtotal_cents / 100.0) %>
-        <%= button_to "Remove", line_item_path(item), method: :delete %>
+        <%= button_to "Премахни", line_item_path(item), method: :delete %>
       </li>
     <% end %>
   </ul>
-  <p>Total: $<%= "%.2f" % (@cart.total_cents / 100.0) %></p>
-  <%= button_to "Check out", checkout_orders_path, method: :post %>
+  <p>Общо: $<%= "%.2f" % (@cart.total_cents / 100.0) %></p>
+  <%= button_to "Плащане", checkout_orders_path, method: :post %>
 <% end %>

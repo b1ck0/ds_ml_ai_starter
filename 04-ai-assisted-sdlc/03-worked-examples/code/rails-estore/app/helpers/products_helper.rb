@@ -34,8 +34,8 @@ module ProductsHelper
       "@context" => "https://schema.org",
       "@type" => "BreadcrumbList",
       "itemListElement" => [
-        { "@type" => "ListItem", "position" => 1, "name" => "Home", "item" => root_url },
-        { "@type" => "ListItem", "position" => 2, "name" => "Products", "item" => products_url },
+        { "@type" => "ListItem", "position" => 1, "name" => "Начало", "item" => root_url },
+        { "@type" => "ListItem", "position" => 2, "name" => "Продукти", "item" => products_url },
         { "@type" => "ListItem", "position" => 3, "name" => product.name, "item" => product_url(product) }
       ]
     }

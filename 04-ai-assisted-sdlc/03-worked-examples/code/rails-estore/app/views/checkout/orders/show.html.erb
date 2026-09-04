@@ -1,5 +1,5 @@
-<h1>Order #<%= @order.id %></h1>
-<p>Status: <%= @order.status %></p>
+<h1>Поръчка №<%= @order.id %></h1>
+<p>Статус: <%= @order.status %></p>
 
 <ul>
   <% @order.line_items.each do |item| %>
@@ -7,4 +7,4 @@
   <% end %>
 </ul>
 
-<p>Total: $<%= "%.2f" % (@order.total_cents / 100.0) %></p>
+<p>Общо: $<%= "%.2f" % (@order.total_cents / 100.0) %></p>

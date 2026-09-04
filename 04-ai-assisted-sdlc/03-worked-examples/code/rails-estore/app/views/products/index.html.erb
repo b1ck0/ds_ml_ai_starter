@@ -1,4 +1,4 @@
-<h1>Shop all products</h1>
+<h1>Разгледайте всички продукти</h1>
 
 <%# The labelled search field FEATURE-3's frontend-qa review exists to protect: an input with a
     placeholder alone is NOT a label (WCAG 1.3.1 / 4.1.2) -- the first draft of this page shipped
@@ -10,14 +10,14 @@
     embedded ERB tags of any kind. %>
 <%= form_with url: products_path, method: :get, role: "search" do |f| %>
   <div>
-    <%= f.label :q, "Search products" %>
+    <%= f.label :q, "Търсене на продукти" %>
     <%= f.search_field :q, value: params[:q] %>
-    <%= f.submit "Search" %>
+    <%= f.submit "Търсене" %>
   </div>
 <% end %>
 
 <% if @products.empty? %>
-  <p>No products match &ldquo;<%= params[:q] %>&rdquo;.</p>
+  <p>Няма продукти, отговарящи на &ldquo;<%= params[:q] %>&rdquo;.</p>
 <% else %>
   <ul>
     <% @products.each do |product| %>

@@ -1,4 +1,4 @@
-<h1>Create an account</h1>
+<h1>Създайте профил</h1>
 
 <%= form_with model: @user, url: registration_path do |form| %>
   <% if @user.errors.any? %>
@@ -10,16 +10,16 @@
   <% end %>
 
   <div>
-    <%= form.label :email_address %>
+    <%= form.label :email_address, "Имейл адрес" %>
     <%= form.email_field :email_address, required: true, autofocus: true %>
   </div>
   <div>
-    <%= form.label :password %>
+    <%= form.label :password, "Парола" %>
     <%= form.password_field :password, required: true, minlength: 8 %>
   </div>
   <div>
-    <%= form.label :password_confirmation %>
+    <%= form.label :password_confirmation, "Потвърдете паролата" %>
     <%= form.password_field :password_confirmation, required: true %>
   </div>
-  <%= form.submit "Sign up" %>
+  <%= form.submit "Регистрация" %>
 <% end %>

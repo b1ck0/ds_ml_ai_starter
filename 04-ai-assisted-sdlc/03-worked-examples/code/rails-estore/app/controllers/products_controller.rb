@@ -18,11 +18,11 @@ class ProductsController < ApplicationController
                 end
 
     set_meta_tags(
-      title: "Shop All Products",
-      description: "Browse the full Rails E-Store catalog.",
+      title: "Разгледайте всички продукти",
+      description: "Разгледайте пълния каталог на Rails E-Store.",
       canonical: products_url,
       og: {
-        title: "Shop All Products",
+        title: "Разгледайте всички продукти",
         type: "website",
         url: products_url,
         image: default_og_image
