@@ -1,102 +1,107 @@
-# Governing an AI-Built Rails E-Store — User Login and Checkout Under Gates
+# Управление на изграден от AI Rails магазин — вход на потребител и checkout под gate-ове
 
 *AI-assisted-sdlc · Worked Examples · SPEC-SDLC-4 + SPEC-SDLC-4-ADDENDUM-seo-frontend-qa-agents*
 
-> **The point of this chapter is not to hand you a finished Rails store to read — it's for you to
-> build one, governance layer included.** Everything narrated below happened when a governed loop,
-> driven by a human steering Claude Code, built this app feature by feature — but that loop didn't
-> exist on its own; someone had to author `CLAUDE.md`, the docs, the sub-agents, and the hooks first.
-> §6a is the step-by-step version of both halves with your hands on the keyboard — Phase 1 stands up
-> that governance scaffold, Phase 2 drives the feature loop it enforces — and
-> [`code/rails-estore/README.md`](code/rails-estore/README.md#build-it-yourself-with-claude-code) is
-> the same two-phase walkthrough written to run standalone, without this chapter open. The committed
-> `rails-estore/` code is the **destination** — where you end up after standing up the scaffold and
-> driving the loop yourself — not the point of reading this chapter.
+> **Смисълът на тази глава не е да ви подаде готов Rails магазин за четене — а вие сами да го
+> построите, заедно със слоя за управление (governance).** Всичко описано по-долу се случи, докато
+> управляван цикъл, движен от човек, насочващ Claude Code, изгради това приложение feature по
+> feature — но този цикъл не съществуваше сам по себе си; някой първо трябваше да напише
+> `CLAUDE.md`, документацията, под-агентите и hook-овете. §6a е стъпка по стъпка версията на двете
+> половини, с вашите ръце на клавиатурата — Фаза 1 изгражда скелета за управление, Фаза 2 движи
+> цикъла за features, който той налага — а
+> [`code/rails-estore/README.md`](code/rails-estore/README.md#build-it-yourself-with-claude-code) е
+> същата двуфазова разходка, написана да работи самостоятелно, без тази глава да е отворена.
+> Комитнатият код в `rails-estore/` е **дестинацията** — там, където стигате, след като изградите
+> скелета и сами движите цикъла — а не смисълът на четенето на тази глава.
 
-## The bug that only requires being logged in as anyone
+## Бъгът, който изисква само да си влязъл в системата, все едно като кого
 
-Ask an agent, with no gates in place, to "let a signed-in user view their past orders," and here is
-the fastest path from prompt to a green checkmark: add a route, add an action, look the order up by
-the id in the URL, render it. It works the first time you click it — your own order shows up, because
-you're testing with your own account. The PR looks done: a controller action, a view, a passing
-manual click-through.
+Помолете агент, без никакви gate-ове, да "позволи на влязъл потребител да види предишните си
+поръчки" и ето най-бързия път от prompt до зелена отметка: добавяте route, добавяте action, търсите
+поръчката по id-то в URL-а, рендирате я. Работи от първия път, когато кликнете — показва се вашата
+собствена поръчка, защото тествате със собствения си акаунт. PR-ът изглежда завършен: controller
+action, view, минал ръчен клик тест.
 
 ```ruby
-# app/controllers/checkout/orders_controller.rb — what an ungated agent ships
+# app/controllers/checkout/orders_controller.rb — какво доставя agent без gate-ове
 def show
   @order = Order.find(params[:id])
 end
 ```
 
-Nothing about this line is malformed Ruby, unstyled, or a SQL-injection risk — it will sail through a
-linter and a security scanner without a single warning, for reasons this chapter gets to directly.
-What it actually does is let *any signed-in user* read *any other user's order* by changing one digit
-in the URL: sign in as anyone, visit `/checkout/orders/1`, `/checkout/orders/2`, `/checkout/orders/3`,
-and read every customer's order history — names, products, order totals — one increment at a time.
-That is not a hypothetical: it is the single most common access-control bug in web applications,
-formal enough to have its own name, IDOR (insecure direct object reference), and its own line item in
-the [OWASP Top 10](https://owasp.org/Top10/A01_2021-Broken_Access_Control/) (A01:2021 — Broken Access
-Control) (checked 2026-09-04). A registration form one `permit()` call away from letting a new
-signup set `admin: true` on themselves is the same failure mode wearing a different outfit: the code
-runs, the tests (if any exist) are testing the happy path, and the defect is invisible until someone
-specifically goes looking for it — usually an attacker, not a code reviewer skimming a diff.
+Няма нищо сгрешено в тази линия Ruby код, не е зле форматирана и не носи риск от SQL инжекция — ще
+мине през linter и security scanner без нито едно предупреждение, по причини, до които тази глава
+стига директно. Това, което тя всъщност прави, е да позволи на *всеки влязъл потребител* да чете
+поръчката на *всеки друг потребител*, само чрез промяна на една цифра в URL-а: влизате като когото и
+да е, отваряте `/checkout/orders/1`, `/checkout/orders/2`, `/checkout/orders/3`, и четете историята
+на поръчки на всеки клиент — имена, продукти, суми — стъпка по стъпка. Това не е хипотеза: това е
+най-често срещаният бъг в контрола на достъп в уеб приложения, достатъчно формализиран, за да има
+собствено име, IDOR (insecure direct object reference), и собствена точка в
+[OWASP Top 10](https://owasp.org/Top10/A01_2021-Broken_Access_Control/) (A01:2021 — Broken Access
+Control) (проверено на 2026-09-04). Регистрационна форма, отдалечена само с едно извикване на
+`permit()` от това да позволи на нов регистриран потребител да си сложи `admin: true`, е същият тип
+провал в различна опаковка: кодът работи, тестовете (ако изобщо съществуват) тестват happy path-а, а
+дефектът е невидим, докато някой изрично не тръгне да го търси — обикновено нападател, а не reviewer,
+преглеждащ diff-а.
 
-[SPEC-SDLC-2 (the Java scaffold)](01-java-sdlc-scaffold.md) made this same argument for a
-`-DskipTests` shortcut on a pure-logic Luhn validator: a hook, not good intentions, is what makes the
-shortcut *not run at all*. This chapter raises the stakes on purpose — a different stack (Ruby on
-Rails 8.1) and a genuinely security-sensitive app, a small e-store with real login and real checkout
-— because login and checkout are exactly the features where an unsupervised AI edit does real
-damage, and exactly where "the governance layer makes AI-assisted development safe, not the model's
-good intentions" stops being an abstract claim and becomes something you can watch happen, twice,
-below.
+[SPEC-SDLC-2 (Java скелетът)](01-java-sdlc-scaffold.md) направи същия аргумент за `-DskipTests`
+пряк път за чисто логически Luhn валидатор: hook, а не добри намерения, е това, което прави пряката
+пътечка *изобщо да не се изпълни*. Тази глава повдига залозите нарочно — различен стек (Ruby on
+Rails 8.1) и приложение, реално чувствително по отношение на сигурността, малък е-магазин с реален
+вход и реален checkout — защото логин и checkout са точно тези features, при които неконтролирана AI
+промяна нанася реална вреда, и точно там, където "слоят за управление прави AI-асистираната
+разработка безопасна, не добрите намерения на модела" престава да е абстрактно твърдение и се
+превръща в нещо, което можете да наблюдавате как се случва, два пъти, по-долу.
 
-## 1. What & why — the same four primitives, a higher-stakes stack
+## 1. Какво и защо — същите четири примитива, стек с по-високи залози
 
-[SPEC-SDLC-1 (Theory)](../01-theory/01-theory.md) named four scaffolding primitives an agentic
-coding tool needs: **prompts & rules** (`CLAUDE.md` — advisory, read by the architect),
-**hooks & gates** (deterministic automation that can actually *block* a bad action),
-**tools & MCP** (typed capabilities, here `Bash` running `bundle exec rspec`/`rubocop`/`brakeman`),
-and **sub-agents & skills** (fresh-context dispatch: researcher, implementer, fresh reviewer).
-[SPEC-SDLC-2](01-java-sdlc-scaffold.md) proved all four port to a Java/Maven codebase unchanged in
-shape. This chapter proves the same four port to Ruby/Rails — and adds one thing neither prior
-chapter needed: **the gate's content has a threat model.** A textbook chapter's gate asks "does this
-compile and render." A Luhn validator's gate asks "does this compile, and did the test fail first."
-This app's gate asks those *and* "can a user read another user's data" and "can a user set an
-attribute nobody exposed to them" — because this is the first stack in this book with a login form
-and a payment integration behind it.
+[SPEC-SDLC-1 (Theory)](../01-theory/01-theory.md) назова четири примитива за скеле, от които се
+нуждае инструмент за agentic coding: **prompts & rules** (`CLAUDE.md` — advisory, четен от
+архитекта), **hooks & gates** (детерминистична автоматизация, която реално може да *блокира*
+неправилно действие), **tools & MCP** (типизирани възможности, тук `Bash`, изпълняващ `bundle exec
+rspec`/`rubocop`/`brakeman`), и **sub-agents & skills** (диспечиране с чист контекст: researcher,
+implementer, свеж reviewer). [SPEC-SDLC-2](01-java-sdlc-scaffold.md) доказа, че и четирите се
+пренасят непроменени по форма към Java/Maven кодова база. Тази глава доказва, че същите четири се
+пренасят и към Ruby/Rails — и добавя едно нещо, от което никоя от предишните две глави нямаше нужда:
+**съдържанието на gate-а има модел на заплахата (threat model).** Gate-ът на учебна глава пита "дали
+това компилира и се рендира." Gate-ът на Luhn валидатор пита "дали това компилира, и дали тестът
+първо се провали." Gate-ът на това приложение пита и двете, *и* "може ли потребител да чете чужди
+данни" и "може ли потребител да зададе атрибут, който никой не му е изложил" — защото това е първият
+стек в тази книга с форма за вход и платежна интеграция зад нея.
 
-Everything below lives under [`code/rails-estore/`](code/rails-estore/) — a complete Rails project
-scaffold with its own `.claude/` governance layer nested inside it, exactly as it would sit in a real
-repository. §2–3 tour the original three-role scaffold; §3a introduces two more specialist reviewers
-this addendum adds — `seo-optimizer` and `frontend-qa`; §4–5 cover the hooks and gates. §6 runs all
-three features — login, then checkout, then the product catalog — through the full loop, including
-the moment a fresh reviewer catches a real vulnerability that three green automated gates missed, and
-the moment the two new specialists each catch a defect in their own lane that those same gates don't
-even attempt to check. §6a hands you the keyboard, in two phases: stand up the governance scaffold
-itself — `CLAUDE.md`, the docs, the sub-agents, the hooks, the first feature spec — by hand first,
-then drive the same loop, condensed into a repeatable checklist with paste-ready prompts, so you
-build FEATURE-1/2/3 yourself instead of only reading how they went. §7 lists what breaks the loop if
-you skip a step. §8 is the direct comparison:
-this repo's own scaffold, `java-project/`, and `rails-estore/`, side by side. §9 is honest about what
-actually ran where, and points to [`code/rails-estore/README.md`](code/rails-estore/README.md) for
-running the whole thing for real on a Mac.
+Всичко по-долу живее под [`code/rails-estore/`](code/rails-estore/) — пълен Rails проект скелет със
+собствен вложен `.claude/` слой за управление, точно както би седял в реално хранилище. §2–3 обхождат
+оригиналния скелет с три роли; §3a въвежда два допълнителни специализирани reviewer-и, добавени от
+този addendum — `seo-optimizer` и `frontend-qa`; §4–5 покриват hook-овете и gate-овете. §6 прекарва
+и трите features — логин, после checkout, после каталог на продукти — през целия цикъл, включително
+момента, в който свеж reviewer улавя реална уязвимост, пропусната от три зелени автоматизирани
+gate-а, и момента, в който двата нови специалиста улавят по един дефект всеки в собствената си
+област, който същите тези gate-ове дори не се опитват да проверят. §6a ви подава клавиатурата, на
+две фази: първо изграждате сами самия слой за управление — `CLAUDE.md`, документацията, под-агентите,
+hook-овете, спецификацията на първия feature — с ръка, после движите същия цикъл, сгъстен в
+повторяем checklist с готови за копиране prompt-ове, така че построявате FEATURE-1/2/3 сами, вместо
+само да четете как е протекло. §7 изброява какво чупи цикъла, ако пропуснете стъпка. §8 е директното
+сравнение: собственият скелет на това хранилище, `java-project/`, и `rails-estore/`, едно до друго.
+§9 е откровена за това какво реално е било изпълнено и къде, и сочи към
+[`code/rails-estore/README.md`](code/rails-estore/README.md) за пускане на цялото нещо за истина на
+Mac.
 
-**Toolchain baseline**, grounded in
-[`research/NOTE-SDLC-4-1-versions.md`](../../research/NOTE-SDLC-4-1-versions.md) (checked
+**Базова версия на инструментариума**, обоснована в
+[`research/NOTE-SDLC-4-1-versions.md`](../../research/NOTE-SDLC-4-1-versions.md) (проверено
 2026-09-04): Ruby **4.0.6** ([Ruby 4.0.6 released](https://www.ruby-lang.org/en/news/2026/07/14/ruby-4-0-6-released/),
-July 14, 2026), Rails **8.1.3.1** ([Rails 8.0.5 and 8.1.3 released](https://rubyonrails.org/2026/3/24/Rails-Versions-8-0-5-and-8-1-3-have-been-released),
-patched to `.1` July 29, 2026), `rspec-rails` **8.0.4**, `rubocop` **1.90.0** + `rubocop-rails`
-**2.37.0** (bumped up from the grounding note's `1.86.0` — a real `bundle install`, run for real in
-Docker per SPEC-SDLC-4-ADDENDUM-2, found `rubocop-rails 2.37.0` now requires `rubocop >= 1.89.0`; see
-`artefacts/rails-validation-log.md` §7), `brakeman` **8.0.6**, `bcrypt` **3.1.22** (includes a
-CVE-2026-33306 fix), `stripe` **19.3.0**. Every one of these is pinned by exact version in
-[`Gemfile`](code/rails-estore/Gemfile). **This sandbox has no Ruby/Rails toolchain** — §9's
-Environment note is explicit about which evidence below is real, captured output, and which is a
-grounded reference command you run on a machine that has Ruby and Rails installed. The one exception
-is Docker itself, which **is** available here — the docker-compose path (§9, "Running it") was
-actually built, booted, and tested end-to-end, not just described.
+14 юли 2026), Rails **8.1.3.1** ([Rails 8.0.5 and 8.1.3 released](https://rubyonrails.org/2026/3/24/Rails-Versions-8-0-5-and-8-1-3-have-been-released),
+поправена до `.1` на 29 юли 2026), `rspec-rails` **8.0.4**, `rubocop` **1.90.0** + `rubocop-rails`
+**2.37.0** (повдигната спрямо `1.86.0` от grounding бележката — реален `bundle install`, изпълнен за
+истина в Docker по SPEC-SDLC-4-ADDENDUM-2, откри, че `rubocop-rails 2.37.0` вече изисква
+`rubocop >= 1.89.0`; вижте `artefacts/rails-validation-log.md` §7), `brakeman` **8.0.6**, `bcrypt`
+**3.1.22** (включва поправка на CVE-2026-33306), `stripe` **19.3.0**. Всяка от тях е фиксирана с
+точна версия в [`Gemfile`](code/rails-estore/Gemfile). **Тази пясъчна кутия (sandbox) няма Ruby/Rails
+инструментариум** — бележката за средата в §9 е изрична коя от доказателствата по-долу е реален,
+заснет изход, и коя е обоснована референтна команда, която пускате на машина с инсталирани Ruby и
+Rails. Единственото изключение е самият Docker, който **е** наличен тук — Docker-compose пътят (§9,
+"Running it") реално бе изграден, стартиран и тестван от край до край, а не само описан.
 
-### The map
+### Картата
 
 ```mermaid
 flowchart TB
@@ -125,186 +130,196 @@ flowchart TB
     ROSTER -->|"Bash calls the implementer makes"| GATEBOX
 ```
 
-Identical shape to [SPEC-SDLC-2's map](01-java-sdlc-scaffold.md#the-map-four-primitives-one-file-each)
-— because the settings schema and the agent frontmatter schema genuinely don't know or care what
-language the gate checks. §4 is where that stops being true: the *content* of `guard.sh` and
-`verify.sh` is where a Rails app's threat model actually shows up.
+Идентична форма на [картата от SPEC-SDLC-2](01-java-sdlc-scaffold.md#the-map-four-primitives-one-file-each)
+— защото схемата на settings и схемата на frontmatter-а на агентите наистина не знаят и не се
+интересуват на какъв език е gate-проверката. §4 е там, където това престава да е вярно: *съдържанието*
+на `guard.sh` и `verify.sh` е мястото, където моделът на заплахата на Rails приложение реално си
+проличава.
 
-## 2. The charter + docs — rules, with a security golden rule Java didn't need
+## 2. Хартата + документацията — правила, със златно правило за сигурност, от каквото Java нямаше нужда
 
-[`code/rails-estore/CLAUDE.md`](code/rails-estore/CLAUDE.md) mirrors this repository's own
-`CLAUDE.md` and `java-project/CLAUDE.md`'s seven/eight-rule shape, with one rule neither prior
-project's charter needed to state:
+[`code/rails-estore/CLAUDE.md`](code/rails-estore/CLAUDE.md) огледално отразява собствения `CLAUDE.md`
+на това хранилище и седмо/осмоправиловата форма на `java-project/CLAUDE.md`, с едно правило, от което
+нито един от предишните проектови устави не се нуждаеше да заяви:
 
-| This repo (content authoring) | `java-project/` (Java feature) | `rails-estore/` (Rails feature) |
+| Това хранилище (авторство на съдържание) | `java-project/` (Java feature) | `rails-estore/` (Rails feature) |
 |---|---|---|
-| No chapter without an approved `specs/SPEC-*.md` | No code without an approved `docs/features/FEATURE-*.md` | Same |
-| Every claim grounded (NOTE or citation) | Every dependency version/API claim grounded | Same, plus: every security/CVE claim |
-| Every snippet must run | Every JUnit 5 test must FAIL before the code that satisfies it | Every RSpec example must FAIL before the code that satisfies it |
-| *(no equivalent — no auth surface)* | *(no equivalent)* | **Golden rule 4: every `Current.user`-scoped query is authorized; every `permit()` list is minimal** — this repo and `java-project/` have no login or payment surface for this rule to apply to |
-| Exit gate: snippet compile + link check + review | Exit gate: `mvn test` + checkstyle + spotless + spotbugs + review | Exit gate: `rspec` + rubocop + `brakeman -q --no-summary` (zero High-confidence warnings) + review |
+| Нито една глава без одобрен `specs/SPEC-*.md` | Нито един код без одобрен `docs/features/FEATURE-*.md` | Същото |
+| Всяко твърдение обосновано (NOTE или цитат) | Всяка версия на зависимост/API твърдение обосновано | Същото, плюс: всяко security/CVE твърдение |
+| Всеки code snippet трябва да работи | Всеки JUnit 5 тест трябва да се ПРОВАЛИ преди кода, който го удовлетворява | Всеки RSpec пример трябва да се ПРОВАЛИ преди кода, който го удовлетворява |
+| *(няма еквивалент — няма auth повърхност)* | *(няма еквивалент)* | **Златно правило 4: всяка заявка, scope-ната по `Current.user`, е авторизирана; всеки списък в `permit()` е минимален** — това хранилище и `java-project/` нямат login или платежна повърхност, към която да се прилага това правило |
+| Exit gate: компилиране на snippet + проверка на линкове + review | Exit gate: `mvn test` + checkstyle + spotless + spotbugs + review | Exit gate: `rspec` + rubocop + `brakeman -q --no-summary` (нула High-confidence предупреждения) + review |
 
-[`docs/architecture.md`](code/rails-estore/docs/architecture.md) names the same six sections as
-both prior scaffolds (operating model, roles, workflow, repository shape, gates, decision log) — its
-decision log's second-newest entry records exactly why the Rails 8 *native* auth generator was
-chosen over Devise: dependency-light and officially maintained as of Rails 8, sufficient for this
-app's scope
-[source: NOTE-SDLC-4-2-auth-generator.md]. [`docs/definition-of-done.md`](code/rails-estore/docs/definition-of-done.md)
-adds a "Security" section between "Grounded" and "Green gate" that doesn't exist in either prior
-project's checklist — authorization, mass assignment, password hashing, and the secret scan are each
-their own checkbox with their own required RSpec evidence, not folded into "correctness."
+[`docs/architecture.md`](code/rails-estore/docs/architecture.md) назовава същите шест раздела като
+двата предишни скелета (operating model, роли, работен процес, форма на хранилището, gate-ове,
+дневник на решенията) — второто по давност записване в дневника на решенията записва точно защо е
+избран *нативния* auth генератор на Rails 8, вместо Devise: лек откъм зависимости и официално
+поддържан от Rails 8 нататък, достатъчен за обхвата на това приложение
+[източник: NOTE-SDLC-4-2-auth-generator.md]. [`docs/definition-of-done.md`](code/rails-estore/docs/definition-of-done.md)
+добавя секция "Security" между "Grounded" и "Green gate", която не съществува в checklist-а на нито
+един от предишните проекти — авторизация, mass assignment, хеширане на пароли и сканирането за
+secrets имат всяка своя отметка със собствено изисквано RSpec доказателство, а не са сложени в
+общото "correctness."
 
-## 3. The agent roster — same three roles, one process addition on the reviewer
+## 3. Съставът на агентите — същите три роли, едно допълнение в процеса на reviewer-а
 
-[`.claude/agents/researcher.md`](code/rails-estore/.claude/agents/researcher.md) (Haiku) and
-[`.claude/agents/implementer.md`](code/rails-estore/.claude/agents/implementer.md) (Sonnet) are
-structurally identical to `java-project/`'s — verify a fact/write a note; write a failing test, then
-the minimum code, then run the gate. The implementer's process adds one line the Java implementer
-didn't need: *"For anything touching authentication, authorization, or mass-assignable params,
-default to the MORE restrictive option and let the spec's acceptance criteria justify opening it up
-— never the other way round."*
+[`.claude/agents/researcher.md`](code/rails-estore/.claude/agents/researcher.md) (Haiku) и
+[`.claude/agents/implementer.md`](code/rails-estore/.claude/agents/implementer.md) (Sonnet) са
+структурно идентични с тези на `java-project/` — проверява факт/пише бележка; пише провалящ се
+тест, после минималния код, после пуска gate-а. Процесът на implementer-а добавя ред, от какъвто
+Java implementer-ът нямаше нужда: *"За всичко, засягащо authentication, authorization, или
+mass-assignable параметри, по подразбиране избирай ПО-РЕСТРИКТИВНАТА опция и оставяй acceptance
+criteria на спецификацията да оправдаят разхлабването ѝ — никога обратното."*
 
-[`.claude/agents/reviewer.md`](code/rails-estore/.claude/agents/reviewer.md) (a fresh Sonnet) is
-where the real addition lives. Where `java-project/reviewer.md`'s process is fidelity → test-first →
-grounded → green gate → scope, this project's reviewer inserts two explicit, named steps in between:
+[`.claude/agents/reviewer.md`](code/rails-estore/.claude/agents/reviewer.md) (свеж Sonnet) е мястото,
+където живее истинското допълнение. Докато процесът на `java-project/reviewer.md` е fidelity →
+test-first → grounded → green gate → scope, reviewer-ът на този проект вмъква две изрични, назовани
+стъпки между тях:
 
-> 3. **Authorization, by hand, on every controller action touched.** ... confirm the query is
->    actually scoped to the current user (`Current.user.orders.find(...)`, not `Order.find(...)`) —
->    an unscoped `find` on an id from the URL is an IDOR even if every other check passes.
-> 4. **Mass assignment, by hand, on every controller action that builds or updates a model from
->    params.** Confirm `permit()` lists ONLY the attributes the feature actually needs, by name.
+> 3. **Авторизация, ръчно, на всеки controller action, който е засегнат.** ... потвърди, че заявката
+>    реално е scope-вана към текущия потребител (`Current.user.orders.find(...)`, а не
+>    `Order.find(...)`) — не-scope-нат `find` върху id от URL-а е IDOR, дори ако всяка друга проверка
+>    премине.
+> 4. **Mass assignment, ръчно, на всеки controller action, който строи или обновява модел от params.**
+>    Потвърди, че `permit()` изброява САМО атрибутите, от които feature-ът реално се нуждае, поименно.
 
-*Why we do it this way:* a linter and a security scanner both have a fixed catalog of patterns they
-check for. Reading `Order.find(params[:id])` and asking "whose order is this allowed to be" is a
-judgment call about what the *feature* is supposed to authorize, not a pattern match against a known
-CWE — which is exactly why §6's checkout loop shows this line passing RuboCop and Brakeman *both
-clean*, and why the reviewer's instructions say "by hand" twice rather than once.
+*Защо го правим така:* linter и security scanner имат всеки фиксиран каталог от шаблони, за които
+проверяват. Да прочетеш `Order.find(params[:id])` и да попиташ "чия поръчка е позволено да бъде
+това" е преценка за това какво *feature-ът* трябва да авторизира, а не съвпадение с известен CWE
+шаблон — точно затова checkout цикълът в §6 показва тази линия да минава RuboCop и Brakeman и
+двата *чисто*, и защо инструкциите на reviewer-а казват "ръчно" два пъти, а не веднъж.
 
-## 3a. Two more specialists — SEO and frontend quality (this addendum)
+## 3a. Още двама специалисти — SEO и качество на фронтенда (този addendum)
 
-FEATURE-1 and FEATURE-2 gave this store an account system and a checkout, both genuinely
-security-sensitive. But neither the general `reviewer.md` above nor RuboCop/Brakeman has any opinion
-on two other dimensions an e-store cannot ship without: **can a search engine (or a shared link)
-find and correctly represent this page**, and **can a person using a keyboard or a screen reader
-actually use it**. Those are different failure modes from an IDOR — not a missing authorization
-check, a missing *category of check entirely*. RuboCop's rule catalog has no "form input needs a
-label" rule; Brakeman's 86 checks (§5) cover injection and mass-assignment classes of bug, never
-WCAG or schema.org. So the roster grows by two, each earning its place the same way `reviewer.md`
-did: by catching something real, in its own lane, that nothing else in this project's gate catches.
+FEATURE-1 и FEATURE-2 дадоха на този магазин система за акаунти и checkout, и двете реално
+чувствителни по отношение на сигурността. Но нито общият `reviewer.md` по-горе, нито
+RuboCop/Brakeman имат каквото и да е мнение по две други измерения, без които е-магазин не може да
+се пусне: **може ли търсачка (или споделен линк) да намери и правилно да представи тази страница**, и
+**може ли човек, който използва клавиатура или screen reader, реално да я използва**. Това са
+различни начини на провал от IDOR — не липсваща проверка за авторизация, а липсваща *цяла категория
+проверка*. Каталогът от правила на RuboCop няма правило "полето на формата се нуждае от label";
+86-те проверки на Brakeman (§5) покриват класове бъгове от типа инжекция и mass-assignment, никога
+WCAG или schema.org. Затова съставът нараства с двама, всеки заслужил мястото си по същия начин,
+както `reviewer.md`: като улавя нещо реално, в собствената си област, което нищо друго в gate-а на
+този проект не улавя.
 
-| Specialist | Checks | Real tooling | Catches what security/style gates don't |
+| Специалист | Проверява | Реален инструментариум | Улавя това, което security/style gate-овете не улавят |
 |---|---|---|---|
-| [`seo-optimizer.md`](code/rails-estore/.claude/agents/seo-optimizer.md) | Unique title/description, canonical, Open Graph, schema.org **Product** JSON-LD, `robots.txt`/sitemap, heading hierarchy | `meta-tags` 2.24.0, `sitemap_generator` 7.1.1, `@lhci/cli` 0.15.1 (reference) | A missing/invalid Product JSON-LD block — the page is syntactically fine, renders correctly, and is simply invisible to a merchant-listing search result |
-| [`frontend-qa.md`](code/rails-estore/.claude/agents/frontend-qa.md) | WCAG/axe (labels, alt, contrast, heading order, `lang`, focus/skip link, landmarks), valid/semantic/responsive HTML, broken links | `axe-core-rspec`/`axe-core-capybara` 4.13.0, `html-proofer` 5.2.2 | An unlabelled form field or a broken heading order — code that is stylistically perfect Ruby and a stylistically perfect view, unusable by a screen-reader user |
+| [`seo-optimizer.md`](code/rails-estore/.claude/agents/seo-optimizer.md) | Уникален title/description, canonical, Open Graph, schema.org **Product** JSON-LD, `robots.txt`/sitemap, йерархия на заглавия | `meta-tags` 2.24.0, `sitemap_generator` 7.1.1, `@lhci/cli` 0.15.1 (референтно) | Липсващ/невалиден Product JSON-LD блок — страницата е синтактично наред, рендира се правилно и просто е невидима за резултат от търговски (merchant) листинг в търсачка |
+| [`frontend-qa.md`](code/rails-estore/.claude/agents/frontend-qa.md) | WCAG/axe (labels, alt, контраст, ред на заглавията, `lang`, focus/skip link, landmarks), валиден/семантичен/responsive HTML, счупени линкове | `axe-core-rspec`/`axe-core-capybara` 4.13.0, `html-proofer` 5.2.2 | Поле без label или счупен ред на заглавия — код, който е стилистично перфектен Ruby и стилистично перфектен view, неизползваем за потребител на screen reader |
 
-Both are structured exactly like `reviewer.md`: a numbered checklist, "output a verdict, do not
-merge." Both are wired the same three places every role in this project is wired:
-[`CLAUDE.md`](code/rails-estore/CLAUDE.md)'s Model routing and Gates sections name them (a feature
-that adds or changes a rendered page additionally clears the *frontend gate*, in addition to
-`rspec`/`rubocop`/`brakeman`), and
-[`docs/definition-of-done.md`](code/rails-estore/docs/definition-of-done.md) gets a new **SEO &
-Accessibility** section — parallel in shape to the existing "Security" section (§5's authorization/
-mass-assignment/password-hashing checklist), with its own required evidence per checkbox rather than
-folded into "correctness." `frontend-qa.md`'s own instructions carry the same caveat
-[NOTE-SDLC-4-ADD-3-wcag-a11y-checks.md](../../research/NOTE-SDLC-4-ADD-3-wcag-a11y-checks.md) states
-plainly: automated axe checks catch roughly 30–40% of real WCAG issues, so a clean axe run is a
-floor for this checklist, never the whole verdict.
+И двата са структурирани точно като `reviewer.md`: номериран checklist, "изведи вердикт, не сливай."
+И двата са свързани на същите три места, на които е свързана всяка роля в този проект:
+[`CLAUDE.md`](code/rails-estore/CLAUDE.md) в секциите Model routing и Gates ги назовава (feature,
+който добавя или променя рендирана страница, допълнително минава и *frontend gate-а*, в допълнение
+към `rspec`/`rubocop`/`brakeman`), и
+[`docs/definition-of-done.md`](code/rails-estore/docs/definition-of-done.md) получава нова секция
+**SEO & Accessibility** — паралелна по форма на съществуващата секция "Security" (checklist-а за
+авторизация/mass-assignment/хеширане на пароли от §5), със собствено изисквано доказателство за всяка
+отметка, а не сложена в общото "correctness." Собствените инструкции на `frontend-qa.md` носят
+същата уговорка, каквато
+[NOTE-SDLC-4-ADD-3-wcag-a11y-checks.md](../../research/NOTE-SDLC-4-ADD-3-wcag-a11y-checks.md) заявява
+директно: автоматизираните axe проверки улавят приблизително 30–40% от реалните WCAG проблеми, така
+че чист axe run е под, а не целия вердикт, за този checklist.
 
-*Why we do it this way:* the same argument §3's authorization/mass-assignment addition made for
-security applies here with the words swapped. A linter has a fixed catalog of patterns; "is this
-input's label programmatically associated with it" and "is this JSON-LD block valid per Google's
-Merchant Listing requirements" are judgment calls about what the *page* needs to do, not pattern
-matches against a known rule — which is exactly why both new agents' checklists say "by hand" and
-"re-run it yourself" rather than "trust the implementer's report," the same discipline §3's reviewer
-process already established. §6's FEATURE-3 walkthrough shows both specialists catching a real,
-planted defect each — one in a form field, one in a missing structured-data block — that a fully
-green `rspec`/`rubocop`/`brakeman` run reported nothing about.
+*Защо го правим така:* същият аргумент, който §3 направи за допълнението авторизация/mass-assignment
+за сигурността, важи тук с разменени думи. Linter има фиксиран каталог от шаблони; "дали label-ът
+на това поле е програмно свързан с него" и "дали този JSON-LD блок е валиден според изискванията на
+Google за Merchant Listing" са преценки за това какво трябва да прави *страницата*, а не съвпадение
+с известно правило — точно затова checklist-ите на двата нови агента казват "ръчно" и "пусни го сам
+отново," вместо "вярвай на доклада на implementer-а," същата дисциплина, която процесът на
+reviewer-а в §3 вече установи. Разходката на FEATURE-3 в §6 показва двамата специалисти да улавят
+всеки по един реален, планиран дефект — единият в поле от форма, другият в липсващ блок структурирани
+данни — за които напълно зелен `rspec`/`rubocop`/`brakeman` run не докладва нищо.
 
-## 4. Hooks + settings — the gate's content is where the stack actually matters
+## 4. Hook-ове + settings — съдържанието на gate-а е мястото, където стекът реално има значение
 
-[`.claude/settings.json`](code/rails-estore/.claude/settings.json) is byte-for-byte the same three
-events and handler shape as every prior scaffold — validated for real, not just eyeballed, in
-[`artefacts/rails-validation-log.md`](artefacts/rails-validation-log.md) §1. The three hook scripts
-carry the stack-specific content:
+[`.claude/settings.json`](code/rails-estore/.claude/settings.json) е байт по байт същите три event-а
+и форма на handler-и като всеки предишен скелет — валидирано за истина, не само на око, в
+[`artefacts/rails-validation-log.md`](artefacts/rails-validation-log.md) §1. Трите hook скрипта носят
+специфичното за стека съдържание:
 
-- **[`guard.sh`](code/rails-estore/.claude/hooks/guard.sh)** (`PreToolUse` on `Bash`) keeps every
-  deny-rule from this repo's own `guard.sh` (`rm -rf /`, forced push, printing a secret) and adds
-  two rules a Java content-authoring project has no use for: it blocks `git commit --no-verify`
-  (the Rails-project equivalent of the Java chapter's `-DskipTests` — a way to talk the gate out of
-  running at all), and — the flagship new rule — **it blocks any shell command containing a
-  live-looking Stripe key** (`sk_live_`/`pk_live_`/`rk_live_`). This is what turns "no real secret
-  ever appears in the repo" from a written rule in `CLAUDE.md` into something enforced at the shell
-  level, before an agent can even echo a key while debugging, let alone commit one. Real, captured
-  proof it fires — five cases, all five correct — is in
+- **[`guard.sh`](code/rails-estore/.claude/hooks/guard.sh)** (`PreToolUse` върху `Bash`) пази всяко
+  deny-правило от собствения `guard.sh` на това хранилище (`rm -rf /`, принудителен push, отпечатване
+  на secret) и добавя две правила, от които Java проект за авторство на съдържание няма нужда: блокира
+  `git commit --no-verify` (Rails еквивалентът на `-DskipTests` от Java главата — начин да убедиш
+  gate-а изобщо да не се изпълни), и — флагманското ново правило — **блокира всяка shell команда,
+  съдържаща стойност, изглеждаща като реален Stripe ключ** (`sk_live_`/`pk_live_`/`rk_live_`). Точно
+  това превръща "никога не се появява реален secret в хранилището" от написано правило в `CLAUDE.md`
+  в нещо, наложено на ниво shell, преди агент дори да успее да echo-не ключ, докато дебъгва, камо ли
+  да го комитне. Реално, заснето доказателство, че се задейства — пет случая, всичките пет
+  правилни — е в [`artefacts/rails-validation-log.md`](artefacts/rails-validation-log.md) §3.
+- **[`verify.sh`](code/rails-estore/.claude/hooks/verify.sh)** (`PostToolUse` върху `Edit|Write`)
+  изпълнява `bundle exec rspec`, после `rubocop`, после `brakeman -q --no-summary` при всяка промяна
+  на `.rb` файл — трите инструмента, обосновани в §5 като стандартния quality/security gate за този
+  стек — и `bundle check` при промяна на `Gemfile`, същия шаблон "валидирай манифеста веднага," какъвто
+  `java-project/verify.sh` изпълнява за `pom.xml`.
+- **[`context.sh`](code/rails-estore/.claude/hooks/context.sh)** (`SessionStart`) отпечатва същия
+  ориентировъчен банер, какъвто и двата предишни проекта — документи за първо четене, съставът, и
+  всеки `docs/features/FEATURE-*.md` със своя статус. Реален изход в
   [`artefacts/rails-validation-log.md`](artefacts/rails-validation-log.md) §3.
-- **[`verify.sh`](code/rails-estore/.claude/hooks/verify.sh)** (`PostToolUse` on `Edit|Write`) runs
-  `bundle exec rspec`, then `rubocop`, then `brakeman -q --no-summary` on any `.rb` edit — the three
-  tools §5 grounds as this stack's standard quality/security gate — and `bundle check` on a `Gemfile`
-  edit, the same "validate the manifest immediately" pattern `java-project/verify.sh` runs for
-  `pom.xml`.
-- **[`context.sh`](code/rails-estore/.claude/hooks/context.sh)** (`SessionStart`) prints the same
-  orientation banner pattern as both prior projects — read-first docs, the roster, and every
-  `docs/features/FEATURE-*.md` with its status. Real output in
-  [`artefacts/rails-validation-log.md`](artefacts/rails-validation-log.md) §3.
 
-## 5. Security-first gates, and why each one exists
+## 5. Security-first gate-ове, и защо всеки от тях съществува
 
-Four gates, four different failure modes, each named because a real one caught something in this
-chapter's own worked example:
+Четири gate-а, четири различни начина на провал, всеки назован, защото реален такъв е уловил нещо в
+собствения worked example на тази глава:
 
-**RuboCop** (style/lint) — catches nothing security-specific by default, but `.claude/hooks/verify.sh`
-runs it first because it's the fastest signal: a controller action too long to read in one glance
-(`Metrics/MethodLength`, capped at 15 lines in
-[`.rubocop.yml`](code/rails-estore/.rubocop.yml)) is a controller action too long for a reviewer to
-authorize-check by eye, which is exactly the check that matters most on this app.
+**RuboCop** (style/lint) — не улавя нищо специфично за сигурността по подразбиране, но
+`.claude/hooks/verify.sh` го пуска пръв, защото е най-бързият сигнал: controller action, твърде дълъг,
+за да се прочете с един поглед (`Metrics/MethodLength`, ограничен до 15 реда в
+[`.rubocop.yml`](code/rails-estore/.rubocop.yml)) е controller action, твърде дълъг за reviewer-а да
+провери авторизацията му с око, което е точно проверката, която има най-голямо значение за това
+приложение.
 
-**RSpec** (`rspec-rails` 8.0.4) — the test-first discipline from `java-project/` ported unchanged:
-an example is written and confirmed failing before the code that satisfies it. What's new here is
-*what* the examples cover: `spec/requests/registrations_spec.rb` and `spec/requests/checkout_spec.rb`
-each carry a security-specific example (mass assignment, IDOR) alongside the functional ones — see
-§6.
+**RSpec** (`rspec-rails` 8.0.4) — test-first дисциплината от `java-project/`, пренесена непроменена:
+пример се пише и се потвърждава, че се проваля, преди кода, който го удовлетворява. Новото тук е
+*какво* покриват примерите: `spec/requests/registrations_spec.rb` и
+`spec/requests/checkout_spec.rb` всеки носи специфичен за сигурността пример (mass assignment, IDOR)
+редом с функционалните — виж §6.
 
-**Brakeman** (8.0.6) — the standard Rails static security scanner, 86 checks covering SQL injection,
-mass assignment, XSS, CSRF, unsafe redirects, and more
-[source: NOTE-SDLC-4-3-brakeman-checks.md]. Three worth naming because this chapter's own code
-exercises them:
-- **Mass assignment** — flags a model built from unpermitted params
-  [source: [Brakeman — Mass Assignment](https://brakemanscanner.org/docs/warning_types/mass_assignment/)
-  (checked 2026-09-04)]. `RegistrationsController#user_params`'s three-key `permit()` list is why
-  this app reports clean.
-- **SQL injection** — flags unescaped user input in a raw query (e.g.
-  `User.where("email = '#{email}'")`); this app avoids the pattern entirely by using
-  ActiveRecord's parameterized finders (`find_by(email_address: ...)`) everywhere.
-- **Cross-Site Scripting** — flags unescaped output, most commonly a stray `.html_safe`.
-  [`artefacts/rails-validation-log.md`](artefacts/rails-validation-log.md) §4 walks a real example
-  of this exact check catching a real early draft of this chapter's own `products/show.html.erb`.
+**Brakeman** (8.0.6) — стандартният статичен security scanner за Rails, 86 проверки, покриващи SQL
+инжекция, mass assignment, XSS, CSRF, небезопасни redirect-и, и още
+[източник: NOTE-SDLC-4-3-brakeman-checks.md]. Три, заслужаващи да бъдат назовани, защото собственият
+код на тази глава ги задейства:
+- **Mass assignment** — маркира модел, построен от непозволени params
+  [източник: [Brakeman — Mass Assignment](https://brakemanscanner.org/docs/warning_types/mass_assignment/)
+  (проверено 2026-09-04)]. Триключовият списък `permit()` на
+  `RegistrationsController#user_params` е причината това приложение да докладва чисто.
+- **SQL injection** — маркира неескейпнат потребителски вход в raw заявка (напр.
+  `User.where("email = '#{email}'")`); това приложение избягва изцяло този шаблон, използвайки
+  параметризираните ActiveRecord finders (`find_by(email_address: ...)`) навсякъде.
+- **Cross-Site Scripting** — маркира неескейпнат изход, най-често случаен `.html_safe`.
+  [`artefacts/rails-validation-log.md`](artefacts/rails-validation-log.md) §4 разглежда реален
+  пример точно на тази проверка, уловила реална ранна чернова на собствения
+  `products/show.html.erb` на тази глава.
 
-*Why we do it this way:* Brakeman is static analysis — it never runs the app. Its own documentation
-is explicit about the boundary that matters most for this chapter: it "will not catch logic errors
-(e.g., authorization gaps that require dynamic analysis or test coverage)"
-[source: NOTE-SDLC-4-3-brakeman-checks.md, "Caveats"]. §6's checkout loop is built entirely around
-that one sentence.
+*Защо го правим така:* Brakeman е статичен анализ — никога не изпълнява приложението. Собствената му
+документация е изрична относно границата, която има най-голямо значение за тази глава: тя "няма да
+улови логически грешки (напр. пропуски в авторизацията, изискващи динамичен анализ или тестово
+покритие)" [източник: NOTE-SDLC-4-3-brakeman-checks.md, "Caveats"]. Checkout цикълът в §6 е изграден
+изцяло около това единствено изречение.
 
-**bcrypt + `has_secure_password`** — the User model's `has_secure_password` call hashes with bcrypt,
-a deliberately slow algorithm (~200–300 ms per hash) chosen specifically to make brute-forcing a
-stolen password-hash dump impractical
-[source: [ActiveModel::SecurePassword — Rails API](https://api.rubyonrails.org/classes/ActiveModel/SecurePassword/ClassMethods.html)
-(checked 2026-09-04)]. The `password_digest` column stores only the hash; `spec/models/user_spec.rb`
-asserts the digest never equals the plaintext, directly — see §6.
+**bcrypt + `has_secure_password`** — извикването `has_secure_password` на модела User хешира с
+bcrypt, умишлено бавен алгоритъм (~200–300 ms на хеш), избран специално, за да направи brute-force
+атака срещу откраднат dump на password хешове непрактична
+[източник: [ActiveModel::SecurePassword — Rails API](https://api.rubyonrails.org/classes/ActiveModel/SecurePassword/ClassMethods.html)
+(проверено 2026-09-04)]. Колоната `password_digest` пази само хеша; `spec/models/user_spec.rb`
+твърди директно, че digest-ът никога не е равен на явния текст — виж §6.
 
-**Strong parameters** — Rails' mass-assignment defence since Rails 4: a controller must explicitly
-`permit()` every attribute it will assign from user input, or that attribute is silently dropped
-[source: [Rails Strong Parameters Deep Dive](https://blog.saeloun.com/2025/02/18/deep-dive-into-rails-action-controller-strong-parameters/)
-(checked 2026-09-04)]. Every controller in `app/controllers/` that builds or updates a model from
-`params` uses it; `spec/requests/registrations_spec.rb` proves the `admin` param specifically cannot
-be set this way.
+**Strong parameters** — механизмът на Rails срещу mass-assignment от Rails 4 насам: controller трябва
+изрично да направи `permit()` на всеки атрибут, който ще бъде присвоен от потребителски вход, иначе
+този атрибут тихо се отхвърля
+[източник: [Rails Strong Parameters Deep Dive](https://blog.saeloun.com/2025/02/18/deep-dive-into-rails-action-controller-strong-parameters/)
+(проверено 2026-09-04)]. Всеки controller в `app/controllers/`, който строи или обновява модел от
+`params`, го използва; `spec/requests/registrations_spec.rb` доказва, че параметърът `admin`
+конкретно не може да бъде зададен по този начин.
 
-**CSRF** — Rails enables `protect_from_forgery` by default for every `ActionController::Base`
-subclass (which `ApplicationController` is); this app takes the default rather than opting out of it
-anywhere, so it is not called out as a separate feature — it is the one gate here that required no
-code to get right, only *not disabling it*.
+**CSRF** — Rails включва `protect_from_forgery` по подразбиране за всеки наследник на
+`ActionController::Base` (какъвто е `ApplicationController`); това приложение приема подразбирането,
+вместо да го изключва някъде, така че не е отделено като самостоятелен feature — това е единственият
+gate тук, който не изисква код, за да бъде верен, само *да не бъде изключван*.
 
-## 6. The loop in action
+## 6. Цикълът в действие
 
 ```mermaid
 flowchart LR
@@ -326,123 +341,127 @@ flowchart LR
     MERGE -.->|"loop closes -- next feature"| SPEC
 ```
 
-`seo-optimizer.md` and `frontend-qa.md` run **in parallel** with the general reviewer, not instead of
-it, and only for features that add or change a rendered page — FEATURE-1's sign-in form and
-FEATURE-2's checkout flow predate this addendum and were reviewed by `reviewer.md` alone; FEATURE-3
-(§3a, below) is the first feature all three review together.
+`seo-optimizer.md` и `frontend-qa.md` работят **паралелно** с общия reviewer, не вместо него, и само
+за features, които добавят или променят рендирана страница — формата за вход на FEATURE-1 и checkout
+потокът на FEATURE-2 предшестват този addendum и бяха прегледани само от `reviewer.md`; FEATURE-3
+(§3a, по-долу) е първият feature, който и трите преглеждат заедно.
 
-The full stage-by-stage narration for all three features is
-[`artefacts/rails-feature-loop-transcript.md`](artefacts/rails-feature-loop-transcript.md), explicitly
-labelled a **reference transcript** — real file names, real spec, real committed code, real review
-reasoning; illustrative `bundle exec rspec`/`rubocop`/`brakeman`/axe/html-proofer console bytes,
-because this sandbox has no Ruby toolchain and no browser either (§9). Here is the shape of what it
-shows.
+Пълната разходка стъпка по стъпка за трите features е
+[`artefacts/rails-feature-loop-transcript.md`](artefacts/rails-feature-loop-transcript.md), изрично
+обозначена като **референтен транскрипт** — реални имена на файлове, реална спецификация, реален
+комитнат код, реални разсъждения на reviewer-а; илюстративни байтове от конзолата на
+`bundle exec rspec`/`rubocop`/`brakeman`/axe/html-proofer, защото тази пясъчна кутия няма Ruby
+инструментариум и няма браузър (§9). Ето формата на това, което показва.
 
-### FEATURE-1 — user login (clean pass)
+### FEATURE-1 — вход на потребител (чист пропуск)
 
 [`docs/features/FEATURE-1-user-login.md`](code/rails-estore/docs/features/FEATURE-1-user-login.md)
-sets six acceptance criteria. The implementer writes
+задава шест acceptance criteria. Implementer-ът пише
 [`spec/models/user_spec.rb`](code/rails-estore/spec/models/user_spec.rb),
-[`spec/requests/registrations_spec.rb`](code/rails-estore/spec/requests/registrations_spec.rb), and
-[`spec/requests/sessions_spec.rb`](code/rails-estore/spec/requests/sessions_spec.rb) against stub
-controllers first, confirms all eight examples fail for the right reason (the behaviour doesn't
-exist yet), then writes the real
+[`spec/requests/registrations_spec.rb`](code/rails-estore/spec/requests/registrations_spec.rb), и
+[`spec/requests/sessions_spec.rb`](code/rails-estore/spec/requests/sessions_spec.rb) срещу stub
+controllers първо, потвърждава, че всичките осем примера се провалят по правилната причина
+(поведението още не съществува), после пише реалните
 [`User`](code/rails-estore/app/models/user.rb)/[`Session`](code/rails-estore/app/models/session.rb)/
 [`Current`](code/rails-estore/app/models/current.rb)/
-[`Authentication`](code/rails-estore/app/controllers/concerns/authentication.rb) and the two
-controllers. The gate goes green on the first pass; the fresh reviewer's authorization check finds
-nothing to flag — `CartsController#show` never takes a `params[:id]` at all, the simplest form
-authorization can take — and mass assignment is a clean three-key `permit()` list. **APPROVE**,
-straight line from spec to merge, same shape as `java-project/`'s FEATURE-1.
+[`Authentication`](code/rails-estore/app/controllers/concerns/authentication.rb) и двата
+controller-а. Gate-ът минава зелено още от първия път; ръчната проверка за авторизация на свежия
+reviewer не открива нищо за флагиране — `CartsController#show` изобщо не взима `params[:id]`, найпростата форма, която проверката за авторизация може да приеме — и mass assignment е чист списък
+`permit()` с три ключа. **APPROVE**, права линия от спецификация до сливане, същата форма като
+FEATURE-1 на `java-project/`.
 
-### FEATURE-2 — checkout (the planted slip, caught and fixed)
+### FEATURE-2 — checkout (планираният пропуск, уловен и поправен)
 
-[`docs/features/FEATURE-2-checkout.md`](code/rails-estore/docs/features/FEATURE-2-checkout.md) sets
-six acceptance criteria, one of them (AC5) naming the authorization case explicitly: *"not satisfied
-by 'the route requires sign-in' alone."* The implementer writes
-[`spec/models/order_spec.rb`](code/rails-estore/spec/models/order_spec.rb) and
-[`spec/requests/checkout_spec.rb`](code/rails-estore/spec/requests/checkout_spec.rb), confirms the
-failures are real, then writes
+[`docs/features/FEATURE-2-checkout.md`](code/rails-estore/docs/features/FEATURE-2-checkout.md)
+задава шест acceptance criteria, едно от тях (AC5) назовавайки случая с авторизацията изрично: *"не е
+удовлетворено само от 'route-ът изисква вход'."* Implementer-ът пише
+[`spec/models/order_spec.rb`](code/rails-estore/spec/models/order_spec.rb) и
+[`spec/requests/checkout_spec.rb`](code/rails-estore/spec/requests/checkout_spec.rb), потвърждава,
+че провалите са реални, после пише
 [`Checkout::OrdersController`](code/rails-estore/app/controllers/checkout/orders_controller.rb).
-Under time pressure, `show` ships as `Order.find(params[:id])` — this chapter's cold-open bug, for
-real — and AC5's RSpec coverage ships as one positive case only ("returns the order to its own
-owner"), missing the negative case the spec's own wording asked for.
+Под времево напрежение `show` се доставя като `Order.find(params[:id])` — бъгът от отварянето на
+тази глава, за истина — а RSpec покритието на AC5 се доставя само с един положителен случай ("връща
+поръчката на собствения ѝ собственик"), пропускайки отрицателния случай, за какъвто самата
+формулировка на спецификацията настояваше.
 
-The gate runs and reports **all three green**: RSpec is green because nothing exercises the
-vulnerable path; RuboCop is green because the line is perfectly idiomatic Ruby; Brakeman is green
-because broken access control across records of the same type isn't one of its static checks
-(§5). The implementer reports the gate green, honestly believing the feature is done.
+Gate-ът се изпълнява и докладва **и трите зелени**: RSpec е зелен, защото нищо не задейства
+уязвимия път; RuboCop е зелен, защото линията е перфектно идиоматичен Ruby; Brakeman е зелен, защото
+счупен контрол на достъп между записи от един и същи тип не е една от статичните му проверки (§5).
+Implementer-ът докладва, че gate-ът е зелен, честно вярвайки, че feature-ът е готов.
 
-The fresh reviewer's process step 3 — **"by hand, on every controller action touched"** — finds it
-reading the diff directly, in about the time it takes to read the line:
+Стъпка 3 от процеса на свежия reviewer — **"ръчно, на всеки controller action, който е засегнат"** —
+я открива, четейки diff-а директно, за времето, необходимо да се прочете самата линия:
 
-> **CHANGES REQUESTED.**
-> 1. `app/controllers/checkout/orders_controller.rb:26` — `Order.find(params[:id])` is not scoped to
->    `Current.user`. Any signed-in user can read any other user's order by incrementing the id in the
->    URL (IDOR, OWASP A01:2021). Fix: `Current.user.orders.find(params[:id])`.
-> 2. `spec/requests/checkout_spec.rb` — AC5's negative case has no RSpec example. Green RSpec is not
->    evidence of anything here.
+> **ИЗИСКВАТ СЕ ПРОМЕНИ.**
+> 1. `app/controllers/checkout/orders_controller.rb:26` — `Order.find(params[:id])` не е scope-нат
+>    към `Current.user`. Всеки влязъл потребител може да прочете чужда поръчка, само увеличавайки
+>    id-то в URL-а (IDOR, OWASP A01:2021). Поправка: `Current.user.orders.find(params[:id])`.
+> 2. `spec/requests/checkout_spec.rb` — отрицателният случай на AC5 няма RSpec пример. Зелен RSpec
+>    тук не е доказателство за нищо.
 
-The implementer adds the missing negative example, confirms it fails against the still-broken
-controller (a real `ActiveRecord::RecordNotFound` expectation that raises nothing — the concrete
-proof the bug is real, not theoretical), applies the one-line fix, and re-runs the gate — this time
-with the negative case actually contributing to a green RSpec run. The reviewer re-checks both
-findings, re-runs the gate independently, and returns **APPROVE**. Architect merges.
+Implementer-ът добавя липсващия отрицателен пример, потвърждава, че се проваля срещу все още
+счупения controller (реално очакване за `ActiveRecord::RecordNotFound`, което не хвърля нищо —
+конкретното доказателство, че бъгът е реален, не хипотетичен), прилага еднолинейната поправка, и
+пуска gate-а отново — този път с отрицателния случай реално допринасящ за зелен RSpec run. Reviewer-ът
+проверява отново и двете констатации, пуска gate-а независимо, и връща **APPROVE**. Архитектът
+сливa.
 
-*Why we do it this way:* this is the chapter's whole argument, concentrated into one diff. Three
-automated gates were not lying — each was reporting exactly what it is built to report. None of them
-is built to answer "is this the right user's data." A fresh reviewer instructed to ask that question
-by hand, on every action, every time, is.
+*Защо го правим така:* това е целият аргумент на главата, концентриран в един diff. Трите
+автоматизирани gate-а не лъжеха — всеки докладваше точно това, за което е построен. Никой от тях не
+е построен да отговори на "чии данни са тези." Свеж reviewer, инструктиран да задава този въпрос
+ръчно, на всеки action, всеки път, е.
 
-### FEATURE-3 — product catalog (two specialist defects, one per new agent)
+### FEATURE-3 — каталог на продукти (два специализирани дефекта, по един за всеки нов агент)
 
 [`docs/features/FEATURE-3-product-catalog-seo-a11y.md`](code/rails-estore/docs/features/FEATURE-3-product-catalog-seo-a11y.md)
-(this addendum) sets nine acceptance criteria for a public, SEO-complete, accessible product catalog
-— the first feature `seo-optimizer.md` and `frontend-qa.md` review. The implementer writes
-[`spec/system/accessibility_spec.rb`](code/rails-estore/spec/system/accessibility_spec.rb) and
-[`spec/system/seo_spec.rb`](code/rails-estore/spec/system/seo_spec.rb), confirms both fail for the
-right reason, then writes the real
+(този addendum) задава девет acceptance criteria за публичен, SEO-завършен, достъпен каталог на
+продукти — първият feature, който `seo-optimizer.md` и `frontend-qa.md` преглеждат. Implementer-ът
+пише [`spec/system/accessibility_spec.rb`](code/rails-estore/spec/system/accessibility_spec.rb) и
+[`spec/system/seo_spec.rb`](code/rails-estore/spec/system/seo_spec.rb), потвърждава, че и двата се
+провалят по правилната причина, после пише реалните
 [`ProductsController`](code/rails-estore/app/controllers/products_controller.rb),
-[`ProductsHelper`](code/rails-estore/app/helpers/products_helper.rb), and — new to this project —
+[`ProductsHelper`](code/rails-estore/app/helpers/products_helper.rb), и — ново за този проект —
 [`app/views/layouts/application.html.erb`](code/rails-estore/app/views/layouts/application.html.erb),
-which did not exist before this addendum. Two slips ship, one per specialist's lane: the catalog's
-search field ships as a bare `<input type="search" name="q" placeholder="Search products">` with no
-`<label>` — placeholder text is not a label, and disappears the moment a user starts typing — and the
-product show page ships with **no** `<script type="application/ld+json">` block at all.
+който не съществуваше преди този addendum. Доставят се два пропуска, по един за областта на всеки
+специалист: полето за търсене в каталога се доставя като гол
+`<input type="search" name="q" placeholder="Search products">` без `<label>` — placeholder текстът не
+е label и изчезва в момента, в който потребителят започне да пише — и страницата за преглед на
+продукт се доставя **без** никакъв блок `<script type="application/ld+json">`.
 
-`bundle exec rspec`, `rubocop`, and `brakeman -q --no-summary` all report clean, for the same reason
-§6's IDOR case did: none of the three has a check in this category at all — not a blind spot in an
-otherwise-broad tool, a category none of them was ever built to cover. The implementer reports every
-check it could run as green.
+`bundle exec rspec`, `rubocop`, и `brakeman -q --no-summary` докладват всичките чисто, по същата
+причина, поради която IDOR случаят в §6 стана: никой от трите няма проверка в тази категория изобщо
+— не е сляпо петно в иначе широк инструмент, а категория, която никой от тях никога не е бил
+построен да покрие. Implementer-ът докладва всяка проверка, която е могъл да пусне, като зелена.
 
-Dispatched in parallel, `frontend-qa.md` runs the axe system spec for real and finds the missing
-label immediately (axe rule `label`, impact **critical**, WCAG 1.3.1/4.1.2) — **CHANGES REQUESTED**.
-`seo-optimizer.md` parses the rendered show page and finds no Product JSON-LD anywhere on it — Google
-Merchant Listing requires `name`/`image`/`offers.price`/`offers.priceCurrency` at minimum
+Пуснат паралелно, `frontend-qa.md` изпълнява axe системния тест наистина и открива липсващия label
+незабавно (axe правило `label`, влияние **критично**, WCAG 1.3.1/4.1.2) — **ИЗИСКВАТ СЕ ПРОМЕНИ**.
+`seo-optimizer.md` парсва рендираната страница за преглед и не открива никъде Product JSON-LD —
+Google Merchant Listing изисква минимум `name`/`image`/`offers.price`/`offers.priceCurrency`
 [NOTE-SDLC-4-ADD-2-schema-product.md](../../research/NOTE-SDLC-4-ADD-2-schema-product.md) —
-**CHANGES REQUESTED**. The implementer adds the missing `<%= f.label %>` and the two JSON-LD
-`<script>` tags (Product + BreadcrumbList), re-runs the gate, and both specialists — plus the general
-`reviewer.md`, which had nothing to flag since this controller touches no `Current.user`-scoped query
-or `permit()` call — return **APPROVE**. Architect merges. Full transcript, including both verdicts
-verbatim and the illustrative axe/html-proofer output:
-[`artefacts/rails-feature-loop-transcript.md`](artefacts/rails-feature-loop-transcript.md) Part C;
-reference axe/html-proofer/Lighthouse CI output:
+**ИЗИСКВАТ СЕ ПРОМЕНИ**. Implementer-ът добавя липсващия `<%= f.label %>` и двата JSON-LD `<script>`
+тага (Product + BreadcrumbList), пуска gate-а отново, и двамата специалисти — плюс общия
+`reviewer.md`, който нямаше какво да флагира, тъй като този controller не докосва нито
+scope-нато по `Current.user` запитване, нито извикване на `permit()` — връщат **APPROVE**. Архитектът
+сливa. Пълен транскрипт, включително и двата вердикта дословно и илюстративния axe/html-proofer
+изход: [`artefacts/rails-feature-loop-transcript.md`](artefacts/rails-feature-loop-transcript.md)
+Част В; референтен axe/html-proofer/Lighthouse CI изход:
 [`artefacts/rails-validation-log.md`](artefacts/rails-validation-log.md) §6.
 
-## 6a. Build it yourself — stand up the scaffold, then drive the loop
+## 6a. Постройте го сами — изградете скелета, после движете цикъла
 
-§6 narrated what happened when this loop ran — but that loop presupposes a governance scaffold
-already exists, and on a real new project it doesn't, yet. This section is both halves, written as
-something you actually do: **Phase 1** authors `CLAUDE.md`, the docs, the sub-agents, and the hooks
-yourself, by hand, before any `app/` code exists — the same four scaffolding primitives
-[SPEC-SDLC-1 (Theory)](../01-theory/01-theory.md) names in the abstract, applied the way
-[SPEC-SDLC-2](01-java-sdlc-scaffold.md) already applied them to scaffold a brand-new Java project, now
-with your hand on the keyboard instead of a chapter's narration. **Phase 2** is §6's six-step rhythm,
-now running on the scaffold Phase 1 produced: install Claude Code, open `code/rails-estore/`, and
-drive FEATURE-1 → FEATURE-2 → FEATURE-3 yourself. Every step below, with its paste-ready prompts, the
-install/sign-in instructions, and the `docker compose up` finish line, lives in
-[`code/rails-estore/README.md`](code/rails-estore/README.md#build-it-yourself-with-claude-code) so it
-runs standalone, without this chapter open. Here is the shape of both phases.
+§6 разказа какво се случи, когато този цикъл се изпълни — но този цикъл предполага, че вече
+съществува слой за управление, а в реален нов проект той не съществува, все още. Този раздел е и
+двете половини, написани като нещо, което реално правите: **Фаза 1** пише `CLAUDE.md`, документацията,
+под-агентите, и hook-овете сами, ръчно, преди изобщо да съществува `app/` код — същите четири
+примитива за скеле, които [SPEC-SDLC-1 (Theory)](../01-theory/01-theory.md) назовава в абстракция,
+приложени по начина, по който [SPEC-SDLC-2](01-java-sdlc-scaffold.md) вече ги приложи, за да изгради
+скелета на изцяло нов Java проект, сега с вашата ръка на клавиатурата, вместо разказ в глава.
+**Фаза 2** е ритъмът от шест стъпки от §6, изпълняван сега върху скелета, произведен от Фаза 1:
+инсталирате Claude Code, отваряте `code/rails-estore/`, и движите FEATURE-1 → FEATURE-2 → FEATURE-3
+сами. Всяка стъпка по-долу, с готовите за копиране prompt-ове, инструкциите за инсталиране/вход, и
+финалната линия `docker compose up`, живее в
+[`code/rails-estore/README.md`](code/rails-estore/README.md#build-it-yourself-with-claude-code), така
+че работи самостоятелно, без тази глава да е отворена. Ето формата на двете фази.
 
 ```mermaid
 flowchart LR
@@ -451,37 +470,40 @@ flowchart LR
     P2 --> RUN["docker compose up"]
 ```
 
-### Phase 1 — stand up the agentic SDLC yourself, first
+### Фаза 1 — сами изградете agentic SDLC-то, първо
 
-Before touching a single `app/` file, author these in order — every one is already committed in
-`code/rails-estore/`; treat it as the template you're adapting, not a thing you inherit unread:
+Преди да докоснете дори един `app/` файл, напишете следните по ред — всеки от тях вече е комитнат в
+`code/rails-estore/`; третирайте го като шаблона, който адаптирате, не като нещо, което наследявате
+непрочетено:
 
-1. **`CLAUDE.md`** — the charter: the golden rules (spec before code, tests-first, every
-   `Current.user`-scoped query authorized, secrets in `.env` only) and the model-routing table.
-2. **`docs/architecture.md` and `docs/definition-of-done.md`** — the shape and the exit bar, including
-   the Security section this app's threat model earns (§2 above walked through both in full).
-3. **The sub-agents in `.claude/agents/`** — `researcher`, `implementer`, `reviewer`, then
-   `seo-optimizer` and `frontend-qa` (§3, §3a). Authoring one means YAML frontmatter
-   (`name`/`description`/`tools`/`model`), a numbered checklist, and an explicit "output a verdict, do
-   not merge" contract; Claude Code then dispatches it by natural language, an `@`-mention, or a
-   session-wide `--agent` flag
-   [source: [Claude Code — Sub-agents](https://code.claude.com/docs/en/sub-agents) (checked
+1. **`CLAUDE.md`** — хартата: златните правила (спецификация преди код, tests-first, всяко
+   scope-нато по `Current.user` запитване авторизирано, secrets само в `.env`) и таблицата за
+   маршрутизация на модели.
+2. **`docs/architecture.md` и `docs/definition-of-done.md`** — формата и изходната летва, включително
+   секцията Security, която моделът на заплахата на това приложение заслужава (§2 по-горе разгледа
+   и двете изцяло).
+3. **Под-агентите в `.claude/agents/`** — `researcher`, `implementer`, `reviewer`, после
+   `seo-optimizer` и `frontend-qa` (§3, §3a). Написването на един означава YAML frontmatter
+   (`name`/`description`/`tools`/`model`), номериран checklist, и изричен договор "изведи вердикт, не
+   сливай"; Claude Code после го диспечира чрез естествен език, `@`-споменаване, или
+   session-широк флаг `--agent`
+   [източник: [Claude Code — Sub-agents](https://code.claude.com/docs/en/sub-agents) (проверено
    2026-09-04)].
-4. **The hooks + `.claude/settings.json`** (§4) — `guard.sh` on `PreToolUse` (the hard blocks),
-   `verify.sh` on `PostToolUse` (the fast gate), `context.sh` on `SessionStart`; `settings.json` wires
-   each script to its event, three levels deep — event → matcher → handler
-   [source: [Claude Code — Hooks](https://code.claude.com/docs/en/hooks) (checked 2026-09-04)].
-5. **`docs/features/FEATURE-1-user-login.md`** — written and approved before any `app/` code, its
-   acceptance criteria as testable statements, not prose a reviewer has to interpret.
+4. **Hook-овете + `.claude/settings.json`** (§4) — `guard.sh` при `PreToolUse` (твърдите блокировки),
+   `verify.sh` при `PostToolUse` (бързия gate), `context.sh` при `SessionStart`; `settings.json`
+   свързва всеки скрипт с неговия event, три нива дълбоко — event → matcher → handler
+   [източник: [Claude Code — Hooks](https://code.claude.com/docs/en/hooks) (проверено 2026-09-04)].
+5. **`docs/features/FEATURE-1-user-login.md`** — написан и одобрен преди какъвто и да е `app/` код,
+   с acceptance criteria като тестваеми твърдения, не проза, която reviewer трябва да интерпретира.
 
-The README's Phase 1 section has a paste-ready drafting prompt for each of the five — asking Claude
-Code to help write your own `CLAUDE.md`, your own `reviewer` sub-agent, your own `guard.sh` — with the
-committed file to compare against once you're done. **This is what makes Phase 2's hands-off
-stretches safe:** the implementer iterating on its own until the gate is green only works because a
-gate you authored is watching, and a reviewer verdict is only trustworthy because you wrote the
-checklist it's grading against.
+Секцията Фаза 1 в README-то има готов за копиране prompt за чернова на всеки от петте — молещ Claude
+Code да помогне да напишете собствения си `CLAUDE.md`, собствения си под-агент `reviewer`, собствения
+си `guard.sh` — с комитнатия файл за сравнение, когато приключите. **Точно това прави безопасни
+периодите на Фаза 2 без вашата намеса:** implementer-ът да итерира сам, докато gate-ът стане зелен,
+работи само защото gate, който сте написали вие, наблюдава, а вердиктът на reviewer-а е доверен само
+защото сте написали checklist-а, по който оценява.
 
-### Phase 2 — drive the loop you just set up
+### Фаза 2 — движете цикъла, който току-що изградихте
 
 ```mermaid
 flowchart LR
@@ -495,229 +517,245 @@ flowchart LR
     DECIDE -.->|"repeat, next feature"| YOU
 ```
 
-**The loop, once per feature — running on the scaffold Phase 1 produced:**
+**Цикълът, веднъж на feature — изпълняван върху скелета, произведен от Фаза 1:**
 
-1. **Read the spec.** [`docs/features/FEATURE-1-user-login.md`](code/rails-estore/docs/features/FEATURE-1-user-login.md),
-   then `FEATURE-2-checkout.md`, then `FEATURE-3-product-catalog-seo-a11y.md` — the acceptance
-   criteria are the contract you're about to hold the implementer to, not a suggestion.
-2. **Prompt Claude Code to implement it.** A starting point:
+1. **Прочетете спецификацията.** [`docs/features/FEATURE-1-user-login.md`](code/rails-estore/docs/features/FEATURE-1-user-login.md),
+   после `FEATURE-2-checkout.md`, после `FEATURE-3-product-catalog-seo-a11y.md` — acceptance
+   criteria са договорът, по който ще държите implementer-а отговорен, а не предложение.
+2. **Подканете Claude Code да го имплементира.** Отправна точка:
 
    > Implement FEATURE-1 (`docs/features/FEATURE-1-user-login.md`). Use the implementer sub-agent:
    > write the failing RSpec examples for every acceptance criterion first, confirm each fails for the
    > right reason, then write the code that makes them pass. Run the full gate before telling me it's
    > done.
 
-   Claude Code dispatches `implementer.md` — by natural-language inference, or a forced
-   `@agent-implementer` mention — which writes the failing test before a single line of `app/` code
-   [source: [Claude Code — Sub-agents](https://code.claude.com/docs/en/sub-agents) (checked
+   Claude Code диспечира `implementer.md` — чрез изведен от естествен език, или принудено споменаване
+   с `@agent-implementer` — който пише провалящия се тест преди дори един ред `app/` код
+   [източник: [Claude Code — Sub-agents](https://code.claude.com/docs/en/sub-agents) (проверено
    2026-09-04)].
-3. **Watch the gates fire.** `verify.sh` runs `rspec`/`rubocop`/`brakeman` on every `.rb` edit (§4);
-   `guard.sh` vetoes dangerous shell before it runs at all. A red gate on the first pass — a fresh
-   RSpec file with every example failing — is correct, not broken; that's the test-first discipline
-   §2's golden rule 2 names, made visible in your own terminal instead of read about.
-4. **Get an independent review.**
+3. **Наблюдавайте как се задействат gate-овете.** `verify.sh` пуска `rspec`/`rubocop`/`brakeman` при
+   всяка промяна на `.rb` (§4); `guard.sh` вето-ва опасен shell, преди изобщо да се изпълни. Червен
+   gate при първото минаване — нов RSpec файл с всеки пример провалящ се — е правилно, не счупено;
+   това е test-first дисциплината, назована от златно правило 2 в §2, видима сега в собствения ви
+   терминал, вместо само прочетена.
+4. **Получете независим review.**
 
    > Use the reviewer sub-agent to review the diff against the spec's acceptance criteria. Check
    > authorization and mass assignment by hand, not just the gate output.
 
-   This is the step §6's FEATURE-2 narration exists to justify: three green gates and a real IDOR,
-   caught only because the reviewer read `Order.find(params[:id])` and asked whose order that query
-   is actually scoped to. For FEATURE-3, add `seo-optimizer` and `frontend-qa` to the same prompt —
-   they're the roles that catch the unlabelled search field and the missing Product JSON-LD block §6
-   walks through, neither of which `rspec`/`rubocop`/`brakeman` has a check for at all.
-5. **Repeat for FEATURE-2, then FEATURE-3.** Same rhythm; only the acceptance criteria — and which
-   defect class they guard against — change.
-6. **Run what you built.** `docker compose up`, then <http://localhost:3000> — the storefront §9's
-   screenshot shows.
+   Това е стъпката, заради която съществува разказът за FEATURE-2 в §6: три зелени gate-а и реален
+   IDOR, уловен само защото reviewer-ът прочете `Order.find(params[:id])` и попита чия поръчка е
+   реално scope-нато това запитване. За FEATURE-3 добавете `seo-optimizer` и `frontend-qa` към същия
+   prompt — те са ролите, които улавят полето за търсене без label и липсващия блок Product JSON-LD,
+   които §6 разглежда, за нито едно от които `rspec`/`rubocop`/`brakeman` няма никаква проверка.
+5. **Повторете за FEATURE-2, после FEATURE-3.** Същият ритъм; само acceptance criteria — и класа
+   дефекти, срещу който пазят — се променят.
+6. **Пуснете това, което построихте.** `docker compose up`, после <http://localhost:3000> — витрината,
+   която показва снимката в §9.
 
-**How to steer well:** be specific and point at the spec rather than describing the feature from
-memory; let the gates and reviewers do the catching instead of hand-checking every RuboCop rule
-yourself; review every diff before you call it merged — an **APPROVE** from `reviewer.md` is a strong
-signal, not a merge button.
+**Как да насочвате добре:** бъдете конкретни и сочете спецификацията, вместо да описвате feature-а
+по памет; оставете gate-овете и reviewer-ите да улавят, вместо ръчно да проверявате всяко RuboCop
+правило сами; прегледайте всеки diff, преди да го обявите за слят — **APPROVE** от `reviewer.md` е
+силен сигнал, не бутон за сливане.
 
-**Honest notes:** model outputs vary run to run — your own FEATURE-2 attempt might ship the IDOR §6
-describes, or it might not; either way, the reviewer step is what makes the loop safe, not a promise
-that the first draft is already correct. You stay in the loop at every decision point — approve,
-reject, merge — which is exactly what makes the *hands-off* stretches (the implementer's edit-test-fix
-cycle inside step 2, the gate firing automatically inside step 3) safe to let run without narrating
-every keystroke yourself.
+**Честни бележки:** изходите на модела варират от изпълнение на изпълнение — собственият ви опит за
+FEATURE-2 може да достави IDOR-а от §6, а може и да не го достави; и в двата случая стъпката с
+reviewer-а е това, което прави цикъла безопасен, не обещание, че първата чернова вече е коректна.
+Оставате в цикъла на всяка точка на решение — одобрете, отхвърлете, сливайте — точно това прави
+периодите *без вашата намеса* (циклите на implementer-а edit-test-fix вътре в стъпка 2, автоматичното
+задействане на gate-а вътре в стъпка 3) безопасни за изпълнение без вие да разказвате всяко
+натискане на клавиш.
 
-## 7. Pitfalls
+## 7. Клопки
 
-- **Trusting a green security scanner to mean "no vulnerabilities."** Brakeman reporting zero
-  warnings means zero warnings *in the categories Brakeman checks* — §6's IDOR is the concrete
-  counter-example. Read `docs/research/NOTE-SDLC-4-3-brakeman-checks.md`'s own "Caveats" section
-  before treating any static scanner's silence as a verdict.
-- **A permit list that grows by convenience.** `permit(:email_address, :password,
-  :password_confirmation, :admin)` compiles, passes RuboCop, and Brakeman only flags mass assignment
-  when a permit call is *missing* — a permit call that exists but is too generous reads as
-  intentional. The reviewer's step 4 exists because nothing automated distinguishes "this attribute
-  belongs here" from "this attribute happens to be here."
-- **Testing the happy path and calling it done.** FEATURE-2's implementer wrote a real, passing test
-  for AC5 — just the wrong half of it. A green suite is only as trustworthy as the acceptance
-  criteria it actually encodes; "AC5 has a test" and "AC5 is tested" are not the same claim.
-- **Skipping the failing-test-first step.** Same risk `java-project/`'s Pitfalls named: write the
-  test and the code in the same pass, and you've verified they agree with each other, not that the
-  test would have caught the bug it claims to guard against.
-- **Storing money as a float.** `Product#price_cents` and `Order#total_cents` are integers on
-  purpose — a `decimal`/`float` price accumulates rounding error across enough line items and
-  discounts to matter; storing cents as an integer makes that class of bug structurally impossible.
-- **Assuming "RSpec/RuboCop/Brakeman all green" means the page is done.** FEATURE-3 (§3a, §6) is the
-  concrete counter-example for a second class of bug, alongside §6's IDOR: none of those three tools
-  has ANY check for a missing form label or a missing structured-data block — not a partial-coverage
-  gap, a category outside their remit entirely. `seo-optimizer.md`/`frontend-qa.md` exist because
-  "the gate is green" and "this page is finished" are, again, not the same claim.
-- **A stub that quietly becomes the real call.** `PaymentService`'s test-mode branch
-  (`Rails.env.test? || ENV["STRIPE_STUB"] == "true"`) must stay the FIRST branch checked — the
-  reviewer's step 8 explicitly flags "a stubbed `PaymentService` accidentally calling the real Stripe
-  client" as a scope-creep pattern to watch for, because it's the one bug in this app that would cost
-  real money to trigger.
+- **Да се доверите на зелен security scanner, че означава "няма уязвимости."** Brakeman, докладващ
+  нула предупреждения, означава нула предупреждения *в категориите, които Brakeman проверява* —
+  IDOR-ът от §6 е конкретният контрапример. Прочетете секцията "Caveats" на собствения
+  `docs/research/NOTE-SDLC-4-3-brakeman-checks.md`, преди да третирате мълчанието на статичен
+  scanner като вердикт.
+- **Permit списък, който расте от удобство.** `permit(:email_address, :password,
+  :password_confirmation, :admin)` компилира, минава RuboCop, и Brakeman флагира mass assignment
+  само когато извикването на permit *липсва* — извикване на permit, което съществува, но е твърде
+  щедро, изглежда като умишлено. Стъпка 4 на reviewer-а съществува, защото нищо автоматизирано не
+  различава "този атрибут принадлежи тук" от "този атрибут просто се случва да е тук."
+- **Тестване само на happy path-а и обявяване на "готово."** Implementer-ът на FEATURE-2 написа
+  реален, минаващ тест за AC5 — просто грешната половина от него. Зелен suite е доверен само доколкото
+  acceptance criteria, които реално кодира; "AC5 има тест" и "AC5 е тестван" не са едно и също
+  твърдение.
+- **Пропускане на стъпката провалящ-се-тест-първо.** Същият риск, назован в клопките на
+  `java-project/`: напишете теста и кода в един и същи преход, и сте потвърдили само, че си
+  съответстват един на друг, не че тестът би уловил бъга, срещу който твърди, че пази.
+- **Съхранение на пари като float.** `Product#price_cents` и `Order#total_cents` са integer нарочно
+  — цена от тип `decimal`/`float` натрупва грешка от закръгляне, достатъчна при достатъчно позиции и
+  отстъпки, за да има значение; съхраняването на центове като integer прави този клас бъгове
+  структурно невъзможен.
+- **Приемане, че "RSpec/RuboCop/Brakeman всички зелени" означава страницата е готова.** FEATURE-3
+  (§3a, §6) е конкретният контрапример за втори клас бъгове, наред с IDOR-а от §6: никой от тези три
+  инструмента няма НИКАКВА проверка за липсващ label на форма или липсващ блок структурирани данни —
+  не е частична дупка в покритието, а категория извън обхвата им изцяло. `seo-optimizer.md`/
+  `frontend-qa.md` съществуват, защото "gate-ът е зелен" и "тази страница е завършена" отново не са
+  едно и също твърдение.
+- **Stub, който тихо се превръща в реалния call.** Клонът в тестов режим на `PaymentService`
+  (`Rails.env.test? || ENV["STRIPE_STUB"] == "true"`) трябва да остане ПЪРВОТО проверявано
+  условие — стъпка 8 на reviewer-а изрично флагира "заглушен `PaymentService`, случайно извикващ
+  реалния Stripe клиент" като шаблон за скъпо разрастване на обхвата, за който да се внимава, защото
+  е единственият бъг в това приложение, който би струвал реални пари, ако се задейства.
 
-## 8. Reference — three scaffolds, one shape
+## 8. Референция — три скелета, една форма
 
-| Layer | This repo (content) | `java-project/` (Java) | `rails-estore/` (Rails) | Carries over? |
+| Слой | Това хранилище (съдържание) | `java-project/` (Java) | `rails-estore/` (Rails) | Пренася ли се? |
 |---|---|---|---|---|
-| `.claude/settings.json` schema | 3 events | identical | identical | **Unchanged** |
-| Agent frontmatter schema | `name`/`description`/`model`/`tools` | identical | identical | **Unchanged** |
-| `guard.sh` deny-list | `rm -rf /`, forced push, secrets | + `mvn -DskipTests` | + `git commit --no-verify`, + live Stripe key pattern | **Extended per stack's actual risk** |
-| `verify.sh` gate | byte-compile a snippet | `mvn test` + checkstyle + spotless + spotbugs | `rspec` + rubocop + `brakeman -q` | **Stack-specific — the one place the language matters most** |
-| Spec unit | one chapter | one feature (`FEATURE-*.md`) | one feature (`FEATURE-*.md`) | Same shape |
-| "Runnable" gate criterion | snippet compiles | test existed and failed first | RSpec example existed and failed first | Same shape |
-| Reviewer's extra checklist item | — | test-first commit order | test-first order **+ authorization by hand + mass-assignment by hand** | **New per stack's threat model** |
-| Roster | researcher/writer/reviewer/architect | researcher/implementer/reviewer/architect | identical roles | **Unchanged** |
-| Model routing | Haiku grounds, Sonnet writes, fresh Sonnet reviews, Opus scopes+merges | identical | identical | **Unchanged** |
+| Схема на `.claude/settings.json` | 3 event-а | идентична | идентична | **Непроменено** |
+| Схема на frontmatter-а на агента | `name`/`description`/`model`/`tools` | идентична | идентична | **Непроменено** |
+| Deny-списък на `guard.sh` | `rm -rf /`, принудителен push, secrets | + `mvn -DskipTests` | + `git commit --no-verify`, + шаблон за реален Stripe ключ | **Разширен според реалния риск на стека** |
+| Gate на `verify.sh` | byte-компилиране на snippet | `mvn test` + checkstyle + spotless + spotbugs | `rspec` + rubocop + `brakeman -q` | **Специфично за стека — мястото, където езикът има най-голямо значение** |
+| Единица спецификация | една глава | един feature (`FEATURE-*.md`) | един feature (`FEATURE-*.md`) | Същата форма |
+| Критерий за "работещо" в gate-а | snippet-ът компилира | тестът съществуваше и се провали първи | RSpec примерът съществуваше и се провали първи | Същата форма |
+| Допълнителна точка от checklist-а на reviewer-а | — | ред на комитите test-first | test-first ред **+ авторизация ръчно + mass-assignment ръчно** | **Ново според модела на заплахата на стека** |
+| Състав | researcher/writer/reviewer/architect | researcher/implementer/reviewer/architect | идентични роли | **Непроменено** |
+| Маршрутизация на модели | Haiku обосновава, Sonnet пише, свеж Sonnet преглежда, Opus скопва+слива | идентична | идентична | **Непроменено** |
 
-The takeaway, sharper this time than in either prior chapter: everything Claude Code itself provides
-— the settings schema, the frontmatter schema, the permission model, the hook lifecycle — is
-stack-agnostic and ports verbatim, twice proven now. What changes, every time, is what you author
-*for* your stack: the gate's actual tool invocations, and — new to this chapter — the specific,
-named questions a human-directed reviewer must ask by hand because no available automated tool asks
-them. On a content-authoring repo, that extra question doesn't exist. On a Java feature with no
-network-facing auth surface, it doesn't either. On a Rails app that stores passwords and talks to a
-payment gateway, it is the single most important check in the whole loop.
+Изводът, по-остър този път от предишните две глави: всичко, което самият Claude Code предоставя —
+схемата на settings, схемата на frontmatter-а, моделът на разрешенията, жизненият цикъл на hook-овете
+— е независимо от стека и се пренася дословно, доказано вече два пъти. Това, което се променя всеки
+път, е това, което вие пишете *за* вашия стек: реалните извиквания на инструменти в gate-а, и — ново
+за тази глава — специфичните, назовани въпроси, които насочван от човек reviewer трябва да задава
+ръчно, защото никой наличен автоматизиран инструмент не ги задава. В хранилище за авторство на
+съдържание този допълнителен въпрос не съществува. В Java feature без network-facing auth повърхност
+също не съществува. В Rails приложение, което съхранява пароли и говори с платежен шлюз, това е
+единствената най-важна проверка в целия цикъл.
 
-*Roster footnote (this addendum):* the table above compares the three scaffolds' **shape**, which is
-still unchanged — `rails-estore/`'s roster grows from four roles to six (architect, researcher,
-implementer, reviewer, `seo-optimizer`, `frontend-qa`) without touching the settings schema, the
-frontmatter schema, or the model-routing pattern any of those roles are wired through. §3a covers the
-two additions in full; neither `java-project/` nor this repo's own scaffold has a UI-facing surface
-for either role to apply to.
+*Бележка под линия за състава (този addendum):* таблицата по-горе сравнява **формата** на трите
+скелета, която остава непроменена — съставът на `rails-estore/` нараства от четири роли на шест
+(architect, researcher, implementer, reviewer, `seo-optimizer`, `frontend-qa`), без да докосва
+схемата на settings, схемата на frontmatter-а, или шаблона за маршрутизация на модели, чрез който
+всяка от тези роли е свързана. §3a покрива двете допълнения изцяло; нито `java-project/`, нито
+собственият скелет на това хранилище имат UI-обърната повърхност, към която да се приложи която и
+да е от двете роли.
 
-## 9. Environment note, secret scan, and honesty about what ran where
+## 9. Бележка за средата, сканиране за secrets, и честност за какво реално е било изпълнено къде
 
-**This code is correct and idiomatic Ruby/Rails 8.1, written to run in a declared Rails environment
-— it was not executed inside this Python book repository**, which has no Ruby toolchain (`which
-bundle`, `which rspec`, `which brakeman` all resolve to nothing here) **and no browser or Node
-toolchain either** (`which chromedriver`, `which node` also resolve to nothing) — so the frontend
-gate this addendum adds (axe, html-proofer, `npx lhci autorun`) is reference-only for the same reason
-the Ruby gate is. What WAS actually run, for real, in this repository's own sandbox:
-`python -m json.tool` against `.claude/settings.json`; `validate_frontmatter.py` against all **five**
-agent files (researcher, implementer, reviewer, `seo-optimizer`, `frontend-qa`); all three hook
-scripts (`context.sh`/`guard.sh`/`verify.sh`) fed real synthetic Claude Code hook payloads on stdin,
-with real captured output for every case, including all five `guard.sh` deny-rules; and a real `grep`
-secret scan across the entire `code/rails-estore/` tree — and, added by SPEC-SDLC-4-ADDENDUM-2, a
-real `docker compose build`/`up`/`curl`/`bundle exec rspec`/`down -v` cycle, since Docker (unlike
-Ruby) genuinely runs in this sandbox. Every one of those is in
-[`artefacts/rails-validation-log.md`](artefacts/rails-validation-log.md) with its exact command and
-output, §§1, 2, 3, 5, and 7 marked real, §4 (RSpec/RuboCop/Brakeman) and §6 (axe/html-proofer/
-Lighthouse CI) marked as grounded reference reproductions. The feature-loop transcript follows the
-same convention — see its own header.
+**Този код е коректен и идиоматичен Ruby/Rails 8.1, написан да работи в декларирана Rails среда — не
+е бил изпълняван вътре в тази Python книга-хранилище**, което няма Ruby инструментариум (`which
+bundle`, `which rspec`, `which brakeman` всичките се разрешават в нищо тук) **и няма нито браузър,
+нито Node инструментариум** (`which chromedriver`, `which node` също се разрешават в нищо) — така
+че frontend gate-ът, добавен от този addendum (axe, html-proofer, `npx lhci autorun`), е само
+референтен, по същата причина, поради която е и Ruby gate-ът. Това, което ДЕЙСТВИТЕЛНО е изпълнено,
+за истина, в собствената пясъчна кутия на това хранилище:
+`python -m json.tool` срещу `.claude/settings.json`; `validate_frontmatter.py` срещу всичките
+**пет** agent файла (researcher, implementer, reviewer, `seo-optimizer`, `frontend-qa`); и трите
+hook скрипта (`context.sh`/`guard.sh`/`verify.sh`), подадени с реални синтетични Claude Code hook
+payload-и на stdin, с реален заснет изход за всеки случай, включително всичките пет deny-правила на
+`guard.sh`; и реално `grep` сканиране за secrets в цялото дърво на `code/rails-estore/` — и, добавен
+от SPEC-SDLC-4-ADDENDUM-2, реален цикъл `docker compose build`/`up`/`curl`/`bundle exec rspec`/
+`down -v`, тъй като Docker (за разлика от Ruby) реално работи в тази пясъчна кутия. Всяко от тях е
+в [`artefacts/rails-validation-log.md`](artefacts/rails-validation-log.md) с точната команда и изход,
+§§1, 2, 3, 5, и 7 маркирани реални, §4 (RSpec/RuboCop/Brakeman) и §6 (axe/html-proofer/
+Lighthouse CI) маркирани като обосновани референтни възпроизвеждания. Транскриптът на feature цикъла
+следва същата конвенция — виж собственото му заглавие.
 
-**Running it.** Everything above is about what ran inside *this* book's own sandbox. The app now ships
-a **verified docker-compose setup** (SPEC-SDLC-4-ADDENDUM-2) — `docker compose up`, then
-<http://localhost:3000> — genuinely built, booted, and tested in this same sandbox (Docker, unlike
-Ruby, actually runs here): real `docker compose build`/`up`/`curl`/`bundle exec rspec` output is in
-[`artefacts/rails-validation-log.md`](artefacts/rails-validation-log.md) §7, including three real
-boot-time bugs the run surfaced and fixed (an rspec-rails API break, `RAILS_ENV` silently resolving
-to the wrong environment, two missing stock Rails `test.rb` defaults) and one genuine rendering bug a
-screenshot of the running container caught that no test did. If you'd rather run Ruby directly on a
-real Mac — sign up, add a product to a cart, check out, and run every gate including the frontend one
-— [`code/rails-estore/README.md`](code/rails-estore/README.md) is a complete, standalone,
-zero-to-running guide: Homebrew → rbenv → Ruby 4.0.6 → Rails 8.1.3.1, `bin/rails db:setup` (seeded
-with four sample products), `bin/rails server`, and every gate (`rspec`/`rubocop`/`brakeman`, plus
-the frontend gate's `axe`/`html-proofer`/`npx lhci autorun`), each with a one-line "what it's for" and
-a troubleshooting section for the usual native-gem/Apple-Silicon snags. Either path is written to be
-read on its own — a friend cloning just `code/rails-estore/` doesn't need this chapter to get the app
-running, only to understand *why* it's built the way it is.
+**Пускане.** Всичко по-горе е за това какво е било изпълнено вътре в пясъчната кутия на *тази* книга.
+Приложението вече включва **верифициран docker-compose setup** (SPEC-SDLC-4-ADDENDUM-2) —
+`docker compose up`, после <http://localhost:3000> — реално изграден, стартиран, и тестван в тази
+същата пясъчна кутия (Docker, за разлика от Ruby, реално работи тук): реален изход от
+`docker compose build`/`up`/`curl`/`bundle exec rspec` е в
+[`artefacts/rails-validation-log.md`](artefacts/rails-validation-log.md) §7, включително три реални
+бъга, открити и поправени при пускането (счупено rspec-rails API, `RAILS_ENV`, тихо разрешаващ се до
+грешна среда, две липсващи стандартни настройки по подразбиране за `test.rb` на Rails) и един истински
+бъг в рендирането, който снимка на работещия контейнер улови, а нито един тест не улови. Ако бихте
+предпочели да пуснете Ruby директно на истински Mac — да се регистрирате, да добавите продукт в
+количка, да направите checkout, и да пуснете всеки gate, включително frontend gate-а —
+[`code/rails-estore/README.md`](code/rails-estore/README.md) е пълно, самостоятелно, ръководство от
+нула до работещо: Homebrew → rbenv → Ruby 4.0.6 → Rails 8.1.3.1, `bin/rails db:setup` (засято с
+четири примерни продукта), `bin/rails server`, и всеки gate (`rspec`/`rubocop`/`brakeman`, плюс
+`axe`/`html-proofer`/`npx lhci autorun` на frontend gate-а), всеки с едноредово "за какво служи" и
+секция за отстраняване на проблеми за обичайните капани с native gem-ове/Apple Silicon. Всеки от
+двата пътя е написан да се чете самостоятелно — приятел, клониращ само `code/rails-estore/`, няма
+нужда от тази глава, за да пусне приложението, само за да разбере *защо* е построено по този начин.
 
-Here is that running store — the seeded catalog, captured live from the container during the verified
-`docker compose up` run:
+Ето този работещ магазин — засятия каталог, заснет на живо от контейнера по време на верифицирания
+run на `docker compose up`:
 
-![The rails-estore product catalog running under docker-compose: a "Shop all products" heading, a search box, and four seeded products — Rails Mug $15.00, Convention Over Configuration T-Shirt $25.00, Omakase Sticker Pack $8.00, and Migration Notebook $12.00.](code/rails-estore/docs/screenshots/storefront.png)
+![Каталогът с продукти на rails-estore, работещ под docker-compose: заглавие "Разгледайте всички продукти", поле за търсене и четири засети продукта — Чаша Rails — $15.00, Тениска Convention Over Configuration — $25.00, Пакет стикери Omakase — $8.00 и Тефтер за миграции — $12.00.](code/rails-estore/docs/screenshots/storefront.png)
 
-*It ships no CSS on purpose — this is a governance teaching scaffold, where clean, semantic,
-accessible HTML is the point (what the `frontend-qa` and `seo-optimizer` agents check). Styling it is
-a natural first task once a reader sets up Claude Code and starts driving the loop themselves.*
+*Умишлено не носи никакъв CSS — това е учебен скелет за управление, при който чист, семантичен,
+достъпен HTML е самата точка (това, което проверяват агентите `frontend-qa` и `seo-optimizer`).
+Стилизирането му е естествена първа задача, щом читателят настрои Claude Code и започне сам да
+движи цикъла.*
 
-**Secret scan, required before this chapter could be reported done:**
-`grep -rniE 'sk_live|pk_live|rk_live' code/rails-estore/` and a second pass matching any
-`[sp]k_(live|test)_` key-shaped string — every hit is either prose describing the guard rule, or one
-of the two `pk_test_XXXX...`/`sk_test_XXXX...` placeholders in `.env.example`, built from literal
-`X` characters. No real or real-looking key exists anywhere in this tree. Full output:
-[`artefacts/rails-validation-log.md`](artefacts/rails-validation-log.md) §5.
+**Сканиране за secrets, изисквано преди тази глава да може да бъде обявена за готова:**
+`grep -rniE 'sk_live|pk_live|rk_live' code/rails-estore/` и втори проход, съвпадащ с всеки низ във
+формата на ключ `[sp]k_(live|test)_` — всяко попадение е или проза, описваща правилото на guard-а,
+или един от двата placeholder-а `pk_test_XXXX...`/`sk_test_XXXX...` в `.env.example`, построени от
+буквални символи `X`. Никъде в това дърво не съществува реален или изглеждащ реален ключ. Пълен
+изход: [`artefacts/rails-validation-log.md`](artefacts/rails-validation-log.md) §5.
 
-An earlier version of this chapter named a gap here: `code/rails-estore/` shipped the governed
-scaffold plus every feature-specific file, but not the surrounding boot files a fresh `rails new`
-generates. SPEC-SDLC-4-ADDENDUM-2 closed that gap — `config/application.rb`, `config/boot.rb`,
-`config/environment.rb`, the three `config/environments/*.rb` files, `config/puma.rb`, `config.ru`,
-`Rakefile`, `bin/rails`, and `bin/setup` are all now committed, minimal, and — unlike everything else
-in this chapter's sandbox — genuinely **booted**: `docker compose build && docker compose up` serves
-the real app at `http://localhost:3000`, `bundle exec rspec` runs the real suite in the container
-(17/17 model + request specs pass), and `docker compose down -v` tears it down clean. The one honest
-gap that remains is scoped, not hidden: the 5 browser-driven system specs
-(`spec/system/accessibility_spec.rb`, `spec/system/seo_spec.rb`) need a real Chrome + `chromedriver`,
-which this minimal, Node-free Docker image deliberately doesn't install — run those via the native
-macOS path in [`code/rails-estore/README.md`](code/rails-estore/README.md) §3 instead. Full real
-output, including four boot-time bugs the Docker run surfaced and fixed along the way:
-[`artefacts/rails-validation-log.md`](artefacts/rails-validation-log.md) §7.
+По-ранна версия на тази глава назова тук пропуск: `code/rails-estore/` доставяше управлявания
+скелет плюс всеки специфичен за feature файл, но не и заобикалящите boot файлове, които генерира
+свеж `rails new`. SPEC-SDLC-4-ADDENDUM-2 затвори този пропуск — `config/application.rb`,
+`config/boot.rb`, `config/environment.rb`, трите файла `config/environments/*.rb`,
+`config/puma.rb`, `config.ru`, `Rakefile`, `bin/rails`, и `bin/setup` вече всичките са комитнати,
+минимални, и — за разлика от всичко останало в пясъчната кутия на тази глава — реално
+**стартирани**: `docker compose build && docker compose up` обслужва реалното приложение на
+`http://localhost:3000`, `bundle exec rspec` изпълнява реалния suite в контейнера (17/17 model +
+request spec-а минават), и `docker compose down -v` го демонтира чисто. Единственият честен пропуск,
+който остава, е ограничен, не скрит: петте system spec-а, движени от браузър
+(`spec/system/accessibility_spec.rb`, `spec/system/seo_spec.rb`) се нуждаят от реален Chrome +
+`chromedriver`, които този минимален, без Node Docker image умишлено не инсталира — пуснете ги през
+нативния macOS път в [`code/rails-estore/README.md`](code/rails-estore/README.md) §3 вместо това.
+Пълен реален изход, включително четири бъга при стартиране, открити и поправени по пътя от Docker
+run-а: [`artefacts/rails-validation-log.md`](artefacts/rails-validation-log.md) §7.
 
-## 10. Recap & what's next
+## 10. Обобщение и какво следва
 
-Read the last two sections again with one word changed: not "*the reviewer* caught it," but "*you*,
-having dispatched the reviewer *you configured*, watched it get caught." That is the whole reframe
-this chapter has been building toward — §6a (and the standalone [README](code/rails-estore/README.md))
-turn every catch narrated below into something reproducible, keystroke for keystroke, the next time
-you open `code/rails-estore/` in Claude Code yourself: Phase 1 stands up the same `CLAUDE.md`, the
-same five sub-agents, and the same hooks this chapter just toured section by section; Phase 2 is what
-runs on top of them.
+Прочетете последните два раздела отново с една сменена дума: не "*reviewer-ът* го улови," а "*вие*,
+след като сте диспечирали reviewer-а, *който сами сте конфигурирали*, наблюдавахте как е уловено."
+Това е цялото преосмисляне, към което тази глава градеше — §6a (и самостоятелното
+[README](code/rails-estore/README.md)) превръщат всяко улавяне, разказано по-долу, в нещо
+възпроизводимо, натискане по натискане на клавиш, следващия път, когато отворите
+`code/rails-estore/` в Claude Code сами: Фаза 1 изгражда същия `CLAUDE.md`, същите пет под-агента, и
+същите hook-ове, които тази глава току-що обиколи секция по секция; Фаза 2 е това, което работи
+върху тях.
 
-The cold open's bug — `Order.find(params[:id])`, any signed-in user reading anyone's order — got
-written twice in this chapter: once as an ungoverned agent's actual first attempt at FEATURE-2 (§6),
-and once as this chapter's opening hook, deliberately, before you knew a governed loop was about to
-catch it. That's the concrete difference a fresh reviewer instructed to check authorization *by
-hand, every time* makes, proven against a real diff, not asserted in the abstract. FEATURE-3 (§3a,
-§6) proves the same shape of argument twice more, on two dimensions a security reviewer was never
-meant to cover: `frontend-qa.md` caught an unlabelled search field axe was built specifically to
-catch; `seo-optimizer.md` caught a missing Product JSON-LD block Google's own merchant-listing
-requirements name explicitly. Three specialist findings, three different categories of defect
-(authorization, accessibility, discoverability), one shared cause: an automated gate that is green
-*in every category it checks* is not the same claim as "this feature is done," and the fix in every
-case was the same — a named role, with a checklist, instructed to check by hand what nothing
-automated in this project checks at all.
+Бъгът от отварянето — `Order.find(params[:id])`, всеки влязъл потребител, четящ чужда поръчка — бе
+написан два пъти в тази глава: веднъж като реален първи опит на неуправляван агент за FEATURE-2
+(§6), и веднъж като отварящата кука на тази глава, умишлено, преди да знаете, че управляван цикъл
+предстои да го улови. Това е конкретната разлика, която прави свеж reviewer, инструктиран да
+проверява авторизацията *ръчно, всеки път*, доказана срещу реален diff, не твърдяна абстрактно.
+FEATURE-3 (§3a, §6) доказва същата форма аргумент още два пъти, по две измерения, които security
+reviewer никога не е бил предназначен да покрива: `frontend-qa.md` улови поле за търсене без label,
+което axe е построен специално да улавя; `seo-optimizer.md` улови липсващ блок Product JSON-LD,
+какъвто собствените изисквания на Google за merchant-listing назовават изрично. Три специализирани
+констатации, три различни категории дефекти (авторизация, достъпност, откриваемост), една обща
+причина: автоматизиран gate, който е зелен *във всяка категория, която проверява*, не е същото
+твърдение като "този feature е готов," и поправката във всеки случай беше една и съща — назована
+роля, с checklist, инструктирана да проверява ръчно това, което нищо автоматизирано в този проект не
+проверява изобщо.
 
-Four primitive categories, one governed loop, now proven three times over four features: a textbook
-chapter ([SPEC-SDLC-1](../01-theory/01-theory.md)), a Java feature
-([SPEC-SDLC-2](01-java-sdlc-scaffold.md)), and — this chapter — a security-sensitive, now also
-SEO/accessibility-governed, Rails feature set. What ported unchanged: the settings schema, the agent
-frontmatter schema, the roster *shape* (fresh-context specialists dispatched by the architect,
-grounded first, gated always), the model routing. What didn't: the gate's actual content, and the
-specific, named judgment calls a human-directed reviewer has to make *by hand* because no available
-automated tool makes them for you — first for authorization (§6), now for accessibility and SEO
-(§3a, §6's FEATURE-3). Brakeman is real and it is good at what it does; it does not do everything,
-and knowing exactly where that line falls (`docs/research/NOTE-SDLC-4-3-brakeman-checks.md`'s own
-words: it "will not catch logic errors ... that require dynamic analysis or test coverage") is what
-makes every one of these specialist roles non-optional rather than a formality.
+Четири категории примитиви, един управляван цикъл, вече доказан три пъти през четири features:
+учебна глава ([SPEC-SDLC-1](../01-theory/01-theory.md)), Java feature
+([SPEC-SDLC-2](01-java-sdlc-scaffold.md)), и — тази глава — реално чувствителен по сигурност, сега
+също SEO/accessibility-управляван, набор от Rails features. Какво се пренесе непроменено: схемата на
+settings, схемата на frontmatter-а на агентите, *формата* на състава (специалисти с чист контекст,
+диспечирани от архитекта, първо обосновани, винаги под gate), маршрутизацията на моделите. Какво не
+се пренесе: реалното съдържание на gate-а, и специфичните, назовани преценки, които насочван от човек
+reviewer трябва да прави *ръчно*, защото никой наличен автоматизиран инструмент не ги прави вместо
+вас — първо за авторизация (§6), сега за достъпност и SEO (§3a, FEATURE-3 на §6). Brakeman е реален
+и е добър в това, което прави; не прави всичко, и знанието точно къде минава тази граница
+(собствените думи на `docs/research/NOTE-SDLC-4-3-brakeman-checks.md`: няма да улови логически
+грешки ... изискващи динамичен анализ или тестово покритие) е това, което прави всяка от тези
+специализирани роли не по избор, а задължителна, а не формалност.
 
-If you haven't read them yet, [SPEC-SDLC-1 (Theory)](../01-theory/01-theory.md) is the abstract
-version of everything this chapter just proved concretely, and
-[SPEC-SDLC-2 (the Java scaffold)](01-java-sdlc-scaffold.md) is the sibling worked example — same
-loop, a stack with no login form to get wrong. [**How this repo was built**](02-how-this-repo-was-built.md)
-(SPEC-SDLC-3) turns the camera on this very book, tracing the same loop through this repository's
-own real commits. If you're setting up a governed loop on your own Rails project right now,
-`code/rails-estore/` is a complete, ready-to-adapt starting point — install Claude Code (§6a / the
-README's "Set up Claude Code" section), copy `.claude/`, `CLAUDE.md`, and `docs/`, point `Gemfile` at
-whatever your own researcher grounds as current when you do it (the
-versions pinned here were current 2026-09-04 — check again), replace `FEATURE-1`/`FEATURE-2`/
-`FEATURE-3` with your project's actual first features, and run the loop for real, with real `bundle`
-on `PATH` — or, to just get the app running on your own Mac first,
-[`code/rails-estore/README.md`](code/rails-estore/README.md) is the standalone path there.
+Ако още не сте ги чели, [SPEC-SDLC-1 (Theory)](../01-theory/01-theory.md) е абстрактната версия на
+всичко, което тази глава току-що доказа конкретно, а
+[SPEC-SDLC-2 (Java скелетът)](01-java-sdlc-scaffold.md) е сестринският worked example — същия цикъл,
+стек без форма за вход, която може да бъде объркана. [**Как е построено това хранилище**](02-how-this-repo-was-built.md)
+(SPEC-SDLC-3) обръща камерата към самата тази книга, проследявайки същия цикъл през собствените
+реални комити на това хранилище. Ако настройвате управляван цикъл на собствен Rails проект точно
+сега, `code/rails-estore/` е пълна, готова за адаптиране отправна точка — инсталирайте Claude Code
+(§6a / секцията "Set up Claude Code" от README-то), копирайте `.claude/`, `CLAUDE.md`, и `docs/`,
+насочете `Gemfile` към каквото собственият ви researcher обоснове като актуално, когато го правите
+(версиите, фиксирани тук, бяха актуални на 2026-09-04 — проверете отново), заменете
+`FEATURE-1`/`FEATURE-2`/`FEATURE-3` с реалните първи features на вашия проект, и пуснете цикъла за
+истина, с реален `bundle` на `PATH` — или, за да пуснете просто приложението на собствения си Mac
+първо, [`code/rails-estore/README.md`](code/rails-estore/README.md) е самостоятелният път дотам.
