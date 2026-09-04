@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# PreToolUse(Bash): block dangerous or policy-violating shell commands. Exit non-zero to veto.
-# Same deny-list shape as ds_ml_ai_starter's own .claude/hooks/guard.sh and java-project's port,
-# plus two Rails/e-commerce-specific rules a Java content-authoring project has no equivalent for:
-# a real Stripe secret key must never appear in a command, and a git commit must never bypass hooks.
+# PreToolUse(Bash): блокира опасни или нарушаващи политиката shell команди. Изход, различен от нула, вето-ва.
+# Същата форма на deny-list като собствения .claude/hooks/guard.sh на ds_ml_ai_starter и порта на java-project,
+# плюс две правила, специфични за Rails/е-търговия, за които Java content-authoring проект няма еквивалент:
+# реален Stripe secret key никога не трябва да се появява в команда, и git commit никога не трябва да заобикаля hook-овете.
 set -uo pipefail
 
 payload="$(cat)"
@@ -10,24 +10,24 @@ cmd="$(printf '%s' "$payload" | grep -oE '"command"[[:space:]]*:[[:space:]]*"([^
 
 deny() { echo "[guard] BLOCKED: $1" >&2; exit 2; }
 
-# Destructive filesystem / git operations.
+# Деструктивни файлова система / git операции.
 printf '%s' "$cmd" | grep -Eq 'rm[[:space:]]+-rf[[:space:]]+/([[:space:]]|$)' && deny "rm -rf /"
-printf '%s' "$cmd" | grep -Eq 'git[[:space:]]+push[[:space:]].*--force([[:space:]]|$)' && deny "git push --force (use --force-with-lease and only when asked)"
-printf '%s' "$cmd" | grep -Eq 'git[[:space:]]+commit[[:space:]].*--no-verify' && deny "git commit --no-verify (skips the RSpec/RuboCop/Brakeman pre-commit gate)"
-printf '%s' "$cmd" | grep -Eq '(^|[[:space:];&|])(shutdown|reboot|mkfs|:\(\)\{)' && deny "system-level command"
+printf '%s' "$cmd" | grep -Eq 'git[[:space:]]+push[[:space:]].*--force([[:space:]]|$)' && deny "git push --force (използвай --force-with-lease и само когато е поискано)"
+printf '%s' "$cmd" | grep -Eq 'git[[:space:]]+commit[[:space:]].*--no-verify' && deny "git commit --no-verify (пропуска pre-commit гейта на RSpec/RuboCop/Brakeman)"
+printf '%s' "$cmd" | grep -Eq '(^|[[:space:];&|])(shutdown|reboot|mkfs|:\(\)\{)' && deny "команда на ниво система"
 
-# Policy: never print a secret to stdout.
+# Политика: никога не отпечатвай тайна в stdout.
 printf '%s' "$cmd" | grep -Eiq 'echo[[:space:]].*(SECRET|API_KEY|TOKEN|PASSWORD|CREDENTIALS|MASTER_KEY)' && \
-  deny "printing a secret to stdout"
+  deny "отпечатване на тайна в stdout"
 
-# Rails/Stripe-specific: a LIVE key must never appear in a command (test keys start pk_test_/sk_test_
-# and are fine — this pattern matches only the live prefixes). This is the guard that makes "no real
-# secret ever appears in the repo" enforceable, not just a written rule.
+# Специфично за Rails/Stripe: ЖИВ ключ никога не трябва да се появява в команда (тестовите ключове започват с pk_test_/sk_test_
+# и са наред — този шаблон засича само живите префикси). Това е guard-ът, който прави "никаква реална
+# тайна никога не се появява в хранилището" приложимо на практика, не само писано правило.
 printf '%s' "$cmd" | grep -Eq '(sk|pk|rk)_live_[A-Za-z0-9]' && \
-  deny "a live Stripe key pattern (sk_live_/pk_live_/rk_live_) appeared in a command — use pk_test_/sk_test_ only, from .env, never inline"
+  deny "в команда се появи шаблон на жив Stripe ключ (sk_live_/pk_live_/rk_live_) — използвай само pk_test_/sk_test_, от .env, никога inline"
 
-# Destructive database operations against anything but the local test/dev db.
+# Деструктивни операции с база данни срещу нещо различно от локалната test/dev база.
 printf '%s' "$cmd" | grep -Eq 'RAILS_ENV=production[[:space:]]+.*rails[[:space:]]+db:(drop|reset)' && \
-  deny "rails db:drop/db:reset against RAILS_ENV=production"
+  deny "rails db:drop/db:reset срещу RAILS_ENV=production"
 
 exit 0

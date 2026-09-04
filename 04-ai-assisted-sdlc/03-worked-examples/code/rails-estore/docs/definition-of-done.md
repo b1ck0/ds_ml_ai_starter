@@ -1,89 +1,95 @@
-# Definition of Done — feature gate checklist
+# Definition of Done — чеклист за гейт на функционалност
 
-A feature is DONE only when **every** box below is checked. No exceptions "to be fixed later" — on
-an app that stores passwords and talks to a payment gateway, "later" is how a mass-assignment hole
-or a missing authorization check reaches production.
+Функционалност е DONE само когато **всяка** точка по-долу е отметната. Никакви изключения "ще се
+поправи по-късно" — на приложение, което съхранява пароли и говори с платежен gateway, "по-късно" е
+начинът, по който дупка от mass assignment или липсваща проверка за авторизация достига продукция.
 
-## Fidelity to the spec
-- [ ] Every acceptance criterion in the approved `docs/features/FEATURE-*.md` is met.
-- [ ] Anything cut from the spec is recorded in the spec's "Out of scope", not silently dropped.
+## Верност спрямо спецификацията
+- [ ] Всеки критерий за приемане в одобрената `docs/features/FEATURE-*.md` е изпълнен.
+- [ ] Всичко отрязано от спецификацията е записано в "Out of scope" на спецификацията, не тихо
+      изпуснато.
 
-## Test-first (the implementer's discipline)
-- [ ] An RSpec example encoding the acceptance criteria was written and run BEFORE the production
-      code that satisfies it — and it failed for the right reason (missing behaviour, not a typo).
-- [ ] No test was weakened (loosened assertion, deleted case, `skip`/`pending`) to make the gate pass.
+## Test-first (дисциплината на implementer-а)
+- [ ] RSpec пример, кодиращ критериите за приемане, е бил написан и пуснат ПРЕДИ production кода,
+      който го удовлетворява — и се е провалял по правилната причина (липсващо поведение, не
+      печатна грешка).
+- [ ] Никой тест не е бил отслабен (разхлабено твърдение, изтрит случай, `skip`/`pending`), за да
+      мине гейтът.
 
-## Grounded
-- [ ] Every gem version pinned in `Gemfile`, every library-behaviour claim the design relies on
-      (the auth generator's shape, Brakeman's check categories, Stripe's Ruby API), and every
-      CVE/security check traces to a researcher's note or a live, dated citation.
-- [ ] No claim rests on model memory alone.
+## Заземено
+- [ ] Всяка версия на gem, закачена в `Gemfile`, всяко твърдение за поведение на библиотека, на
+      което дизайнът разчита (формата на auth generator-а, категориите проверки на Brakeman, Ruby
+      API на Stripe), и всяка проверка за CVE/сигурност произлиза от бележка на researcher-а или
+      живо, датирано цитиране.
+- [ ] Никакво твърдение не почива само на памет на модела.
 
-## Security (the checks this app's threat model actually needs)
-- [ ] **Authorization:** every controller action that reads or writes a record scoped to a user
-      (`Order`, `Cart`, `Session`) looks it up through `Current.user`, never through a bare
-      `Model.find(params[:id])`. Verified by an explicit RSpec case: a second user cannot read or
-      modify the first user's record via a guessed/known id.
-- [ ] **Mass assignment:** every `permit()` call whitelists only the attributes the feature needs.
-      Verified by an explicit RSpec case: submitting an extra privileged attribute (e.g.
-      `admin: true`) through a public form does NOT set it.
-- [ ] **Password hashing:** verified by an explicit RSpec case that the stored `password_digest`
-      never equals (and cannot be reversed to) the plaintext password.
-- [ ] **No secrets:** nothing resembling a live key (`sk_live_`/`pk_live_`/`rk_live_`) anywhere in
-      the diff; `.env.example` documents every variable with a placeholder only.
-- [ ] `bundle exec brakeman -q --no-summary` reports zero High-confidence warnings (Medium/Low
-      warnings are triaged, not silently ignored — documented in a comment or `.brakeman.yml` if
-      suppressed).
+## Сигурност (проверките, от които моделът на заплахи на това приложение наистина се нуждае)
+- [ ] **Авторизация:** всяко controller действие, което чете или записва запис, обвързан с
+      потребител (`Order`, `Cart`, `Session`), го намира през `Current.user`, никога през гол
+      `Model.find(params[:id])`. Верифицирано с изричен RSpec случай: втори потребител не може да
+      прочете или промени записа на първия потребител чрез познат/известен id.
+- [ ] **Mass assignment:** всяко извикване на `permit()` разрешава (whitelist) само атрибутите, от
+      които функционалността се нуждае. Верифицирано с изричен RSpec случай: подаването на
+      допълнителен привилегирован атрибут (напр. `admin: true`) през публична форма НЕ го задава.
+- [ ] **Хеширане на пароли:** верифицирано с изричен RSpec случай, че съхраненият `password_digest`
+      никога не е равен на (и не може да бъде обърнат обратно към) паролата в чист текст.
+- [ ] **Без тайни:** нищо, наподобяващо жив ключ (`sk_live_`/`pk_live_`/`rk_live_`), никъде в диффа;
+      `.env.example` документира всяка променлива само с плейсхолдър.
+- [ ] `bundle exec brakeman -q --no-summary` докладва нула предупреждения с High confidence
+      (предупрежденията с Medium/Low се триажират, не се игнорират тихо — документирани в коментар
+      или `.brakeman.yml`, ако са потиснати).
 
-## Green gate
-- [ ] `bundle exec rspec` passes, all examples green.
-- [ ] `bundle exec rubocop` passes clean.
-- [ ] `bundle exec brakeman -q --no-summary` passes the High-confidence threshold above.
-- [ ] `.claude/hooks/verify.sh` (the fast per-edit subset) is green.
+## Зелен гейт
+- [ ] `bundle exec rspec` минава, всички примери зелени.
+- [ ] `bundle exec rubocop` минава чисто.
+- [ ] `bundle exec brakeman -q --no-summary` минава прага High confidence по-горе.
+- [ ] `.claude/hooks/verify.sh` (бързото подмножество на редакция) е зелено.
 
-## SEO & Accessibility (any feature that adds or changes a rendered, public-facing page)
-On this app that's the whole point of the storefront — a catalog page nobody can find and nobody
-using a screen reader can use is not "done" just because it renders. These checks are additional
-exit criteria on top of Fidelity/Grounded/Security/Green gate above, not a replacement for any of
-them.
-- [ ] Every page sets a unique `<title>` and meta description (`set_meta_tags`/`display_meta_tags`,
-      the `meta-tags` gem) — no two pages share a title — and a `<link rel="canonical">` pointing at
-      its own URL.
-- [ ] The four required Open Graph properties (`og:title`, `og:type`, `og:image`, `og:url`) are
-      present with an absolute `og:image` URL.
-- [ ] Every product show page carries valid schema.org **Product** JSON-LD: `name`, `image`,
-      `offers.price` (> 0), `offers.priceCurrency` at minimum; `sku`, `brand`, `offers.availability`
-      (`https://schema.org/InStock`) as the recommended fields — verified by
-      `docs/research/NOTE-SDLC-4-ADD-2-schema-product.md`'s cited Google Merchant Listing
-      requirements, not asserted from memory.
-- [ ] `public/robots.txt` exists, references the sitemap, and does not `Disallow` anything the
-      sitemap (`config/sitemap.rb`, `sitemap_generator`) lists.
-- [ ] Exactly one `<h1>` per page; no skipped heading levels.
-- [ ] `expect(page).to be_axe_clean.according_to(:wcag21aa)` passes in
-      `spec/system/accessibility_spec.rb` on every page the feature touches — zero automated
-      violations (form labels, alt text, contrast, heading order, `lang`, focus/skip link,
-      landmarks). Automated axe coverage is ~30–40% of real WCAG issues
-      [source: `docs/research/NOTE-SDLC-4-ADD-3-wcag-a11y-checks.md`] — a clean run is a floor, not a
-      verdict.
-- [ ] `bundle exec rake html_proofer:check` (html-proofer) reports no broken internal links and no
-      missing `alt` attributes.
-- [ ] (Reference, Node toolchain) `npx lhci autorun` — not run automatically by this project's own
-      gate; documented in `README.md` as the machine-with-Node reproduction step.
-- [ ] Independent sign-off from **both** `.claude/agents/seo-optimizer.md` and
-      `.claude/agents/frontend-qa.md`, in addition to the general `reviewer.md` sign-off below.
+## SEO & Достъпност (всяка функционалност, която добавя или променя рендирана, публична страница)
+На това приложение това е целият смисъл на витрината (storefront) — страница на каталог, която
+никой не може да намери и никой, използващ четец на екрана, не може да използва, не е "готова" само
+защото се рендира. Тези проверки са допълнителни изходни критерии върху Верност/Заземено/Сигурност/
+Зелен гейт по-горе, не заместител на нито един от тях.
+- [ ] Всяка страница задава уникален `<title>` и meta description (`set_meta_tags`/
+      `display_meta_tags`, gem-ът `meta-tags`) — никакви две страници не споделят title — и
+      `<link rel="canonical">`, сочещ към собствения си URL.
+- [ ] Четирите задължителни Open Graph свойства (`og:title`, `og:type`, `og:image`, `og:url`)
+      присъстват с абсолютен `og:image` URL.
+- [ ] Всяка product show страница носи валиден schema.org **Product** JSON-LD: `name`, `image`,
+      `offers.price` (> 0), `offers.priceCurrency` като минимум; `sku`, `brand`,
+      `offers.availability` (`https://schema.org/InStock`) като препоръчаните полета — верифицирано
+      с цитираните изисквания на Google Merchant Listing в
+      `docs/research/NOTE-SDLC-4-ADD-2-schema-product.md`, не твърдяно от памет.
+- [ ] `public/robots.txt` съществува, препраща към sitemap-а, и не прави `Disallow` на нищо, което
+      sitemap-ът (`config/sitemap.rb`, `sitemap_generator`) изброява.
+- [ ] Точно един `<h1>` на страница; без прескочени нива на заглавия.
+- [ ] `expect(page).to be_axe_clean.according_to(:wcag21aa)` минава в
+      `spec/system/accessibility_spec.rb` на всяка страница, засегната от функционалността — нула
+      автоматизирани нарушения (етикети на форми, alt текст, контраст, ред на заглавията, `lang`,
+      focus/skip link, landmark-и). Автоматизираното axe покритие е ~30–40% от реалните WCAG
+      проблеми [source: `docs/research/NOTE-SDLC-4-ADD-3-wcag-a11y-checks.md`] — чист run е праг,
+      не присъда.
+- [ ] `bundle exec rake html_proofer:check` (html-proofer) не докладва счупени вътрешни връзки и
+      без липсващи атрибути `alt`.
+- [ ] (Референтен, Node toolchain) `npx lhci autorun` — не се пуска автоматично от собствения гейт
+      на този проект; документиран в `README.md` като стъпка за възпроизвеждане на машина с Node.
+- [ ] Независимо одобрение както от `.claude/agents/seo-optimizer.md`, така и от
+      `.claude/agents/frontend-qa.md`, в допълнение към одобрението на общия `reviewer.md` по-долу.
 
-## Hygiene
-- [ ] No secrets committed; `.env.example` updated if config changed.
-- [ ] Nothing outside the feature spec's stated files changed.
+## Хигиена
+- [ ] Никакви тайни commit-нати; `.env.example` обновен, ако конфигурацията се е променила.
+- [ ] Нищо извън посочените файлове на feature spec-а не е променено.
 
-## Process
-- [ ] One feature per PR; PR body maps each acceptance criterion → its evidence (RSpec example name
-      / gate log / grounding note).
-- [ ] Independent review by a **fresh** reviewer (not the implementer) — sign-off recorded, with
-      authorization and mass-assignment explicitly checked, not assumed from the spec's intent.
-- [ ] Architect (Opus) merge approval.
+## Процес
+- [ ] Една функционалност на PR; тялото на PR-а свързва всеки критерий за приемане → неговото
+      доказателство (име на RSpec пример / лог от гейт / бележка за заземяване).
+- [ ] Независим review от **свеж** ревюиращ (не implementer-ът) — одобрение записано, с изрично
+      проверени авторизация и mass assignment, не приети за даденост от намерението на
+      спецификацията.
+- [ ] Одобрение за merge от архитекта (Opus).
 
-## Escalate instead of forcing
-Stop and ask the owner if a feature's scope is ambiguous, a claim can't be grounded from available
-sources, a gem turns out to have a known CVE or is unmaintained, or a design choice conflicts with
-existing code — especially anything touching authentication, authorization, or payment.
+## Ескалирай, вместо да форсираш
+Спри и попитай собственика, ако обхватът на функционалност е двусмислен, твърдение не може да бъде
+заземено от наличните източници, gem се окаже с известно CVE или не се поддържа, или дизайнерско
+решение противоречи на съществуващ код — особено нещо, засягащо автентикация, авторизация или
+плащане.
