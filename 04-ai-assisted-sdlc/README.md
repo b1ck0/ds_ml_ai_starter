@@ -22,6 +22,12 @@ Java · Claude Code.
   real chapter (spec → grounding note → draft → gate → review → merge) through its actual commits, and
   is honest about where the pipeline needed a human, produced a false alarm, or got a fact wrong before
   a later stage caught it.
+- **Governing an AI-built Rails e-store — user login and checkout under gates** — the same governed
+  loop as the Java scaffold, ported to a different stack (Ruby on Rails 8.1) and raised to a genuinely
+  security-sensitive app: sign-up/login/logout and cart→checkout with a stubbed Stripe seam, driven
+  through security-first gates (RuboCop, RSpec, Brakeman) with a fresh reviewer catching a planted
+  authorization hole three green automated gates missed. Sibling to the Java scaffold above; see
+  [`03-worked-examples/03-rails-estore-sdlc.md`](03-worked-examples/03-rails-estore-sdlc.md).
 
 ## Cloud Environment Setup
 CI integration and running agents in a pipeline (cross-reference the team's CI/CD conventions).

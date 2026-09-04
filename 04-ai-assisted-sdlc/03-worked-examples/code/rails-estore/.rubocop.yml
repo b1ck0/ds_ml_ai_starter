@@ -1,0 +1,28 @@
+require:
+  - rubocop-rails
+
+AllCops:
+  NewCops: enable
+  TargetRubyVersion: 4.0
+  Exclude:
+    - "db/schema.rb"
+    - "bin/**/*"
+
+# Security-adjacent style rules we do NOT relax — a permissive params call or an eval-like construct
+# should fail style review, not just Brakeman, so the implementer sees it at the fastest gate first.
+Rails/OutputSafety:
+  Enabled: true
+Style/EvalWithLocation:
+  Enabled: true
+
+# House style: keep controllers thin. A controller action longer than this is a hint that
+# authorization or business logic belongs in a model/service instead.
+Metrics/MethodLength:
+  Max: 15
+Metrics/AbcSize:
+  Max: 20
+
+Style/Documentation:
+  Enabled: false
+Style/FrozenStringLiteralComment:
+  Enabled: false

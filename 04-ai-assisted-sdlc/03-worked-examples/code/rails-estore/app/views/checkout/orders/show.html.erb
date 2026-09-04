@@ -1,0 +1,10 @@
+<h1>Order #<%= @order.id %></h1>
+<p>Status: <%= @order.status %></p>
+
+<ul>
+  <% @order.line_items.each do |item| %>
+    <li><%= item.quantity %> &times; <%= item.product.name %></li>
+  <% end %>
+</ul>
+
+<p>Total: $<%= "%.2f" % (@order.total_cents / 100.0) %></p>

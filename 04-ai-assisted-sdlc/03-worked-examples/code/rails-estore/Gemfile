@@ -1,0 +1,26 @@
+# Gemfile — versions pinned per research/NOTE-SDLC-4-1-versions.md (checked 2026-09-04).
+# Everything below is either a version this project's own grounding note verified, or a gem with no
+# version claim asserted (sqlite3/puma ship with `rails new` and are not versioned here from memory).
+source "https://rubygems.org"
+
+ruby "4.0.6"
+
+gem "rails", "8.1.3.1"
+
+# Development database — SQLite is the Rails 8 default for new apps; no version pinned here since
+# no chapter claim depends on an exact sqlite3 gem version.
+gem "sqlite3", ">= 2.1"
+gem "puma"
+
+# Auth: has_secure_password (User) and has_secure_token (Session) both depend on bcrypt.
+gem "bcrypt", "3.1.22" # includes the CVE-2026-33306 fix — NOTE-SDLC-4-1-versions.md
+
+# Payment integration seam — the gem the stubbed PaymentService wraps. See app/services/payment_service.rb.
+gem "stripe", "19.3.0" # NOTE-SDLC-4-4-stripe-checkout.md
+
+group :development, :test do
+  gem "rspec-rails", "8.0.4"       # NOTE-SDLC-4-1-versions.md
+  gem "rubocop", "1.86.0", require: false        # NOTE-SDLC-4-1-versions.md
+  gem "rubocop-rails", "2.37.0", require: false  # NOTE-SDLC-4-1-versions.md
+  gem "brakeman", "8.0.6", require: false        # NOTE-SDLC-4-1-versions.md / NOTE-SDLC-4-3-brakeman-checks.md
+end

@@ -165,6 +165,13 @@ Every subject folder is organised under the same five sections:
   draft → gate → commit, maps every role/gate to a real file, and is honest about where it broke
   (the `guard.sh` false positive, the render-lint's origin, the rate-limit/concurrency lesson, a
   grounding conflict on a package version). Every claim is checkable with `git log`.
+- **Governing an AI-built Rails e-store** (SPEC-SDLC-4) — the same scaffold on a different stack
+  (Ruby on Rails 8), driving two security-sensitive features — user authentication and checkout —
+  through the spec → implement → review → gate → merge loop. Wires security-first gates (RuboCop,
+  RSpec, and Brakeman for a static security scan) and shows the fresh reviewer catching an
+  authorization hole (an IDOR) that all three automated gates miss — because a static scanner can't
+  see an authorization gap. A full runnable-in-Rails project tree (`code/rails-estore/`) with a
+  stubbed payment seam, so it needs no external account and no live credentials.
 
 ---
 
