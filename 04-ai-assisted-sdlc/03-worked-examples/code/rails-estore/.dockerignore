@@ -1,0 +1,15 @@
+# .dockerignore — keeps the build context small and keeps host-only/secret files out of the image
+# layer entirely (the bind mount in docker-compose.yml re-adds the source tree at runtime anyway;
+# this only controls what `docker build`'s COPY steps can see).
+.git
+tmp/
+log/
+node_modules/
+.env
+.env.*
+!.env.example
+*.sqlite3
+storage/
+.bundle/
+public/assets/
+.DS_Store

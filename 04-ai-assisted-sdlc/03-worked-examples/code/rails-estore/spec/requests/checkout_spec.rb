@@ -70,9 +70,18 @@ RSpec.describe "Checkout", type: :request do
 
       sign_in_as(buyer)
 
-      expect {
-        get checkout_order_path(others_order)
-      }.to raise_error(ActiveRecord::RecordNotFound)
+      # Asserting on the HTTP response, not a raised Ruby exception: config/environments/test.rb
+      # sets `config.action_dispatch.show_exceptions = :rescuable` (SPEC-SDLC-4-ADDENDUM-2 — the
+      # exact value Rails' own generated test.rb.tt ships), so a *rescuable* error like
+      # ActiveRecord::RecordNotFound is caught by Rails' own routing and turned into a 404 response
+      # rather than propagating to the test process as a raised exception. The security property
+      # under test is unchanged — Checkout::OrdersController#show still resolves strictly through
+      # `Current.user.orders.find(...)`, so another user's order id 404s instead of ever rendering —
+      # only how that gets observed from a request spec changed. Verified by actually running this
+      # example against the real controller in Docker.
+      get checkout_order_path(others_order)
+
+      expect(response).to have_http_status(:not_found)
     end
   end
 end

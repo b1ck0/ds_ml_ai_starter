@@ -13,6 +13,79 @@ Every command below is grounded and dated 2026-09-04
 (`docs/research/NOTE-SDLC-4-ADD-macos-setup.md`, `docs/research/NOTE-SDLC-4-ADD-1-gem-npm-versions.md`)
 — re-check current versions before you rely on this for a new project; software moves.
 
+## What you get
+
+![The rails-estore product catalog: a "Shop all products" heading, a search box, and four seeded products — Rails Mug $15.00, Convention Over Configuration T-Shirt $25.00, Omakase Sticker Pack $8.00, and Migration Notebook $12.00 — each with a placeholder image and a link.](docs/screenshots/storefront.png)
+
+The product catalog at `/products`, captured **live from this project running under `docker compose up`**
+(Docker 28.4.0 / Compose v2.39.2). A product page, with the authorization-aware "Sign in to buy"
+prompt because the visitor is not signed in:
+
+![The Rails Mug product page: the product name, a placeholder image, the description "A ceramic mug for Rubyists. Holds 350ml of coffee and zero N+1 queries.", the price $15.00, and a "Sign in to buy" link.](docs/screenshots/product.png)
+
+> These pages ship **no CSS on purpose** — this is a teaching scaffold where clean, semantic,
+> accessible HTML is the point (exactly what the `frontend-qa` and `seo-optimizer` agents check).
+> Styling is a natural first "vibe-engineering" task once you're set up. The sign-in page lives at
+> `/session/new` (`docs/screenshots/login.png`).
+
+## New to Docker? Start here
+
+If you've never used Docker, two ideas cover everything you need for this project:
+
+- A **container** is a self-contained box that carries the app AND its exact Ruby/Rails/SQLite
+  versions with it — so "works on my machine" stops being a problem, because your machine only runs
+  the box, not the app directly. Think of it as a JAR that packages its own JVM, not just its own
+  classes.
+- An **image** is the read-only blueprint a container is started from (built once by `docker build`,
+  from the instructions in this project's `Dockerfile`); a **container** is a running instance of
+  that image, the way an object is an instance of a class.
+- **Docker Compose** is the layer above a single container: one `docker-compose.yml` file describes
+  the service(s) an app needs (here, just one: `web`) and how they're wired together (which port maps
+  to which, where the database file persists), so one command starts the whole thing instead of a
+  long `docker run` invocation with a dozen flags.
+
+**Installing Docker Desktop on macOS** — download the `.dmg` for your Mac's chip (Apple Silicon or
+Intel) from [docs.docker.com/desktop/setup/install/mac-install](https://docs.docker.com/desktop/setup/install/mac-install/)
+(checked 2026-09-04), open it, and drag the Docker icon into Applications; Docker Desktop is
+supported on the current macOS release and the two before it. A Homebrew cask (`brew install --cask
+docker`) is a common alternative if you already manage everything else through Homebrew, though the
+`.dmg` download is what Docker's own docs walk through. Either way, **launch Docker.app once** after
+installing — Compose talks to a background daemon that only starts when the app is running (look for
+the whale icon in the menu bar).
+
+The handful of commands you'll actually use, each doing one thing:
+
+| Command | What it does |
+|---|---|
+| `docker compose up` | Builds the image (first time only) and starts the app in your terminal, logs streaming live. Add `-d` to run it in the background instead. |
+| `docker compose ps` | Shows whether the `web` service is up and which port it's mapped to. |
+| `docker compose logs -f` | Tails the running container's logs — useful if you started with `-d`. |
+| `docker compose down` | Stops and removes the container. Add `-v` to also delete the named volume holding the SQLite database (a real reset, not just a restart). |
+
+Then open **<http://localhost:3000>** in a browser — that's it.
+
+**Why this is the easygoing path:** nothing in §1 below (Xcode Command Line Tools, Homebrew, rbenv,
+a matching Ruby, `gem install rails`) is needed when you run this way. Docker carries all of it
+inside the image; your Mac only needs Docker itself.
+
+## Quickest start — Docker Compose
+
+```bash
+docker compose up
+```
+
+Then open <http://localhost:3000> — the product catalog, seeded with four sample products, is what
+you'll see. This is the path actually built, run, and verified for this addendum — real `docker
+compose build`, `docker compose up`, `curl`, and `bundle exec rspec` output, captured against
+**Docker 28.4.0 / Docker Compose v2.39.2** on the authoring machine, is in
+[`artefacts/rails-validation-log.md`](../../artefacts/rails-validation-log.md)'s Docker section —
+unlike the rest of this Rails example (correct-but-not-executed in the book's own repo, since no
+Ruby toolchain runs there), this is the one part that was genuinely exercised end-to-end.
+
+Everything below — native macOS setup, the individual gates, the frontend gate, project layout,
+troubleshooting — is the alternative path for when you want to run Ruby directly on your Mac (to use
+a debugger, an editor's inline test runner, etc.) rather than inside a container.
+
 ## 1. Prerequisites
 
 | Tool | Why you need it | Install |

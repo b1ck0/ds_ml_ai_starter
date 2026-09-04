@@ -1,0 +1,15 @@
+# .gitignore — added alongside the docker-compose setup (SPEC-SDLC-4-ADDENDUM-2). Everything here
+# is generated at boot/build time, never source: log files, temp/cache (bootsnap, pids), the SQLite
+# database files themselves (config/database.yml points these at storage/, never db/ — see that
+# file's comment), Bundler's local config, and Node's install output for the optional Lighthouse CI
+# gate (README.md §3). The root repo .gitignore already covers *.sqlite3/.env globally; the entries
+# below are Rails-specific paths that ignore applies to but doesn't name directly.
+/log/*
+/tmp/*
+!/log/.keep
+!/tmp/.keep
+/storage/*
+!/storage/.keep
+/.bundle/
+/public/assets/
+/node_modules/

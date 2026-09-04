@@ -30,10 +30,11 @@ Java · Claude Code.
   **five-agent team** (researcher, implementer, reviewer, plus two specialist reviewers —
   `seo-optimizer` and `frontend-qa` — for a public product catalog): axe/WCAG accessibility and
   schema.org/Open-Graph SEO checks, each catching a real defect (an unlabelled form field, a missing
-  Product JSON-LD block) that RuboCop/RSpec/Brakeman have no check for at all. Sibling to the Java
-  scaffold above; see
-  [`03-worked-examples/03-rails-estore-sdlc.md`](03-worked-examples/03-rails-estore-sdlc.md) and its
-  standalone macOS setup guide,
+  Product JSON-LD block) that RuboCop/RSpec/Brakeman have no check for at all. The app ships a
+  verified `docker compose up` path (real build/boot/test output captured against Docker 28.4.0 —
+  no Ruby toolchain needed on the host) alongside a standalone native-macOS guide. Sibling to the
+  Java scaffold above; see
+  [`03-worked-examples/03-rails-estore-sdlc.md`](03-worked-examples/03-rails-estore-sdlc.md) and
   [`03-worked-examples/code/rails-estore/README.md`](03-worked-examples/code/rails-estore/README.md).
 
 ## Cloud Environment Setup

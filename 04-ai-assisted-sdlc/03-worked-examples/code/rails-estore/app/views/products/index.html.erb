@@ -1,9 +1,13 @@
 <h1>Shop all products</h1>
 
-<%# The labelled search field FEATURE-3's frontend-qa review exists to protect: an <input> with a
+<%# The labelled search field FEATURE-3's frontend-qa review exists to protect: an input with a
     placeholder alone is NOT a label (WCAG 1.3.1 / 4.1.2) -- the first draft of this page shipped
-    without the <%= f.label %> line below; see the FEATURE-3 loop transcript for the axe finding and
-    the fix. %>
+    without the f.label call below; see the FEATURE-3 loop transcript for the axe finding and the
+    fix. Fixed by SPEC-SDLC-4-ADDENDUM-2: an ERB comment closes at the FIRST close-tag it meets, not
+    the last, so this comment used to embed the very ERB tag it was describing and leak everything
+    after that tag onto the rendered page as visible text -- caught by actually screenshotting the
+    catalog page served from docker-compose. Plain-English description only from here on, no
+    embedded ERB tags of any kind. %>
 <%= form_with url: products_path, method: :get, role: "search" do |f| %>
   <div>
     <%= f.label :q, "Search products" %>

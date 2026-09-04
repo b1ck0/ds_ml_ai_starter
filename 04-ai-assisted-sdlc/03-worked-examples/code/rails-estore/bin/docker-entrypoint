@@ -1,0 +1,24 @@
+#!/bin/bash
+# bin/docker-entrypoint — the Dockerfile's ENTRYPOINT. Pattern is Rails' own generated
+# docker-entrypoint.tt (NOTE-SDLC-4-ADD2-docker.md §6): if the container's command is starting the
+# server, prepare the database first (create it + load db/schema.rb if it doesn't exist yet — safe
+# to run on every boot, a no-op once the schema is loaded) and seed the sample products, THEN exec
+# the real command. `exec "$@"` — not a plain call — replaces this script's process with the server
+# process so Docker's SIGTERM (on `docker compose down`/`stop`) reaches Puma directly instead of
+# being swallowed by an intermediate shell.
+#
+# Matched against `bundle exec rails server`, not `./bin/rails server` — this image is invoked with
+# `docker compose`'s `.:/rails` bind mount active for live-edit, and a file's executable bit is not
+# something Windows/NTFS reliably preserves across that bind mount. `bundle exec rails` resolves the
+# `rails` binstub from the installed gem (outside the bind-mounted tree, unaffected by that), not
+# from this repo's bin/rails — so the container's boot path never depends on a host file's exec
+# permission. (bin/rails itself is still a real, `chmod +x`'d binstub in this image for the native
+# macOS path — see README.md §2 — this entrypoint just doesn't lean on it.)
+set -e
+
+if [ "${1}" = "bundle" ] && [ "${2}" = "exec" ] && [ "${3}" = "rails" ] && [ "${4}" = "server" ]; then
+  bundle exec rails db:prepare
+  bundle exec rails db:seed
+fi
+
+exec "${@}"

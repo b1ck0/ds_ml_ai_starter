@@ -1,0 +1,7 @@
+# Rakefile — required for any `rails <task>` that is actually a Rake task under the hood (db:prepare,
+# db:seed, db:schema:load, and this project's own lib/tasks/html_proofer.rake). Standard `rails new`
+# content, two lines. Missing from the original teaching subset — the gap this addendum's boot
+# scaffolding closes. NOTE-SDLC-4-ADD2-docker.md §4 (the boot chain a Rake invocation also needs).
+require_relative "config/application"
+
+Rails.application.load_tasks

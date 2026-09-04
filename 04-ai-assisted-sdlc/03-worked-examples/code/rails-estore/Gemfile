@@ -12,6 +12,14 @@ gem "rails", "8.1.3.1"
 gem "sqlite3", ">= 2.1"
 gem "puma"
 
+# Boot scaffolding added by SPEC-SDLC-4-ADDENDUM-2-docker-compose — Rails 8.1's own default asset
+# stack (Propshaft + import maps, no Node/yarn needed to boot and render ERB) and the two small
+# utility gems every `rails new` app ships with. NOTE-SDLC-4-ADD2-docker.md §3.
+gem "propshaft"
+gem "importmap-rails"
+gem "bootsnap", require: false
+gem "tzinfo-data", platforms: %i[windows jruby]
+
 # Auth: has_secure_password (User) and has_secure_token (Session) both depend on bcrypt.
 gem "bcrypt", "3.1.22" # includes the CVE-2026-33306 fix — NOTE-SDLC-4-1-versions.md
 
@@ -25,7 +33,11 @@ gem "sitemap_generator", "7.1.1"   # config/sitemap.rb DSL, `rake sitemap:refres
 
 group :development, :test do
   gem "rspec-rails", "8.0.4"       # NOTE-SDLC-4-1-versions.md
-  gem "rubocop", "1.86.0", require: false        # NOTE-SDLC-4-1-versions.md
+  # rubocop pin bumped from NOTE-SDLC-4-1-versions.md's 1.86.0: the real `bundle install` inside
+  # Docker (this addendum) found rubocop-rails 2.37.0 requires rubocop >= 1.89.0, < 2.0 — a
+  # dependency-graph fact Bundler itself resolved against live rubygems.org metadata, more current
+  # than the note. See artefacts/rails-validation-log.md's docker section for the real resolve.
+  gem "rubocop", ">= 1.89.0", "< 2.0", require: false
   gem "rubocop-rails", "2.37.0", require: false  # NOTE-SDLC-4-1-versions.md
   gem "brakeman", "8.0.6", require: false        # NOTE-SDLC-4-1-versions.md / NOTE-SDLC-4-3-brakeman-checks.md
 end
@@ -38,5 +50,13 @@ group :test do
   gem "selenium-webdriver"           # no version claim asserted — the JS-capable driver axe needs; see spec/support/capybara_driver.rb
   gem "axe-core-rspec", "4.13.0"     # the `be_axe_clean` RSpec matcher
   gem "axe-core-capybara", "4.13.0"  # injects axe into the Capybara-driven browser
-  gem "html-proofer", "5.2.2"        # HTML validity + broken internal links, run via lib/tasks/html_proofer.rake
+  # require: false — lib/tasks/html_proofer.rake already `require "html-proofer"`s itself right
+  # before use (its own task's first line). Without this, Bundler.require auto-loads html-proofer
+  # for EVERY test-env boot (including a plain `bundle exec rspec`), which transitively requires
+  # typhoeus -> ethon -> libcurl — a native library this minimal, Node-free Docker image does not
+  # install (needed only for html-proofer's own external-link checks, not for booting the app or
+  # running RSpec). Discovered by actually running the suite in Docker (SPEC-SDLC-4-ADDENDUM-2):
+  # `bundle exec rspec` failed outright with `LoadError: Could not open library 'libcurl'` before a
+  # single example ran.
+  gem "html-proofer", "5.2.2", require: false        # HTML validity + broken internal links, run via lib/tasks/html_proofer.rake
 end

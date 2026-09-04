@@ -1,0 +1,63 @@
+# docker-compose.yml — `docker compose up` and the whole app is at http://localhost:3000. No
+# top-level `version:` key: the Compose Specification made it optional years ago and the CLI now
+# warns on it. NOTE-SDLC-4-ADD2-docker.md §2.
+#
+# Built and run for real against Docker 28.4.0 / Docker Compose v2.39.2 — see
+# artefacts/rails-validation-log.md for the captured output. Not a paper design.
+services:
+  web:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      # Bind-mount the whole app for live edits — change a controller/view on the host, refresh the
+      # browser, see it (config.enable_reloading = true in development). The Java-project analogy:
+      # this is closer to a hot-reloading devserver than to rebuilding a JAR on every change.
+      - .:/rails
+      # A NAMED volume, layered on top of the bind mount above, for exactly one subdirectory:
+      # storage/, where the SQLite *.sqlite3 files live (config/database.yml). This is what makes
+      # the catalog survive `docker compose down` (without `-v`) and a later `docker compose up` —
+      # a plain bind mount would too, but a named volume is what the spec for this addendum asks
+      # for, and it has a real advantage: it isn't silently lost if `.dockerignore`/host-side
+      # tooling ever touches the working tree. See config/database.yml's comment for why the DB
+      # files live under storage/, not db/, specifically so this volume never masks db/schema.rb or
+      # db/seeds.rb. NOTE-SDLC-4-ADD2-docker.md §2, §5.
+      - rails_storage:/rails/storage
+    # Optional and absent-tolerant: this repo ships only .env.example (committed); a reader who
+    # never creates their own .env still gets `docker compose up` working (STRIPE_STUB defaults to
+    # unset, and PaymentService only calls the real Stripe client outside test/stub mode — nothing
+    # this addendum's verification exercises). Copy .env.example to .env to opt into a filled-in
+    # config; docker-compose.yml itself never hardcodes a secret.
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      RAILS_ENV: development
+    stdin_open: true
+    tty: true
+
+volumes:
+  rails_storage:
+
+# --- Optional: PostgreSQL instead of SQLite -----------------------------------------------------
+# This project's SQLite default is "easygoing" — a single file, zero server process, correct for a
+# small storefront and a friend's first run (README.md). If you outgrow SQLite's single-writer
+# model, swap in Postgres: uncomment the service below, add `gem "pg"` to the Gemfile in place of
+# `gem "sqlite3"`, and point config/database.yml's `adapter:`/`host:`/`username:`/`password:` at it
+# (`host: db`, matching the service name below — Compose gives every service a DNS name on the
+# default network). Not needed for this project's scale; left commented so the "quickest start"
+# stays genuinely one command.
+#
+#   db:
+#     image: postgres:17-alpine
+#     environment:
+#       POSTGRES_USER: rails_estore
+#       POSTGRES_PASSWORD: rails_estore
+#       POSTGRES_DB: rails_estore_development
+#     volumes:
+#       - pg_data:/var/lib/postgresql/data
+#     ports:
+#       - "5432:5432"
+#
+# volumes:
+#   pg_data:

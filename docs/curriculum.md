@@ -174,7 +174,10 @@ Every subject folder is organised under the same five sections:
   stubbed payment seam, so it needs no external account and no live credentials. Extended with two
   more specialist agents — **seo-optimizer** (titles/canonical/Open Graph/Product JSON-LD/sitemap) and
   **frontend-qa** (axe/WCAG accessibility, valid/responsive HTML) — a product-catalog surface for them
-  to work on, and a polished **standalone macOS README** so the example runs from zero on a Mac.
+  to work on, and a polished **standalone macOS README** so the example runs from zero on a Mac. Also
+  ships a **verified `docker compose up`** local run (the project completed into a bootable Rails 8 app,
+  actually built + booted + tested in Docker) with a Docker primer for newcomers and real screenshots
+  of the running store.
 
 ---
 

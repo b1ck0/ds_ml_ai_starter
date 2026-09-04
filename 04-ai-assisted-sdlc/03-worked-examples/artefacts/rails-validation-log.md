@@ -5,14 +5,17 @@ Real, captured output from validating every governance file under
 this repository's own sandbox (Windows 11, Python 3.13, Git Bash) while writing this chapter — the
 same sandbox and the same method the Java chapter's
 [`validation-log.md`](../../02-local-environment-setup/../03-worked-examples/artefacts/validation-log.md)
-used. **§§1–3 and §5 below are real, captured evidence** — every command was actually executed.
+used. **§§1–3, §5, and §7 below are real, captured evidence** — every command was actually executed.
 **§4 and §6 are illustrative** — this repository has no Ruby/Rails toolchain (`bundle`, `rspec`,
 `rubocop`, `brakeman` are not installed here) and no browser/chromedriver/Node either, so
 RSpec/RuboCop/Brakeman (§4) and axe/html-proofer/Lighthouse CI (§6, added by
 SPEC-SDLC-4-ADDENDUM-seo-frontend-qa-agents) output is presented as a grounded reference (exact
 command, exact pinned versions from `research/NOTE-SDLC-4-1-versions.md` and
 `research/NOTE-SDLC-4-ADD-1-gem-npm-versions.md`), not a captured run — see
-[`03-rails-estore-sdlc.md`](../03-rails-estore-sdlc.md)'s Environment note for why.
+[`03-rails-estore-sdlc.md`](../03-rails-estore-sdlc.md)'s Environment note for why. **§7 is the one
+exception to that whole story**: Docker itself IS available in this sandbox
+(SPEC-SDLC-4-ADDENDUM-2-docker-compose), so the docker-compose path was actually built, booted,
+curled, and tested end-to-end — real output, real bugs found and fixed, real teardown.
 
 ## 1. `settings.json` parses as valid JSON
 
@@ -340,6 +343,202 @@ Brakeman; a missing `<label>` for axe) — and each has a boundary drawn by what
 which is exactly why `seo-optimizer.md` and `frontend-qa.md` exist as named, by-hand review steps
 rather than "wait for the tool to catch it."
 
+## 7. Docker Compose — real, captured, end-to-end (SPEC-SDLC-4-ADDENDUM-2)
+
+**This entire section is genuinely executed**, unlike §4/§6 above — Docker 28.4.0 / Docker Compose
+v2.39.2 are actually available in this sandbox, so the addendum's own rule ("if you can run it here,
+run it for real") applies. Host: Windows 11, Docker Desktop, from inside `code/rails-estore/`.
+
+### `docker compose build` — first attempt failed, real error, real fix
+
+```text
+$ docker compose build
+...
+[5/7] RUN bundle install:
+Resolving dependencies...
+Could not find compatible versions
+Because rubocop-rails >= 2.37.0 depends on rubocop >= 1.89.0, < 2.0
+  and Gemfile depends on rubocop = 1.86.0,
+  rubocop-rails >= 2.37.0 cannot be used.
+So, because Gemfile depends on rubocop-rails = 2.37.0,
+  version solving has failed.
+ERROR: process "/bin/sh -c bundle install" did not complete successfully: exit code: 6
+```
+
+`research/NOTE-SDLC-4-1-versions.md` pinned `rubocop 1.86.0`; the live `bundle install` — resolving
+against real, current rubygems.org metadata, not a note — found `rubocop-rails 2.37.0` now requires
+`rubocop >= 1.89.0`. Fixed by relaxing the Gemfile pin to `gem "rubocop", ">= 1.89.0", "< 2.0"`;
+Bundler resolved `rubocop 1.90.0`. Rebuild succeeded:
+
+```text
+$ docker compose build
+...
+Installing rubocop 1.90.0
+...
+Bundle complete! 20 Gemfile dependencies, 125 gems now installed.
+...
+ rails-estore-web  Built
+```
+
+### `docker compose up` — real boot log, `/up` returns 200
+
+```text
+$ docker compose up -d
+$ docker logs rails-estore-web-1
+Seeded 4 product(s).
+Seeded 4 product(s).
+=> Booting Puma
+=> Rails 8.1.3.1 application starting in development
+Puma starting in single mode...
+* Puma version: 8.0.2 ("Into the Arena")
+* Ruby version: ruby 4.0.6 (2026-07-14 revision 03b6d3f889) +PRISM [x86_64-linux]
+*  Min threads: 3
+*  Max threads: 3
+*  Environment: development
+*          PID: 1
+* Listening on http://0.0.0.0:3000
+Use Ctrl-C to stop
+```
+
+("Seeded 4 product(s)." appears twice: Rails 8's `db:prepare` seeds automatically the first time it
+creates a fresh database, and `bin/docker-entrypoint` then runs the explicit `db:seed` the addendum's
+spec asks for — `find_or_create_by!` in `db/seeds.rb` makes the second pass a no-op beyond the log
+line.)
+
+```text
+$ curl -s -w "\nHTTP_STATUS:%{http_code}\n" http://localhost:3000/up
+<!DOCTYPE html><html><body style="background-color: green"></body></html>
+HTTP_STATUS:200
+
+$ curl -s -o /dev/null -w "HTTP_STATUS:%{http_code}\n" http://localhost:3000/
+HTTP_STATUS:200
+
+$ curl -s -o /dev/null -w "HTTP_STATUS:%{http_code}\n" http://localhost:3000/session/new
+HTTP_STATUS:200
+
+$ curl -s -o /dev/null -w "HTTP_STATUS:%{http_code}\n" http://localhost:3000/products/1
+HTTP_STATUS:200
+```
+
+The catalog page was also opened in a real browser and screenshotted against the running container —
+the four seeded products (Rails Mug, Convention Over Configuration T-Shirt, Omakase Sticker Pack,
+Migration Notebook) render with names, prices, and a working search box; the sign-in page renders a
+real `<form>` with a CSRF `authenticity_token`, a labelled email field, and a submit button. That
+same visual check caught a real, pre-existing rendering bug (below).
+
+**A real bug the screenshot caught, not a code-reading review.** `app/views/products/index.html.erb`
+had a multi-line `<%# ... %>` ERB comment that itself embedded a literal `<%= f.label %>` tag as
+descriptive text. An ERB comment closes at the *first* `%>` it meets, not the last — so it closed at
+that embedded tag's `%>`, and every character of the comment written *after* it (a full sentence)
+leaked onto the rendered page as plain visible text, right under the "Shop all products" heading.
+Nothing in the RSpec suite catches this (none of the request specs assert on that particular string),
+and it wasn't visible from reading the `.erb` source casually — it only showed up once the page was
+actually rendered and looked at. Fixed by rewriting the comment with no embedded ERB tags at all.
+
+### `docker compose run --rm web bundle exec rspec` — real pass/fail, iterated to green
+
+First real run surfaced three genuine boot-time bugs, none of them app logic:
+
+1. **`rspec-rails` API break.** `spec/rails_helper.rb`'s `config.fixture_path = ...` (singular) is
+   rspec-rails' pre-8.0 API; 8.0.4 (this project's pin) only defines the plural `fixture_paths=` —
+   confirmed by reading `rspec-rails-8.0.4/lib/rspec/rails/configuration.rb` directly inside the
+   container. Fixed: `config.fixture_paths = [Rails.root.join("spec/fixtures")]`.
+2. **`RAILS_ENV` silently wrong.** The Docker image sets `RAILS_ENV=development` by default (so
+   `docker compose up` needs zero configuration); `spec/rails_helper.rb`'s `ENV["RAILS_ENV"] ||=
+   "test"` therefore never fired, and the *entire suite ran against `development.rb`*, not `test.rb`.
+   Every request spec failed with a real 403 "Blocked hosts: www.example.com" page —
+   `development.rb`'s host allow-list, not the app's own logic. Fixed: `ENV["RAILS_ENV"] = "test"`
+   (hard assignment) in `rails_helper.rb`.
+3. **Two missing `test.rb` defaults.** Once RAILS_ENV was genuinely "test", two settings Rails' own
+   generated `test.rb.tt` ships (confirmed by reading `railties-8.1.3.1`'s template file directly)
+   were missing from this hand-written `test.rb`: `config.hosts << "www.example.com"` (the
+   integration-test session's default Host header) and `config.action_controller.
+   allow_forgery_protection = false` (every `post`/`patch`/`delete` request spec otherwise fails
+   with `ActionController::InvalidAuthenticityToken`).
+4. **`html-proofer` auto-require pulled in a missing native library.** `Gemfile`'s `html-proofer`
+   entry (`group :test`) had no `require: false`; `Bundler.require` therefore auto-loaded it for
+   *any* test-env boot, transitively requiring `typhoeus -> ethon -> libcurl.so` — a library this
+   minimal, Node-free image doesn't install (only needed for html-proofer's own external-link
+   checks, and `lib/tasks/html_proofer.rake` already `require "html-proofer"`s itself right before
+   use). Fixed: `require: false` on the Gemfile line.
+
+After those four fixes, one real assertion mismatch remained — not a bug, a config-vs-test-style
+interaction: `config.action_dispatch.show_exceptions = :rescuable` (also copied verbatim from
+Rails' own `test.rb.tt`) means a *rescuable* error like `ActiveRecord::RecordNotFound` is now caught
+by Rails' routing and turned into a 404 response instead of propagating as a raised exception —
+so `spec/requests/checkout_spec.rb`'s IDOR test, written to `expect { ... }.to raise_error(...)`,
+no longer matched how a correctly-configured Rails app actually behaves. The security property under
+test didn't change (`Checkout::OrdersController#show` still resolves strictly through
+`Current.user.orders.find(...)`); only the assertion was updated, to `expect(response).to
+have_http_status(:not_found)`.
+
+Final, real run:
+
+```text
+$ docker compose run --rm web bundle exec rspec
+.................FFFFF
+
+Finished in 3 minutes 36 seconds (files took 13.38 seconds to load)
+22 examples, 5 failures
+
+Failed examples:
+
+rspec ./spec/system/accessibility_spec.rb:21 # ... has no automatically detectable WCAG 2.1 AA violations on the catalog index
+rspec ./spec/system/accessibility_spec.rb:28 # ... has no automatically detectable WCAG 2.1 AA violations on a product page
+rspec ./spec/system/seo_spec.rb:21 # ... renders a unique, descriptive <title> per page
+rspec ./spec/system/seo_spec.rb:32 # ... renders valid Product JSON-LD with the required merchant-listing fields
+rspec ./spec/system/seo_spec.rb:46 # ... renders the four required Open Graph tags with an absolute og:image URL
+```
+
+**17/17 model and request specs pass — real.** The 5 failures are every `type: :system` example
+(`spec/system/accessibility_spec.rb`, `spec/system/seo_spec.rb`), and all five fail identically:
+
+```text
+Selenium::WebDriver::Error::WebDriverError:
+  unable to connect to /root/.cache/selenium/chromedriver/.../chromedriver 127.0.0.1:9515:
+  Errno::ECONNREFUSED: Failed to open TCP connection to 127.0.0.1:9515 (Connection refused ...)
+```
+
+This is expected, not a bug: this Docker image is deliberately Node/browser-free (§3 of this
+addendum's grounding note — Rails 8.1's Propshaft + importmap-rails stack needs no Node to boot or
+render ERB), and the README's own pre-existing "Frontend gate" section already documents that these
+specific specs need a real Chrome + `chromedriver` on `PATH`, installed separately
+(`brew install --cask google-chrome`, `brew install chromedriver`) — exactly the machine-local setup
+this minimal container intentionally doesn't carry. Installing Chrome into the image to force these
+5 examples green would contradict the addendum's own "keep it minimal" instruction for a boot image;
+the fix, if you want these 5 to run inside Docker too, is documented in README.md §3 for the native
+macOS path, not something this container is meant to replicate.
+
+### Teardown — real, clean
+
+```text
+$ docker compose down -v
+ Container rails-estore-web-1  Removed
+ Volume rails-estore_rails_storage  Removed
+ Network rails-estore_default  Removed
+
+$ docker rmi rails-estore-web
+Untagged: rails-estore-web:latest
+Deleted: sha256:...
+
+$ docker compose ps -a
+NAME   IMAGE   COMMAND   SERVICE   CREATED   STATUS   PORTS
+(empty)
+```
+
+No containers, volumes, or images left running or dangling after verification.
+
+### Secret / key-shaped-string scan of the Docker additions — real, clean
+
+```text
+$ grep -rInE '[a-z]k_(l[iv]{2}e|test)_[A-Za-z0-9]{10,}' code/rails-estore/
+(no matches)
+```
+
+No `.env` file exists in the tree (only the committed `.env.example`); `docker-compose.yml`'s
+`env_file: [{ path: .env, required: false }]` is absent-tolerant by design — `docker compose up`
+never fails just because a reader hasn't created their own `.env`.
+
 ## Summary
 
 | Check | Result |
@@ -352,5 +551,11 @@ rather than "wait for the tool to catch it."
 | Secret scan across `code/rails-estore/` | PASS — clean (real) |
 | `bundle exec rspec` / `rubocop` / `brakeman -q --no-summary` | **NOT run — no Ruby/Rails toolchain in this sandbox.** Presented as grounded reference (exact commands, exact pinned versions); reproduce on a machine with Ruby 4.0.6 / Rails 8.1.3.1 installed. |
 | axe / html-proofer / `npx lhci autorun` (frontend gate) | **NOT run — no browser/chromedriver/Node in this sandbox.** Presented as grounded reference (§6); reproduce per `README.md`'s "Frontend gate" section. |
+| `docker compose build` | PASS (real, after fixing a real rubocop/rubocop-rails version conflict) |
+| `docker compose up` — `/up`, `/`, `/session/new`, `/products/1` | PASS — all 200 (real) |
+| Catalog + login pages visually verified (real browser against the running container) | PASS (real — also caught and fixed a real ERB-comment rendering bug) |
+| `docker compose run --rm web bundle exec rspec` | 17/17 model + request specs PASS (real); 5/5 system specs fail on missing chromedriver (expected — this image is deliberately browser-free) |
+| `docker compose down -v` + image removal | PASS — clean teardown, nothing left running (real) |
+| Secret/key-shaped-string scan of the Docker additions | PASS — clean (real) |
 
 Date verified: 2026-09-04.

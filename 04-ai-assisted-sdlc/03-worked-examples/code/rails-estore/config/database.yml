@@ -1,8 +1,18 @@
 # config/database.yml — SQLite, the Rails 8 zero-config default (no server process to install or
 # run, correct for this project's scale) -- NOTE-SDLC-4-ADD-macos-setup.md §3 recommends exactly
-# this for a friend's first run: "SQLite (built-in, zero setup)", and this file's shape matches that
-# note's cited example verbatim. `bin/rails db:setup` creates these files from db/schema.rb; nothing
-# else to configure.
+# this for a friend's first run: "SQLite (built-in, zero setup)". `bin/rails db:setup`/`db:prepare`
+# creates these files from db/schema.rb; nothing else to configure.
+#
+# Database files live under storage/, not db/ (matches Rails 8's own generator convention for
+# SQLite apps — the db/ directory is source: schema.rb + seeds.rb, checked in; storage/ is data,
+# never checked in). This split matters specifically for docker-compose (SPEC-SDLC-4-ADDENDUM-2):
+# the compose file bind-mounts the whole app at /rails for live-edits, then layers a NAMED volume
+# on top of just /rails/storage so the *.sqlite3 files persist across `docker compose down`/`up`.
+# If the database instead lived under db/, that same named volume would sit on top of db/schema.rb
+# and db/seeds.rb too — and a named volume is pre-populated ONCE from the image's build-time copy
+# of that directory, so any later edit to schema.rb/seeds.rb on the host would silently stop being
+# seen inside the container. Keeping data under its own storage/ directory avoids that trap
+# entirely. NOTE-SDLC-4-ADD2-docker.md §5.
 default: &default
   adapter: sqlite3
   pool: 5
@@ -10,12 +20,12 @@ default: &default
 
 development:
   <<: *default
-  database: db/development.sqlite3
+  database: storage/development.sqlite3
 
 test:
   <<: *default
-  database: db/test.sqlite3
+  database: storage/test.sqlite3
 
 production:
   <<: *default
-  database: db/production.sqlite3
+  database: storage/production.sqlite3

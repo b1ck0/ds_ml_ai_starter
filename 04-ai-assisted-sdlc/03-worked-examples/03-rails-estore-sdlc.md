@@ -70,12 +70,16 @@ running the whole thing for real on a Mac.
 [`research/NOTE-SDLC-4-1-versions.md`](../../research/NOTE-SDLC-4-1-versions.md) (checked
 2026-09-04): Ruby **4.0.6** ([Ruby 4.0.6 released](https://www.ruby-lang.org/en/news/2026/07/14/ruby-4-0-6-released/),
 July 14, 2026), Rails **8.1.3.1** ([Rails 8.0.5 and 8.1.3 released](https://rubyonrails.org/2026/3/24/Rails-Versions-8-0-5-and-8-1-3-have-been-released),
-patched to `.1` July 29, 2026), `rspec-rails` **8.0.4**, `rubocop` **1.86.0** + `rubocop-rails`
-**2.37.0**, `brakeman` **8.0.6**, `bcrypt` **3.1.22** (includes a CVE-2026-33306 fix), `stripe`
-**19.3.0**. Every one of these is pinned by exact version in
+patched to `.1` July 29, 2026), `rspec-rails` **8.0.4**, `rubocop` **1.90.0** + `rubocop-rails`
+**2.37.0** (bumped up from the grounding note's `1.86.0` — a real `bundle install`, run for real in
+Docker per SPEC-SDLC-4-ADDENDUM-2, found `rubocop-rails 2.37.0` now requires `rubocop >= 1.89.0`; see
+`artefacts/rails-validation-log.md` §7), `brakeman` **8.0.6**, `bcrypt` **3.1.22** (includes a
+CVE-2026-33306 fix), `stripe` **19.3.0**. Every one of these is pinned by exact version in
 [`Gemfile`](code/rails-estore/Gemfile). **This sandbox has no Ruby/Rails toolchain** — §9's
 Environment note is explicit about which evidence below is real, captured output, and which is a
-grounded reference command you run on a machine that has Ruby and Rails installed.
+grounded reference command you run on a machine that has Ruby and Rails installed. The one exception
+is Docker itself, which **is** available here — the docker-compose path (§9, "Running it") was
+actually built, booted, and tested end-to-end, not just described.
 
 ### The map
 
@@ -483,22 +487,39 @@ the Ruby gate is. What WAS actually run, for real, in this repository's own sand
 agent files (researcher, implementer, reviewer, `seo-optimizer`, `frontend-qa`); all three hook
 scripts (`context.sh`/`guard.sh`/`verify.sh`) fed real synthetic Claude Code hook payloads on stdin,
 with real captured output for every case, including all five `guard.sh` deny-rules; and a real `grep`
-secret scan across the entire `code/rails-estore/` tree. Every one of those is in
+secret scan across the entire `code/rails-estore/` tree — and, added by SPEC-SDLC-4-ADDENDUM-2, a
+real `docker compose build`/`up`/`curl`/`bundle exec rspec`/`down -v` cycle, since Docker (unlike
+Ruby) genuinely runs in this sandbox. Every one of those is in
 [`artefacts/rails-validation-log.md`](artefacts/rails-validation-log.md) with its exact command and
-output, §§1, 2, 3, and 5 marked real, §4 (RSpec/RuboCop/Brakeman) and §6 (axe/html-proofer/Lighthouse
-CI) marked as grounded reference reproductions. The feature-loop transcript follows the same
-convention — see its own header.
+output, §§1, 2, 3, 5, and 7 marked real, §4 (RSpec/RuboCop/Brakeman) and §6 (axe/html-proofer/
+Lighthouse CI) marked as grounded reference reproductions. The feature-loop transcript follows the
+same convention — see its own header.
 
-**Running it on macOS.** Everything above is about what ran inside *this* book's own sandbox. If you
-want to actually run `rails-estore` — sign up, add a product to a cart, check out, and run every gate
-including the frontend one — [`code/rails-estore/README.md`](code/rails-estore/README.md) is a
-complete, standalone, zero-to-running guide for a real Mac: Homebrew → rbenv → Ruby 4.0.6 → Rails
-8.1.3.1, `bin/rails db:setup` (seeded with four sample products), `bin/rails server`, and every gate
-(`rspec`/`rubocop`/`brakeman`, plus the frontend gate's `axe`/`html-proofer`/`npx lhci autorun`),
-each with a one-line "what it's for" and a troubleshooting section for the usual native-gem/
-Apple-Silicon snags. It is written to be read on its own — a friend cloning just
-`code/rails-estore/` doesn't need this chapter to get the app running, only to understand *why* it's
-built the way it is.
+**Running it.** Everything above is about what ran inside *this* book's own sandbox. The app now ships
+a **verified docker-compose setup** (SPEC-SDLC-4-ADDENDUM-2) — `docker compose up`, then
+<http://localhost:3000> — genuinely built, booted, and tested in this same sandbox (Docker, unlike
+Ruby, actually runs here): real `docker compose build`/`up`/`curl`/`bundle exec rspec` output is in
+[`artefacts/rails-validation-log.md`](artefacts/rails-validation-log.md) §7, including three real
+boot-time bugs the run surfaced and fixed (an rspec-rails API break, `RAILS_ENV` silently resolving
+to the wrong environment, two missing stock Rails `test.rb` defaults) and one genuine rendering bug a
+screenshot of the running container caught that no test did. If you'd rather run Ruby directly on a
+real Mac — sign up, add a product to a cart, check out, and run every gate including the frontend one
+— [`code/rails-estore/README.md`](code/rails-estore/README.md) is a complete, standalone,
+zero-to-running guide: Homebrew → rbenv → Ruby 4.0.6 → Rails 8.1.3.1, `bin/rails db:setup` (seeded
+with four sample products), `bin/rails server`, and every gate (`rspec`/`rubocop`/`brakeman`, plus
+the frontend gate's `axe`/`html-proofer`/`npx lhci autorun`), each with a one-line "what it's for" and
+a troubleshooting section for the usual native-gem/Apple-Silicon snags. Either path is written to be
+read on its own — a friend cloning just `code/rails-estore/` doesn't need this chapter to get the app
+running, only to understand *why* it's built the way it is.
+
+Here is that running store — the seeded catalog, captured live from the container during the verified
+`docker compose up` run:
+
+![The rails-estore product catalog running under docker-compose: a "Shop all products" heading, a search box, and four seeded products — Rails Mug $15.00, Convention Over Configuration T-Shirt $25.00, Omakase Sticker Pack $8.00, and Migration Notebook $12.00.](code/rails-estore/docs/screenshots/storefront.png)
+
+*It ships no CSS on purpose — this is a governance teaching scaffold, where clean, semantic,
+accessible HTML is the point (what the `frontend-qa` and `seo-optimizer` agents check). Styling it is
+a natural first task once a reader sets up Claude Code and starts driving the loop themselves.*
 
 **Secret scan, required before this chapter could be reported done:**
 `grep -rniE 'sk_live|pk_live|rk_live' code/rails-estore/` and a second pass matching any
@@ -507,19 +528,20 @@ of the two `pk_test_XXXX...`/`sk_test_XXXX...` placeholders in `.env.example`, b
 `X` characters. No real or real-looking key exists anywhere in this tree. Full output:
 [`artefacts/rails-validation-log.md`](artefacts/rails-validation-log.md) §5.
 
-One more honest gap, named rather than hidden: `code/rails-estore/` ships the governed scaffold plus
-every feature-specific file FEATURE-1, FEATURE-2, and FEATURE-3 touch — models, controllers, views,
-helpers, services, specs. It does **not** include the surrounding files a fresh `rails new
-rails-estore` generates (`config/application.rb`, `config/boot.rb`, `bin/rails`, and the rest of the
-standard app skeleton) — the same scoping choice `java-project/` made by shipping `pom.xml` + `src/`
-without a full IDE project file. To run this for real: `rails new rails-estore --minimal`, then drop
-this chapter's `app/`, `config/`, `db/seeds.rb`, `lib/tasks/`, `spec/`, `docs/`, `.claude/`,
-`public/robots.txt`, `Gemfile`, `.rubocop.yml`, `.env.example`, `.lighthouserc.json`, and
-`package.json` on top, `bundle install`, `bin/rails db:schema:load` (using the committed
-[`db/schema.rb`](code/rails-estore/db/schema.rb)), then `bundle exec rspec` —
-[`code/rails-estore/README.md`](code/rails-estore/README.md) walks every one of these steps in full
-for a real macOS machine, including the frontend gate's extra prerequisites (Chrome/chromedriver,
-Node).
+An earlier version of this chapter named a gap here: `code/rails-estore/` shipped the governed
+scaffold plus every feature-specific file, but not the surrounding boot files a fresh `rails new`
+generates. SPEC-SDLC-4-ADDENDUM-2 closed that gap — `config/application.rb`, `config/boot.rb`,
+`config/environment.rb`, the three `config/environments/*.rb` files, `config/puma.rb`, `config.ru`,
+`Rakefile`, `bin/rails`, and `bin/setup` are all now committed, minimal, and — unlike everything else
+in this chapter's sandbox — genuinely **booted**: `docker compose build && docker compose up` serves
+the real app at `http://localhost:3000`, `bundle exec rspec` runs the real suite in the container
+(17/17 model + request specs pass), and `docker compose down -v` tears it down clean. The one honest
+gap that remains is scoped, not hidden: the 5 browser-driven system specs
+(`spec/system/accessibility_spec.rb`, `spec/system/seo_spec.rb`) need a real Chrome + `chromedriver`,
+which this minimal, Node-free Docker image deliberately doesn't install — run those via the native
+macOS path in [`code/rails-estore/README.md`](code/rails-estore/README.md) §3 instead. Full real
+output, including four boot-time bugs the Docker run surfaced and fixed along the way:
+[`artefacts/rails-validation-log.md`](artefacts/rails-validation-log.md) §7.
 
 ## 10. Recap & what's next
 
