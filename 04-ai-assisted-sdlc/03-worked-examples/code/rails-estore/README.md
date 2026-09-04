@@ -1,21 +1,25 @@
 # rails-estore
 
-**The point of this project is not to read finished code — it's to build it yourself.** Everything
-committed here — the models, controllers, views, specs, and the whole governed `.claude/` scaffold —
-is the **reference destination**: what you get if you install Claude Code, open this folder, and
-drive sign-up/login → checkout → catalog through the same governed loop this project's book chapter
-narrates. This README is that walkthrough, standalone, for macOS: install Claude Code, read a feature
-spec, prompt the implementer, watch the gates fire, get an independent review, repeat, then run what
-you built with `docker compose up`. Everything you need is here whether or not you've read the
-chapter this project ships as a worked example for
+**The point of this project is not to read finished code — it's to build it yourself, governance
+layer included.** Everything committed here — the models, controllers, views, specs, and the whole
+`.claude/` governance layer — is the **reference destination**: what you get if you install Claude
+Code, use it to author `CLAUDE.md`, the docs, the sub-agents, and the hooks yourself, and only THEN
+drive sign-up/login → checkout → catalog through the governed loop those files now enforce. This
+README is that walkthrough, standalone, for macOS: install Claude Code, stand up the governance
+scaffold with it (the charter, the architecture/definition-of-done docs, the five sub-agents, the
+hooks, and the first feature spec), THEN read that spec, prompt the implementer, watch the gates
+fire, get an independent review, repeat for every feature, and finally run what you built with
+`docker compose up`. Everything you need is here whether or not you've read the chapter this project
+ships as a worked example for
 ([`04-ai-assisted-sdlc/03-worked-examples/03-rails-estore-sdlc.md`](../../03-rails-estore-sdlc.md) —
 it narrates the same loop end to end, including a real authorization bug a fresh reviewer caught that
 three automated gates missed).
 
-Two ways through this file: **"Set up Claude Code"** and **"Build it yourself with Claude Code"**
-below walk you through building this project with your own hands on the keyboard — the actual point.
-If you'd rather see the destination first, **"Quickest start — Docker Compose"** runs the
-already-committed code in under a minute.
+Two ways through this file: **"Set up Claude Code"**, then **"Build it yourself with Claude
+Code"** below — split into **Phase 1** (stand up the governance scaffold) and **Phase 2** (drive the
+feature loop it enforces) — walk you through building this project with your own hands on the
+keyboard: the actual point. If you'd rather see the destination first, **"Quickest start — Docker
+Compose"** runs the already-committed code in under a minute.
 
 Every command below is grounded and dated 2026-09-04
 (`docs/research/NOTE-SDLC-4-ADD-macos-setup.md`, `docs/research/NOTE-SDLC-4-ADD-1-gem-npm-versions.md`,
@@ -163,6 +167,12 @@ live-looking Stripe key pattern appearing in any shell command, `rm -rf /` — r
 permission mode you're in or how many times you've clicked "don't ask again." A permission prompt is
 a checkpoint you can approve past; `guard.sh`'s non-zero exit is a wall.
 
+With Claude Code installed and this project open, the natural next move feels like asking it to build
+a feature. Don't — not yet. `guard.sh` is exactly the kind of file that makes the rest of this
+walkthrough safe, and it doesn't exist yet on a project you're starting from scratch. **"Build it
+yourself with Claude Code" → Phase 1**, below, is where you author it (and everything else in
+`.claude/`) with your own hand, before any `app/` code exists to gate.
+
 ## 1. Prerequisites
 
 | Tool | Why you need it | Install |
@@ -223,15 +233,158 @@ nothing else to install. (If you later want PostgreSQL for something closer to a
 
 ## Build it yourself with Claude Code
 
-This is the loop the book chapter narrates happening (§6) — now with your hands on the keyboard.
-`bundle`/`rspec`/`rubocop`/`brakeman` need to already be on your `PATH` for this (§1–2 above) —
-Claude Code runs the gate through your shell, on your machine, exactly the way
-[`verify.sh`](.claude/hooks/verify.sh) does; a container running the *finished* app doesn't give the
-loop anything to gate against while you're still building it.
+This is the loop the book chapter narrates happening (§6) — now with your hands on the keyboard, in
+**two phases**. `bundle`/`rspec`/`rubocop`/`brakeman` need to already be on your `PATH` for this
+(§1–2 above) — Claude Code runs every check through your shell, on your machine, exactly the way
+[`verify.sh`](.claude/hooks/verify.sh) does; a container running the *finished* app doesn't give
+either phase anything to gate against while you're still building it.
 
-The same six-step rhythm repeats for every feature: **you steer, the implementer builds tests-first,
-the gates fire, a fresh reviewer — and, for UI features, two specialists — catches what you'd miss,
-you decide.**
+```mermaid
+flowchart LR
+    SETUP["Set up Claude Code<br/>install, sign in, open project"] --> P1["Phase 1<br/>stand up the scaffold<br/>charter, docs, agents, hooks, FEATURE-1 spec"]
+    P1 --> P2["Phase 2<br/>drive the loop<br/>FEATURE-1 then FEATURE-2 then FEATURE-3"]
+    P2 --> RUN["docker compose up<br/>http://localhost:3000"]
+```
+
+- **Phase 1 — stand up the agentic SDLC yourself, first.** Before you ask Claude Code to build a
+  single feature, you build the thing that governs it: the charter, the docs that define "done," the
+  sub-agent roster, the hooks, and the first feature spec — the same four scaffolding primitives
+  [SPEC-SDLC-1 (Theory)](../../../01-theory/01-theory.md) names in the abstract, applied the way
+  [SPEC-SDLC-2](../../01-java-sdlc-scaffold.md) already applied them to scaffold a brand-new Java
+  project — except this time it's your hand on the keyboard, not a chapter's narration.
+- **Phase 2 — build the features through the loop you just set up.** The six-step rhythm — read the
+  spec, prompt the implementer, watch the gates fire, get an independent review, iterate, repeat —
+  now runs on the scaffold Phase 1 produced. This is what makes the *hands-off* stretches (the
+  implementer's edit-test-fix cycle, the gate firing automatically) safe to let run without narrating
+  every keystroke.
+
+### Phase 1 — stand up the agentic SDLC yourself, first
+
+Every file named below is already committed in this folder. Read each one you're about to
+(re-)create as the **template** you're adapting, not a black box you inherit unread — the point of
+this phase is that you understand every rule your implementer will later be held to, because you're
+the one who wrote it. This is the order the pipeline actually needs them in.
+
+**1. The charter — `CLAUDE.md`.** The one file Claude Code reads at the start of every session in
+this directory, and any directory above it
+[source: [Claude Code — Memory](https://code.claude.com/docs/en/memory) (checked 2026-09-04)]. It
+states the golden rules an implementer must follow before it writes a line of `app/` code — no code
+without an approved feature spec, tests before implementation, every `Current.user`-scoped query
+authorized, secrets only ever in `.env` — and, right below the rules, the model-routing table naming
+which model plays architect/implementer/researcher/reviewer/specialist. A starting prompt:
+
+> Draft a `CLAUDE.md` for this Rails project. It must state: (1) no `app/` code without an approved
+> feature spec in `docs/features/`, (2) a failing test is written and confirmed failing before any
+> production code that satisfies it, (3) every action on a `Current.user`-scoped record must be
+> authorized — never a bare `Model.find(params[:id])`, (4) secrets are never committed, only
+> placeholders in `.env.example`. Add a model-routing section naming which sub-agent handles
+> implementation vs. research vs. review.
+
+Compare what comes back against the committed [`CLAUDE.md`](CLAUDE.md) — eight golden rules, a
+model-routing table, and an escalation section are the shape worth keeping on the next stack you
+scaffold, whatever language it's in.
+
+**2. The shape and the exit bar — `docs/architecture.md` and `docs/definition-of-done.md`.**
+`CLAUDE.md` states the rules; these two say what "done" means and how the pieces fit together — the
+roles, the six-step workflow, the repository shape, and, in `definition-of-done.md`, a checkbox per
+gate criterion, including a whole **Security** section this project's threat model earns:
+authorization, mass assignment, password hashing, no live secrets. A starting prompt:
+
+> Draft `docs/definition-of-done.md` for this project as a checklist, not prose. Every feature must
+> pass: every acceptance criterion met, a failing test written before the code, every gem version
+> grounded to a source, an explicit RSpec case proving every `Current.user`-scoped query is actually
+> scoped, an explicit RSpec case proving an extra `admin` param can't be mass-assigned, zero
+> High-confidence Brakeman warnings, and independent review sign-off.
+
+Compare against the committed [`docs/definition-of-done.md`](docs/definition-of-done.md) and
+[`docs/architecture.md`](docs/architecture.md).
+
+**3. The sub-agents — `.claude/agents/`.** Five roles, authored one at a time: `researcher` (Haiku,
+grounds an external claim before anyone relies on it), `implementer` (Sonnet, writes the failing test
+then the code), `reviewer` (a fresh Sonnet — never the implementer — checking fidelity, test-first
+order, and authorization/mass-assignment by hand), then the two specialists this addendum adds,
+`seo-optimizer` and `frontend-qa`. Authoring one means writing a markdown file with YAML frontmatter —
+`name`, `description` (the sentence Claude Code uses to decide when to delegate to it), `tools`
+(which tool calls it's allowed to make), `model` — followed by a numbered process, ending in an
+explicit **"output a verdict, do not merge"** contract for anything that reviews rather than writes
+[source: [Claude Code — Sub-agents](https://code.claude.com/docs/en/sub-agents) (checked
+2026-09-04)]. You can ask Claude Code to write the file for you:
+
+> Create a `reviewer` sub-agent in `.claude/agents/reviewer.md`. It's a FRESH Sonnet reviewer — never
+> the implementer — read-and-Bash only (Read, Grep, Glob, Bash; no Edit/Write). Its process: (1) match
+> every acceptance criterion to an RSpec example, (2) confirm the test was written and failing before
+> the code, (3) by hand, confirm every `Current.user`-scoped query is actually scoped, not a bare
+> `Model.find(params[:id])`, (4) by hand, confirm every `permit()` list is minimal, (5) independently
+> re-run `bundle exec rspec`/`rubocop`/`brakeman -q --no-summary` rather than trust the implementer's
+> report. It must end with a verdict — APPROVE or CHANGES REQUESTED — and it must NOT commit or merge.
+
+Once written, Claude Code invokes a sub-agent three ways: it decides on its own from a
+natural-language request ("use the reviewer sub-agent to..."), you force it with an `@`-mention
+(`@agent-reviewer ...`), or you run a whole session against one sub-agent with `claude --agent
+reviewer` or the `"agent"` key in `.claude/settings.json`
+[source: [Claude Code — Sub-agents](https://code.claude.com/docs/en/sub-agents) (checked
+2026-09-04)]. Project sub-agents live in `.claude/agents/` specifically so they're checked into
+version control and shared with the next person who opens this project; a personal one-off instead
+goes in `~/.claude/agents/` [same source]. Compare your draft against the five committed here:
+[`researcher.md`](.claude/agents/researcher.md), [`implementer.md`](.claude/agents/implementer.md),
+[`reviewer.md`](.claude/agents/reviewer.md), [`seo-optimizer.md`](.claude/agents/seo-optimizer.md),
+[`frontend-qa.md`](.claude/agents/frontend-qa.md).
+
+**4. The hooks + `.claude/settings.json`.** A sub-agent is advisory — nothing stops it from skipping
+a step if nobody checks. A hook is not: it's a shell command Claude Code runs automatically at a
+fixed point in its lifecycle, and a non-zero exit from a `PreToolUse` hook actually **vetoes** the
+action instead of just complaining about it afterward
+[source: [Claude Code — Hooks](https://code.claude.com/docs/en/hooks) (checked 2026-09-04)]. This
+project wires three: [`guard.sh`](.claude/hooks/guard.sh) on `PreToolUse` for `Bash` — hard-blocks
+`git commit --no-verify`, a live-looking Stripe key, `rm -rf /`, and a forced push, before the
+command ever runs; [`verify.sh`](.claude/hooks/verify.sh) on `PostToolUse` for `Edit|Write` — runs
+`rspec`/`rubocop`/`brakeman` on every `.rb` edit, the frontend gate on every `.erb` edit; and
+[`context.sh`](.claude/hooks/context.sh) on `SessionStart` — prints the roster and every feature
+spec's status so a fresh session orients itself. `.claude/settings.json` is the file that wires each
+script to its event, three levels deep — the event (`PreToolUse`), a matcher (which tool, e.g.
+`Bash`), and the handler (`{"type": "command", "command": "..."}`) [same source]. A starting prompt:
+
+> Write `.claude/hooks/guard.sh` — a `PreToolUse` hook for `Bash` that reads the tool-call JSON on
+> stdin, extracts the `command` field, and exits 2 (blocking) if the command contains `git commit
+> --no-verify`, a live-looking Stripe key (`sk_live_`/`pk_live_`/`rk_live_`), `rm -rf /`, or a forced
+> `git push`. Exit 0 otherwise. Then wire it into `.claude/settings.json` under `PreToolUse` with a
+> `Bash` matcher.
+
+Compare your draft against the committed [`guard.sh`](.claude/hooks/guard.sh),
+[`verify.sh`](.claude/hooks/verify.sh), and [`.claude/settings.json`](.claude/settings.json) — seven
+deny-rules, three gate commands, and three wired events, respectively.
+
+**5. The first feature spec — `docs/features/FEATURE-1-user-login.md`.** Written and approved
+BEFORE a single `app/` file exists — golden rule 1 from step 1, now actually applied. It states the
+intent (a visitor needs an account before there's a cart to check out) and the acceptance criteria as
+testable statements — "`POST /registration` with an extra `admin: true` param creates the user
+WITHOUT setting `admin`" — not prose a reviewer has to interpret. A starting prompt:
+
+> Draft `docs/features/FEATURE-1-user-login.md`: sign-up, sign-in, sign-out, using Rails 8's native
+> auth generator shape (User + has_secure_password, a database-tracked Session, Current). Every
+> acceptance criterion must be a testable statement, including one proving a non-permitted `admin`
+> param can't set itself, and one proving the stored password digest never equals the plaintext.
+> Ground the auth generator's exact shape with the researcher sub-agent first — don't assert it from
+> memory.
+
+Compare against the committed
+[`docs/features/FEATURE-1-user-login.md`](docs/features/FEATURE-1-user-login.md) — six acceptance
+criteria, each a testable statement, each traceable to an RSpec example once Phase 2 builds it.
+
+**Why this is step one, not step zero.** Every "hands-off" stretch in Phase 2 below — the
+implementer iterating on its own until the gate is green, a reviewer verdict you don't have to
+second-guess line by line — is only safe because these five files exist and were authored with
+intent, not copied in blind. A `CLAUDE.md` you didn't write is a rule you don't actually know is
+being followed; a `guard.sh` you didn't read is a wall you're trusting sight-unseen. Stand it up
+yourself once, here, and the next project you scaffold with Claude Code starts from files you
+genuinely understand.
+
+### Phase 2 — build the features through the loop you just set up
+
+With `CLAUDE.md`, the docs, the five sub-agents, the hooks, and FEATURE-1's spec now standing
+(Phase 1), the same six-step rhythm repeats for every feature — running on rules you authored, not
+inherited: **you steer, the implementer builds tests-first, the gates fire, a fresh reviewer — and,
+for UI features, two specialists — catches what you'd miss, you decide.**
 
 ```mermaid
 flowchart LR
@@ -447,9 +600,9 @@ the port in both `.lighthouserc.json` and the command you run.
 
 ## 6. What's next
 
-If you followed "Build it yourself with Claude Code" above, you already ran this loop — read the book
-chapter next to see the same catches narrated in full, including the parts that may have gone
-differently on your run:
+If you followed "Build it yourself with Claude Code" above — Phase 1's scaffold and Phase 2's loop —
+you already built this yourself, governance layer included: read the book chapter next to see the
+same catches narrated in full, including the parts that may have gone differently on your run:
 [`04-ai-assisted-sdlc/03-worked-examples/03-rails-estore-sdlc.md`](../../03-rails-estore-sdlc.md) —
 it walks the governed loop (spec → ground → implement → gate → review → merge) through this exact
 codebase, including the real authorization bug a fresh reviewer caught that RSpec, RuboCop, and

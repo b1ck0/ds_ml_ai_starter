@@ -3,13 +3,15 @@
 *AI-assisted-sdlc · Worked Examples · SPEC-SDLC-4 + SPEC-SDLC-4-ADDENDUM-seo-frontend-qa-agents*
 
 > **The point of this chapter is not to hand you a finished Rails store to read — it's for you to
-> build one.** Everything narrated below happened when a governed loop, driven by a human steering
-> Claude Code, built this app feature by feature; §6a is the step-by-step version of that same loop
-> with your hands on the keyboard, and
+> build one, governance layer included.** Everything narrated below happened when a governed loop,
+> driven by a human steering Claude Code, built this app feature by feature — but that loop didn't
+> exist on its own; someone had to author `CLAUDE.md`, the docs, the sub-agents, and the hooks first.
+> §6a is the step-by-step version of both halves with your hands on the keyboard — Phase 1 stands up
+> that governance scaffold, Phase 2 drives the feature loop it enforces — and
 > [`code/rails-estore/README.md`](code/rails-estore/README.md#build-it-yourself-with-claude-code) is
-> the same walkthrough written to run standalone, without this chapter open. The committed
-> `rails-estore/` code is the **destination** — where you end up after driving the loop yourself —
-> not the point of reading this chapter.
+> the same two-phase walkthrough written to run standalone, without this chapter open. The committed
+> `rails-estore/` code is the **destination** — where you end up after standing up the scaffold and
+> driving the loop yourself — not the point of reading this chapter.
 
 ## The bug that only requires being logged in as anyone
 
@@ -70,9 +72,11 @@ this addendum adds — `seo-optimizer` and `frontend-qa`; §4–5 cover the hook
 three features — login, then checkout, then the product catalog — through the full loop, including
 the moment a fresh reviewer catches a real vulnerability that three green automated gates missed, and
 the moment the two new specialists each catch a defect in their own lane that those same gates don't
-even attempt to check. §6a hands you the keyboard: the same loop, condensed into a repeatable
-checklist with paste-ready prompts, so you drive FEATURE-1/2/3 yourself instead of only reading how
-they went. §7 lists what breaks the loop if you skip a step. §8 is the direct comparison:
+even attempt to check. §6a hands you the keyboard, in two phases: stand up the governance scaffold
+itself — `CLAUDE.md`, the docs, the sub-agents, the hooks, the first feature spec — by hand first,
+then drive the same loop, condensed into a repeatable checklist with paste-ready prompts, so you
+build FEATURE-1/2/3 yourself instead of only reading how they went. §7 lists what breaks the loop if
+you skip a step. §8 is the direct comparison:
 this repo's own scaffold, `java-project/`, and `rails-estore/`, side by side. §9 is honest about what
 actually ran where, and points to [`code/rails-estore/README.md`](code/rails-estore/README.md) for
 running the whole thing for real on a Mac.
@@ -425,14 +429,59 @@ verbatim and the illustrative axe/html-proofer output:
 reference axe/html-proofer/Lighthouse CI output:
 [`artefacts/rails-validation-log.md`](artefacts/rails-validation-log.md) §6.
 
-## 6a. Build it yourself — the same loop, with your hands on the keyboard
+## 6a. Build it yourself — stand up the scaffold, then drive the loop
 
-§6 narrated what happened when this loop ran. This section is the same six-step rhythm, written as
-something you actually do: install Claude Code, open `code/rails-estore/`, and drive
-FEATURE-1 → FEATURE-2 → FEATURE-3 yourself. Every step below, with its paste-ready prompt, the
+§6 narrated what happened when this loop ran — but that loop presupposes a governance scaffold
+already exists, and on a real new project it doesn't, yet. This section is both halves, written as
+something you actually do: **Phase 1** authors `CLAUDE.md`, the docs, the sub-agents, and the hooks
+yourself, by hand, before any `app/` code exists — the same four scaffolding primitives
+[SPEC-SDLC-1 (Theory)](../01-theory/01-theory.md) names in the abstract, applied the way
+[SPEC-SDLC-2](01-java-sdlc-scaffold.md) already applied them to scaffold a brand-new Java project, now
+with your hand on the keyboard instead of a chapter's narration. **Phase 2** is §6's six-step rhythm,
+now running on the scaffold Phase 1 produced: install Claude Code, open `code/rails-estore/`, and
+drive FEATURE-1 → FEATURE-2 → FEATURE-3 yourself. Every step below, with its paste-ready prompts, the
 install/sign-in instructions, and the `docker compose up` finish line, lives in
 [`code/rails-estore/README.md`](code/rails-estore/README.md#build-it-yourself-with-claude-code) so it
-runs standalone, without this chapter open. Here is the shape of it.
+runs standalone, without this chapter open. Here is the shape of both phases.
+
+```mermaid
+flowchart LR
+    SETUP["set up Claude Code"] --> P1["Phase 1<br/>stand up the scaffold"]
+    P1 --> P2["Phase 2<br/>drive the loop"]
+    P2 --> RUN["docker compose up"]
+```
+
+### Phase 1 — stand up the agentic SDLC yourself, first
+
+Before touching a single `app/` file, author these in order — every one is already committed in
+`code/rails-estore/`; treat it as the template you're adapting, not a thing you inherit unread:
+
+1. **`CLAUDE.md`** — the charter: the golden rules (spec before code, tests-first, every
+   `Current.user`-scoped query authorized, secrets in `.env` only) and the model-routing table.
+2. **`docs/architecture.md` and `docs/definition-of-done.md`** — the shape and the exit bar, including
+   the Security section this app's threat model earns (§2 above walked through both in full).
+3. **The sub-agents in `.claude/agents/`** — `researcher`, `implementer`, `reviewer`, then
+   `seo-optimizer` and `frontend-qa` (§3, §3a). Authoring one means YAML frontmatter
+   (`name`/`description`/`tools`/`model`), a numbered checklist, and an explicit "output a verdict, do
+   not merge" contract; Claude Code then dispatches it by natural language, an `@`-mention, or a
+   session-wide `--agent` flag
+   [source: [Claude Code — Sub-agents](https://code.claude.com/docs/en/sub-agents) (checked
+   2026-09-04)].
+4. **The hooks + `.claude/settings.json`** (§4) — `guard.sh` on `PreToolUse` (the hard blocks),
+   `verify.sh` on `PostToolUse` (the fast gate), `context.sh` on `SessionStart`; `settings.json` wires
+   each script to its event, three levels deep — event → matcher → handler
+   [source: [Claude Code — Hooks](https://code.claude.com/docs/en/hooks) (checked 2026-09-04)].
+5. **`docs/features/FEATURE-1-user-login.md`** — written and approved before any `app/` code, its
+   acceptance criteria as testable statements, not prose a reviewer has to interpret.
+
+The README's Phase 1 section has a paste-ready drafting prompt for each of the five — asking Claude
+Code to help write your own `CLAUDE.md`, your own `reviewer` sub-agent, your own `guard.sh` — with the
+committed file to compare against once you're done. **This is what makes Phase 2's hands-off
+stretches safe:** the implementer iterating on its own until the gate is green only works because a
+gate you authored is watching, and a reviewer verdict is only trustworthy because you wrote the
+checklist it's grading against.
+
+### Phase 2 — drive the loop you just set up
 
 ```mermaid
 flowchart LR
@@ -446,7 +495,7 @@ flowchart LR
     DECIDE -.->|"repeat, next feature"| YOU
 ```
 
-**The loop, once per feature:**
+**The loop, once per feature — running on the scaffold Phase 1 produced:**
 
 1. **Read the spec.** [`docs/features/FEATURE-1-user-login.md`](code/rails-estore/docs/features/FEATURE-1-user-login.md),
    then `FEATURE-2-checkout.md`, then `FEATURE-3-product-catalog-seo-a11y.md` — the acceptance
@@ -625,10 +674,12 @@ output, including four boot-time bugs the Docker run surfaced and fixed along th
 ## 10. Recap & what's next
 
 Read the last two sections again with one word changed: not "*the reviewer* caught it," but "*you*,
-having dispatched the reviewer, watched it get caught." That is the whole reframe this chapter has
-been building toward — §6a (and the standalone [README](code/rails-estore/README.md)) turn every
-catch narrated below into something reproducible, keystroke for keystroke, the next time you open
-`code/rails-estore/` in Claude Code yourself.
+having dispatched the reviewer *you configured*, watched it get caught." That is the whole reframe
+this chapter has been building toward — §6a (and the standalone [README](code/rails-estore/README.md))
+turn every catch narrated below into something reproducible, keystroke for keystroke, the next time
+you open `code/rails-estore/` in Claude Code yourself: Phase 1 stands up the same `CLAUDE.md`, the
+same five sub-agents, and the same hooks this chapter just toured section by section; Phase 2 is what
+runs on top of them.
 
 The cold open's bug — `Order.find(params[:id])`, any signed-in user reading anyone's order — got
 written twice in this chapter: once as an ungoverned agent's actual first attempt at FEATURE-2 (§6),

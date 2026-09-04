@@ -29,6 +29,23 @@ and the idea of **permission modes** (why it asks before running shell / editing
 project's `guard.sh` adds its own hard blocks on top). Everything grounded to the official Claude Code
 docs, not memory.
 
+### 1b. "Stand up the agentic SDLC yourself, first" (REQUIRED — the walkthrough develops EVERYTHING this way)
+The point is not "drive a ready-made scaffold" — it is **develop the whole project with agentic SDLC,
+scaffold included.** So the walkthrough must first walk the reader through *creating the governance
+layer himself* (he can adapt the committed files as templates, but he must understand he is building
+them, not inheriting them), in the order the pipeline actually needs them:
+1. **`CLAUDE.md`** — the project charter/rules (the golden rules, the security rule, the model routing).
+2. **`docs/architecture.md`** and **`docs/definition-of-done.md`** — the shape and the exit bar.
+3. **The sub-agents** in `.claude/agents/` — researcher, implementer, reviewer, then the specialists
+   seo-optimizer + frontend-qa (how to author a sub-agent: the frontmatter, the checklist, the
+   "output a verdict, don't merge" contract; how Claude Code invokes them — ground to the docs).
+4. **The hooks + `settings.json`** — `guard.sh` (PreToolUse, the hard blocks), `verify.sh` (PostToolUse,
+   the fast gate), `context.sh` (SessionStart); how `settings.json` wires PreToolUse/PostToolUse.
+5. **The first feature spec** `docs/features/FEATURE-1-user-login.md` — before any `app/` code.
+Frame it as: *this is SDLC-1's four primitives and SDLC-2's "scaffold a new project" applied by your
+own hand* (link both). Show that the scaffold is what makes the later hands-off stretches safe. Then
+the feature loop below runs on the scaffold he just stood up.
+
 ### 2. "Vibe-engineer the store, step by step" (the heart — README + a chapter section)
 A numbered walkthrough the friend actually follows, building the app himself through the governed loop.
 For each feature, the SAME rhythm (this is the "vibe": you steer, the agents implement under guardrails,

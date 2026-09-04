@@ -180,7 +180,10 @@ Every subject folder is organised under the same five sections:
   of the running store. Framed as a **do-it-yourself walkthrough**: the reader sets up Claude Code and
   *vibe-engineers* the store himself — read a feature spec → prompt the implementer → watch the gates
   fire → get an independent review → iterate → `docker compose up` — with the committed code as the
-  reference destination.
+  reference destination. The walkthrough develops *everything* the agentic-SDLC way, in two phases:
+  **stand up the governance scaffold yourself** (author the CLAUDE.md charter, the sub-agents, the
+  hooks/gates, the Definition of Done, the first feature spec — SDLC-1's primitives and SDLC-2's
+  scaffolding by your own hand), then **drive the loop** to build login/checkout/catalog.
 
 ---
 

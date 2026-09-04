@@ -33,10 +33,12 @@ Java · Claude Code.
   Product JSON-LD block) that RuboCop/RSpec/Brakeman have no check for at all. The app ships a
   verified `docker compose up` path (real build/boot/test output captured against Docker 28.4.0 —
   no Ruby toolchain needed on the host) alongside a standalone native-macOS guide. A third addendum
-  reframes the whole example as **do-it-yourself**: install Claude Code, open `code/rails-estore/`,
-  and drive login → checkout → catalog through the governed loop yourself — reading each feature
-  spec, prompting the implementer, watching the gates fire, dispatching an independent review — ending
-  at `docker compose up`. Sibling to the Java scaffold above; see
+  reframes the whole example as **do-it-yourself, in two phases**: install Claude Code, then Phase 1
+  stands up the governance scaffold itself by hand — `CLAUDE.md`, the docs, the five sub-agents, the
+  hooks — before Phase 2 drives login → checkout → catalog through the loop that scaffold now
+  enforces — reading each feature spec, prompting the implementer, watching the gates fire,
+  dispatching an independent review — ending at `docker compose up`. Sibling to the Java scaffold
+  above; see
   [`03-worked-examples/03-rails-estore-sdlc.md`](03-worked-examples/03-rails-estore-sdlc.md) and
   [`03-worked-examples/code/rails-estore/README.md`](03-worked-examples/code/rails-estore/README.md).
 
