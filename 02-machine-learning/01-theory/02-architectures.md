@@ -244,11 +244,25 @@ Long before neural networks, image processing built up a small library of hand-d
 each tuned to one specific pattern — precisely the "one neuron, one orientation" idea from the cold
 open, just designed by a person instead of grown by evolution or backprop:
 
-| Filter | Kernel (3x3) | What it detects |
-|---|---|---|
-| Mean blur | $\frac{1}{9}\begin{bmatrix}1&1&1\\1&1&1\\1&1&1\end{bmatrix}$ | smooths noise by averaging each pixel with its neighbours |
-| Sobel (X or Y) | $\begin{bmatrix}-1&0&1\\-2&0&2\\-1&0&1\end{bmatrix}$ | edges in one direction (used in the worked example below) |
-| Laplacian | $\begin{bmatrix}0&1&0\\1&-4&1\\0&1&0\end{bmatrix}$ | edges in *every* direction at once (a second derivative) |
+Three classic 3×3 kernels — each a fixed grid of numbers a person chose by hand:
+
+**Mean blur** — smooths noise by averaging each pixel with its neighbours:
+
+```math
+\frac{1}{9}\begin{bmatrix}1&1&1\\1&1&1\\1&1&1\end{bmatrix}
+```
+
+**Sobel (X or Y)** — edges in one direction (used in the worked example below):
+
+```math
+\begin{bmatrix}-1&0&1\\-2&0&2\\-1&0&1\end{bmatrix}
+```
+
+**Laplacian** — edges in *every* direction at once (a second derivative):
+
+```math
+\begin{bmatrix}0&1&0\\1&-4&1\\0&1&0\end{bmatrix}
+```
 
 ```python
 MEAN_BLUR = np.ones((3, 3)) / 9.0

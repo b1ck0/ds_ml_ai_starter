@@ -927,8 +927,7 @@ intercept.
   ($VIF_i = 1/(1-R_i^2)$ from regressing each feature on all the others) catches collinearity a
   pairwise view misses, with **> 5 concerning, > 10 severe** as the standard (not universal) rule of
   thumb ([NOTE-6](../../research/NOTE-6-statsmodels-vif.md)) — and gives up (undefined/`inf`) when
-  the collinearity is exact, which is when the **condition number** $\kappa(X) =
-  \sigma_{\max}/\sigma_{\min}$ takes over as the diagnostic.
+  the collinearity is exact, which is when the **condition number** $\kappa(X) = \sigma_{\max}/\sigma_{\min}$ takes over as the diagnostic.
 - Collinearity's real cost is **coefficient instability**: bootstrap-refitting showed `sqft`'s
   coefficient standard deviation shrink 36x once its redundant duplicate (`sqm`) was removed, with
   **zero loss in held-out R²** (0.9787 → 0.9788).

@@ -22,11 +22,21 @@ A chapter is DONE only when **every** box below is checked. No exceptions "to be
 - [ ] Snippet compile check passes (`.claude/hooks/verify.sh` / `.claude/hooks/check_snippets.py`).
 
 ## Renders on GitHub
-- [ ] LaTeX + Mermaid render check passes (`.claude/hooks/check_markdown_render.py`): no unescaped
-      `_ ^ # % & ~` inside a `\text{...}` run (MathJax breaks — use `\text{one\_hot}`), no unclosed
-      `$$`/`$` span, no Mermaid with a bad start keyword or an unquoted `(`/`)` in a node label.
-- [ ] Every `$…$` / `$$…$$` formula and every ```mermaid block was eyeballed as rendered (the checker
-      is necessary, not sufficient).
+GitHub runs Markdown over `$…$`/`$$…$$` **before** MathJax, so it silently corrupts LaTeX. The
+always-safe venue for a displayed equation is a fenced `math` block (a code fence tagged `math`),
+which is not Markdown-processed.
+- [ ] `.claude/hooks/check_markdown_render.py` passes — it is also run automatically on every push by
+      the `pre-push` git hook, which blocks a push that fails it.
+- [ ] **Every displayed equation is a fenced `math` block, not `$$…$$`.** (In `$$`/`$`, Markdown eats
+      the backslash in `\_ \# \{ \} \~` → `\text{one\_hot}` becomes `one_hot` → "'_' allowed only in
+      math mode", and multi-line content is mangled.)
+- [ ] Inline `$…$` is simple and on ONE line: no `\\`/matrices (they render raw, worst in a table
+      cell — use a fenced `math` block), no `<` before a letter (write `\lt`), no `\_ \# \{ \}`
+      escapes, no split across a line break; `\text{}` has no unescaped `_ ^ # % & ~`; braces balance.
+- [ ] No `\( \) \[ \]` delimiters, no `align`/`equation` environments (use a `math` fence + `aligned`),
+      no user macros (`\newcommand`/`\def`) — GitHub supports none of them.
+- [ ] Every `math`/`mermaid` fence and every `$…$` was eyeballed as rendered (the checker is necessary,
+      not sufficient); Mermaid node labels with `(`/`)` are `"double-quoted"`.
 
 ## Audience-fit
 - [ ] Written for an experienced Java dev new to Python/ML: JVM/Java analogies where they clarify,

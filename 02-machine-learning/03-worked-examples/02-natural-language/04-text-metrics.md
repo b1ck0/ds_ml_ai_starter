@@ -201,9 +201,9 @@ actually came next?" — average the surprise (negative log-probability) across 
 exponentiate to bring the number back to a "roughly how many equally-likely choices was the model
 choosing among" scale. Lower is better: a perplexity of 1 means the model was never surprised at all.
 
-$$
-\text{Perplexity}(x_1, \ldots, x_n) = \exp\left(-\frac{1}{n}\sum_{i=1}^{n}\log p(x_i \mid x_{<i})\right)
-$$
+```math
+\text{Perplexity}(x_1, \ldots, x_n) = \exp\left(-\frac{1}{n}\sum_{i=1}^{n}\log p(x_i \mid x_{\lt i})\right)
+```
 
 Run on `distilgpt2` (the same decoder [SPEC-ML-9](02-text-generation.md) used for generation) and the sentence `"The cat sat on
 the mat."`:

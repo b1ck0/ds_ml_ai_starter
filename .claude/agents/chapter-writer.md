@@ -29,9 +29,12 @@ exactly.
    - snippet compile check — `python .claude/hooks/check_snippets.py <the-chapter>.md` and
      `python -m py_compile <each code file>`
    - **render check** — `python .claude/hooks/check_markdown_render.py <the-chapter>.md` (the book is
-     read on GitHub, which renders LaTeX + Mermaid). Fix every hit. The commonest: an unescaped
-     `_`/`^`/`&`/`#`/`%`/`~` inside a `\text{...}` run breaks MathJax — write `\text{one\_hot}`, never
-     `\text{one_hot}`. Also keep Mermaid node labels that contain `(`/`)` wrapped in `"double quotes"`.
+     read on GitHub, which processes Markdown over `$…$`/`$$…$$` *before* MathJax and corrupts it).
+     Fix every hit. Golden rules: **write every DISPLAYED equation as a ```math fenced block, never
+     `$$…$$`** — the fence is the only venue GitHub doesn't Markdown-process, so `\text{one\_hot}`,
+     `\begin{aligned}…\\…`, and multi-line math all survive there and break in `$$`. Keep inline `$…$`
+     simple and on ONE line (no `\\`/matrices, no `<` before a letter — write `\lt`; no `\_ \# \{ \}`
+     escapes). Keep Mermaid node labels containing `(`/`)` in `"double quotes"`.
    - actually execute the code and confirm the artefacts reproduce
    - confirm every external link in the chapter resolves
 5. Map each acceptance criterion to its evidence (snippet run log / NOTE id / artefact path).

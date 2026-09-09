@@ -550,7 +550,9 @@ stretched across a network instead of a PCIe bus inside one box. Concretely, fro
   per_worker_batch`. With one chief and one worker (two replicas total in this sample cluster), that's
   $32 \times 2 = 64$ — every step, the *effective* batch the optimiser sees is 64 examples, even
   though each machine only ever materialises 32 of them locally. Generalised:
-  $$\text{global\_batch\_size} = \text{per\_replica\_batch} \times \text{num\_replicas\_in\_sync}$$
+  ```math
+  \text{global\_batch\_size} = \text{per\_replica\_batch} \times \text{num\_replicas\_in\_sync}
+  ```
   Get this backwards — hardcode the *global* size as if it were per-replica — and adding machines
   silently shrinks the amount of data each device trains on per step, which is a common, quiet way
   distributed training runs end up *less* stable than the single-GPU version they were scaled up from.

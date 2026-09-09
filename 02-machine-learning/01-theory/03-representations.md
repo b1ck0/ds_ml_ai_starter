@@ -192,8 +192,9 @@ size $V$, `"cat"`'s vector is $V$ numbers long, with a `1` at cat's index and `0
 **Step 2 — watch it fail, with real arithmetic.** The dot product of any two *distinct* one-hot
 vectors is always exactly zero — their single `1`s never land on the same index:
 
-$$\text{one\_hot}(\text{cat}) \cdot \text{one\_hot}(\text{dog}) = 0 \qquad
-\text{one\_hot}(\text{cat}) \cdot \text{one\_hot}(\text{spreadsheet}) = 0$$
+```math
+\text{one\_hot}(\text{cat}) \cdot \text{one\_hot}(\text{dog}) = 0 \qquad \text{one\_hot}(\text{cat}) \cdot \text{one\_hot}(\text{spreadsheet}) = 0
+```
 
 Both come out `0` — the exact same number. Mathematically, in a one-hot space, `"cat"` is *exactly*
 as similar to `"dog"` as it is to `"spreadsheet"`: zero, always, for any two distinct words, with no
@@ -305,7 +306,9 @@ changed. The worked example below makes this precise with real vectors: it compa
 
 **Step 3 — the fix: measure the angle, not the gap.**
 
-$$\mathrm{cos\_sim}(a, b) = \frac{a \cdot b}{\lVert a \rVert \, \lVert b \rVert}$$
+```math
+\mathrm{cos\_sim}(a, b) = \frac{a \cdot b}{\lVert a \rVert \, \lVert b \rVert}
+```
 
 **Cosine similarity** — plain-language gloss: a score from `-1` to `1` for how much two vectors
 point in the same direction, ignoring how long either one is. Range `[-1, 1]`: `1` = pointing the
@@ -318,7 +321,9 @@ L2-normalized (rescaled to length 1 — which `all-MiniLM-L6-v2` above does by d
 similarity and Euclidean distance lock together with a clean identity. For unit vectors,
 $\lVert a \rVert = \lVert b \rVert = 1$:
 
-$$d^2(a, b) = 2 \left(1 - \mathrm{cos\_sim}(a, b)\right)$$
+```math
+d^2(a, b) = 2 \left(1 - \mathrm{cos\_sim}(a, b)\right)
+```
 
 Once every vector has the same length, ranking by cosine similarity and ranking by Euclidean
 distance give the **same ordering** — the right-hand side is a strictly decreasing function of
@@ -559,7 +564,7 @@ meaningful, replacing one-hot vectors that are both enormous and blind to meanin
 skip-gram/CBOW made this mainstream; the "king − man + woman ≈ queen" geometry from the cold open
 showed up again, unprompted, in a completely different, modern embedding model, §2); cosine
 similarity and Euclidean distance are two ways to measure that distance, tied together by
-$d^2 = 2(1-\mathrm{cos\_sim})$ for unit vectors, with cosine dominating embedding search because it's
+$d^2 = 2(1 - \text{cos-sim})$ for unit vectors, with cosine dominating embedding search because it's
 magnitude-invariant (§3); quantization trades numeric precision for memory and speed, fp32 → fp16 →
 int8 (§4); and fine-tuning (full or LoRA) is the most expensive of three ways to change a model's
 behaviour, worth it only when prompting and retrieval genuinely can't get there (§5).

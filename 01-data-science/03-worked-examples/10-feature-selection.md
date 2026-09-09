@@ -384,7 +384,9 @@ Finding the actual "knee" needs a rule, and per NOTE-13 there isn't one universa
 so here's a simple, explainable one: **the smallest k whose score is within a tolerance `tol` of the
 best score achieved by any k.** In symbols — exactly what the `find_elbow` function below computes:
 
-$$k^{*} = \min\Bigl\{\, k \;:\; \mathrm{score}(k) \ge \max_{j} \mathrm{score}(j) - \mathrm{tol} \Bigr\}$$
+```math
+k^{*} = \min\Bigl\{\, k \;:\; \mathrm{score}(k) \ge \max_{j} \mathrm{score}(j) - \mathrm{tol} \Bigr\}
+```
 
 Plain gloss: read it as "the fewest features whose score isn't more than `tol` worse than the best
 score any feature count reached." Smaller `tol` = stricter = more features kept; larger `tol` = looser

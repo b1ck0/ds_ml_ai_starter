@@ -441,8 +441,7 @@ w_i \leftarrow w_i \cdot e^{-\alpha_m y_i h_m(x_i)} \text{, then renormalise so 
 
 In plain language: $\alpha_m$ ("how much this stump's vote counts") grows as its error shrinks; the
 update multiplies a *correctly* classified point's weight by $e^{-\alpha_m}$ (shrink it) and a
-*misclassified* point's weight by $e^{+\alpha_m}$ (grow it). For round 1: $\alpha_1 =
-\tfrac{1}{2}\ln(4) \approx 0.693$. Applying the update and renormalising:
+*misclassified* point's weight by $e^{+\alpha_m}$ (grow it). For round 1: $\alpha_1 = \tfrac{1}{2}\ln(4) \approx 0.693$. Applying the update and renormalising:
 
 | Point | Weight before round 1 | Weight after round 1 |
 |---|---|---|
@@ -456,8 +455,7 @@ forced to pay attention to it.
 +1]`) is fit on those new weights; it fixes `P3` but misses `P1` (weight 0.125), so
 $\varepsilon_2 = 0.125$ and $\alpha_2 = \tfrac{1}{2}\ln(7) \approx 0.973$. Reweighting again pushes
 `P1` up to 0.500. Stump 3 (`h3 = [+1, -1, -1, -1, +1]`) is fit on *that*; it fixes `P1` but misses
-`P2` (weight $1/14 \approx 0.071$), so $\varepsilon_3 \approx 0.071$ and $\alpha_3 =
-\tfrac{1}{2}\ln(13) \approx 1.282$.
+`P2` (weight $1/14 \approx 0.071$), so $\varepsilon_3 \approx 0.071$ and $\alpha_3 = \tfrac{1}{2}\ln(13) \approx 1.282$.
 
 **Step 4 — combine by a weighted vote, not a simple average.** The final prediction is
 $\mathrm{sign}(\alpha_1 h_1(x) + \alpha_2 h_2(x) + \alpha_3 h_3(x))$. Watch the *combined* training

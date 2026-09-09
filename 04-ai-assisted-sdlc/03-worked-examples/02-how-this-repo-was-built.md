@@ -244,7 +244,9 @@ must be precise about what the gate does and doesn't check.)
   ([source: "LaTeX Error: \mathrm allowed only in math mode" — Overleaf documentation](https://www.overleaf.com/learn/latex/Errors/LaTeX_Error%3A_%5Cmathrm_allowed_only_in_math_mode),
   checked 2026-09-03), which is the basis for this repo's own convention of citing
   `'_' allowed only in math mode` as the shape of failure a reader hits on GitHub — a formula like
-  `$\text{one_hot}$` renders broken, while `$\text{one\_hot}$` renders correctly as $\text{one\_hot}$.
+  `$\text{one_hot}$` renders broken, while the escaped form `$\text{one\_hot}$` renders correctly only
+  when the equation is written as a fenced math block rather than a `$$` span (inside a `$$`/`$` span
+  GitHub's Markdown eats the backslash before MathJax sees it).
   The tool's own regex, `UNESCAPED_SPECIAL = re.compile(r"(?<!\\)[_^#%&~]")`, matches exactly the
   unescaped case inside any `\text{...}` / `\mathrm{...}` / `\operatorname{...}` run, and nothing else.
 
