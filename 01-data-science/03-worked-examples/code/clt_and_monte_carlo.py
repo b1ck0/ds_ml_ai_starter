@@ -86,16 +86,16 @@ def plot_sampling_distributions(pop, dists) -> None:
 
 
 # --------------------------------------------------------------------------
-# Part 3 - bootstrapping ONE sample of 100 (mini-resamples of 32)
+# Part 3 - bootstrapping ONE sample of 100 (mini-resamples of 30)
 # --------------------------------------------------------------------------
-def bootstrap_one_sample(pop, sample_seed=27, n_sample=100, n_resample=32,
+def bootstrap_one_sample(pop, sample_seed=27, n_sample=100, n_resample=30,
                          n_boot=10_000, boot_seed=202):
     rng_s = np.random.default_rng(sample_seed)
     sample = pop[rng_s.integers(0, len(pop), size=n_sample)]  # one sample of 100
 
     rng_b = np.random.default_rng(boot_seed)
     idx = rng_b.integers(0, n_sample, size=(n_boot, n_resample))
-    boot_means = sample[idx].mean(axis=1)  # each: mean of a resample of 32
+    boot_means = sample[idx].mean(axis=1)  # each: mean of a resample of 30
     return sample, boot_means
 
 
@@ -103,7 +103,7 @@ def plot_bootstrap(pop, sample, boot_means) -> None:
     mu, xbar = pop.mean(), sample.mean()
     fig, ax = plt.subplots(figsize=(7.5, 4.5))
     ax.hist(boot_means, bins=45, density=True, color=BLUE, edgecolor="white", alpha=0.8,
-            label="10,000 bootstrap means (resamples of 32)")
+            label="10,000 bootstrap means (resamples of 30)")
     ax.axvline(mu, color=RED, linestyle="--", linewidth=2, label=f"population mean = {mu:.2f}")
     ax.axvline(xbar, color="black", linestyle=":", linewidth=2,
                label=f"the one sample's mean = {xbar:.2f}")
@@ -169,17 +169,17 @@ def main() -> None:
 
     sample, boot = bootstrap_one_sample(pop)
     plot_bootstrap(pop, sample, boot)
-    print("\n=== BOOTSTRAP: one sample of 100, then 10,000 resamples of 32 ===")
+    print("\n=== BOOTSTRAP: one sample of 100, then 10,000 resamples of 30 ===")
     print(f"the one sample's mean  x_bar        = {sample.mean():.4f} ms")
     print(f"mean of 10,000 bootstrap means      = {boot.mean():.4f} ms")
     print(f"population mean        mu           = {mu:.4f} ms")
-    print(f"a single resample of 32 mean        = {boot[0]:.4f} ms  (misses mu by {boot[0]-mu:+.4f})")
+    print(f"a single resample of 30 mean        = {boot[0]:.4f} ms  (misses mu by {boot[0]-mu:+.4f})")
     print(f"mean of just the first 100 resamples= {boot[:100].mean():.4f} ms  "
           f"(off by {boot[:100].mean()-mu:+.4f})")
     # honest caveat: a biased sample -> bootstrap faithfully reproduces the bias
     low = np.sort(pop)[:100]  # deliberately unrepresentative (100 fastest)
     rng_c = np.random.default_rng(303)
-    low_boot = low[rng_c.integers(0, 100, size=(10_000, 32))].mean(axis=1)
+    low_boot = low[rng_c.integers(0, 100, size=(10_000, 30))].mean(axis=1)
     print(f"\nCAVEAT -- a BIASED sample (the 100 fastest): its mean = {low.mean():.4f} ms; "
           f"bootstrap mean = {low_boot.mean():.4f} ms -> reproduces the bias, never reaches mu={mu:.4f}.")
 

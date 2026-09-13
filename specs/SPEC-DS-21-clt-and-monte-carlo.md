@@ -38,8 +38,8 @@ confidence-interval methods beyond the percentile idea (BCa etc.); MCMC (that's 
 2. What & why — CLT, bootstrap, Monte Carlo defined; Java framing.
 3. The population — 1000 right-skewed observations, clearly non-normal.
 4. CLT by fresh sampling — many samples of n=10/30/100; means go Normal; SE=σ/√n table + plot.
-5. Bootstrapping one sample — resamples of 32; grand mean ≈ population mean; single resample misses;
-   the biased-sample caveat.
+5. Bootstrapping one sample — 10,000 batches of 30; averaging the batch means ≈ population mean; a
+   single batch misses; the biased-sample caveat.
 6. Monte Carlo — the 2026-vs-2025 coin problem; simulate → ≈0.5; the exact 1/2 by symmetry; convergence.
 7. Pitfalls.
 8. Recap & next.
@@ -62,8 +62,8 @@ confidence-interval methods beyond the percentile idea (BCa etc.); MCMC (that's 
 - [x] AC1 — CLT shown on a non-normal population; empirical SE matches σ/√n → evidence: the results table
       (4.26≈4.15, 2.35≈2.40, 1.34≈1.31) + `clt_sampling_distributions.png`.
 - [x] AC2 — every snippet runs → evidence: `clt_and_monte_carlo.py` executed; outputs quoted verbatim.
-- [x] AC3 — bootstrap grand mean ≈ population mean, single resample misses, biased sample reproduces
-      bias → evidence: bootstrap output block + `clt_bootstrap.png`.
+- [x] AC3 — averaging the batch means ≈ population mean, a single batch misses, biased sample
+      reproduces bias → evidence: bootstrap output block + `clt_bootstrap.png`.
 - [x] AC4 — Monte Carlo → 0.50026, exact 1/2 proved → evidence: MC output + `monte_carlo_coin_convergence.png`.
 - [x] AC5 — renders on GitHub (fenced `math`, simple inline) + audience-fit Java framing.
 

@@ -24,8 +24,8 @@ This chapter is two ideas that both replace hard algebra with a `for` loop:
   σ/√n, *whatever* shape the population has. We'll watch it happen on a deliberately ugly, skewed
   population, then use **bootstrapping** to estimate that spread from a single sample.
 - **Monte Carlo simulation** — when a probability is annoying to derive by hand, simulate it a few
-  million times and read the answer off. We'll use it to settle a puzzle with a genuinely surprising
-  exact answer: *what's the probability you get more heads from 2026 coin tosses than from 2025?*
+  million times and read the answer off. We'll use it to settle a puzzle whose exact answer catches
+  most people out: *what's the probability you get more heads from 2026 coin tosses than from 2025?*
 
 ```mermaid
 flowchart LR
@@ -174,25 +174,27 @@ Off by nearly a millisecond. The *average of many* samples finds μ; a *single* 
 production you almost never get to draw many samples — you get the one. That's the problem
 bootstrapping solves.
 
-## 4. Bootstrapping — squeezing a sampling distribution out of one sample
+## 4. Bootstrapping — averaging many small batches back to the mean
 
 You have one sample of 100 and no way to ask the population for more. The bootstrap pretends your
-sample *is* the population and draws fresh "mini-samples" from it, with replacement. Here we draw
-10,000 resamples of size 32 and take each one's mean.
+sample *is* the population and draws many fresh "mini-batches" from it, with replacement. Here we draw
+**10,000 batches of size 30**, take each batch's mean, and then **average all 10,000 of those means** —
+which lands right back on the population mean.
 
 ```mermaid
 flowchart LR
-    S["one real sample<br/>(100 observations)"] -->|"resample 32,<br/>with replacement"| R1["resample 1 -> mean"]
-    S -->|"resample 32"| R2["resample 2 -> mean"]
-    S -->|"... x10,000"| R3["resample 10,000 -> mean"]
-    R1 --> D["distribution of<br/>bootstrap means"]
+    S["one real sample<br/>(100 observations)"] -->|"draw a batch of 30,<br/>with replacement"| R1["batch 1 -> mean"]
+    S -->|"batch of 30"| R2["batch 2 -> mean"]
+    S -->|"... x10,000"| R3["batch 10,000 -> mean"]
+    R1 --> D["10,000 batch means"]
     R2 --> D
     R3 --> D
-    D --> SE["its spread estimates the<br/>real standard error"]
+    D -->|"average them all"| AVG["~ the population mean"]
+    D -->|"their spread"| SE["estimates the<br/>standard error"]
 ```
 
 ```python
-def bootstrap_one_sample(pop, sample_seed=27, n_sample=100, n_resample=32,
+def bootstrap_one_sample(pop, sample_seed=27, n_sample=100, n_resample=30,
                          n_boot=10_000, boot_seed=202):
     sample = pop[np.random.default_rng(sample_seed).integers(0, len(pop), n_sample)]
     idx = np.random.default_rng(boot_seed).integers(0, n_sample, size=(n_boot, n_resample))
@@ -201,31 +203,31 @@ def bootstrap_one_sample(pop, sample_seed=27, n_sample=100, n_resample=32,
 
 sample, boot = bootstrap_one_sample(pop)
 print(f"the one sample's mean  x_bar          = {sample.mean():.4f} ms")
-print(f"mean of 10,000 bootstrap means        = {boot.mean():.4f} ms")
+print(f"mean of 10,000 batch means            = {boot.mean():.4f} ms")
 print(f"population mean        mu             = {pop.mean():.4f} ms")
-print(f"a single resample of 32               = {boot[0]:.4f} ms  (misses mu by {boot[0]-pop.mean():+.4f})")
-print(f"mean of just the first 100 resamples  = {boot[:100].mean():.4f} ms  (off by {boot[:100].mean()-pop.mean():+.4f})")
+print(f"a single batch of 30                  = {boot[0]:.4f} ms  (misses mu by {boot[0]-pop.mean():+.4f})")
+print(f"mean of just the first 100 batches    = {boot[:100].mean():.4f} ms  (off by {boot[:100].mean()-pop.mean():+.4f})")
 ```
 
 ```text
 the one sample's mean  x_bar          = 26.4315 ms
-mean of 10,000 bootstrap means        = 26.4646 ms
+mean of 10,000 batch means            = 26.4555 ms
 population mean        mu             = 26.4363 ms
-a single resample of 32               = 25.5327 ms  (misses mu by -0.9036)
-mean of just the first 100 resamples  = 26.1806 ms  (off by -0.2557)
+a single batch of 30                  = 25.5713 ms  (misses mu by -0.8650)
+mean of just the first 100 batches    = 26.1706 ms  (off by -0.2657)
 ```
 
-Read those four numbers top to bottom — they're the whole point of the section:
+Read those numbers top to bottom — they're the whole point of the section:
 
-- **Aggregating all 10,000 bootstrap means recovers the population mean.** The grand bootstrap mean is
-  **26.46**, essentially on top of **μ = 26.44**. From one sample and a `for` loop, we landed on the
-  truth.
-- **A single resample of 32 does not.** The very first one is **25.53**, off by nearly a full
+- **Averaging all 10,000 batch means recovers the population mean.** The grand bootstrap mean is
+  **26.46**, essentially on top of **μ = 26.44**. That's the headline: from one sample of 100 and a
+  `for` loop drawing small batches, averaging them all reconstructs the mean.
+- **A single batch of 30 does not.** The very first one is **25.57**, off by nearly a full
   millisecond. One draw is noise; the aggregate is signal — the same lesson as Section 3, one level in.
-- **A short run isn't enough, either.** Average only the first 100 resamples and you get **26.18**,
-  still off by −0.26. Monte Carlo estimates need *volume* to converge (Section 6 makes that precise).
+- **A short run isn't enough, either.** Average only the first 100 batches and you get **26.17**,
+  still off by −0.27. The estimate needs *volume* — thousands of batches, not a hundred — to converge.
 
-![Density histogram of 10,000 bootstrap resample means, a clean bell curve. Three vertical lines nearly coincide near 26.4 ms: the population mean (dashed red, 26.44), the one sample's mean (dotted black, 26.43), and the mean of the bootstrap means (green, 26.46). A single resample would land anywhere across the wide bell, roughly 22-31 ms.](artefacts/clt_bootstrap.png)
+![Density histogram of 10,000 bootstrap batch means, a clean bell curve. Three vertical lines nearly coincide near 26.4 ms: the population mean (dashed red, 26.44), the one sample's mean (dotted black, 26.43), and the mean of the batch means (green, 26.46). A single batch would land anywhere across the wide bell, roughly 21-31 ms.](artefacts/clt_bootstrap.png)
 
 ### The honest caveat: bootstrap trusts your sample completely
 
@@ -236,12 +238,12 @@ will faithfully, confidently reproduce that bias:
 
 ```python
 low = np.sort(pop)[:100]  # a deliberately BAD sample: the 100 fastest requests
-low_boot = low[np.random.default_rng(303).integers(0, 100, size=(10_000, 32))].mean(axis=1)
+low_boot = low[np.random.default_rng(303).integers(0, 100, size=(10_000, 30))].mean(axis=1)
 print(f"biased sample mean = {low.mean():.4f} ms | bootstrap mean = {low_boot.mean():.4f} ms | mu = {pop.mean():.4f} ms")
 ```
 
 ```text
-biased sample mean = 10.4921 ms | bootstrap mean = 10.4930 ms | mu = 26.4363 ms
+biased sample mean = 10.4921 ms | bootstrap mean = 10.4920 ms | mu = 26.4363 ms
 ```
 
 The bootstrap of the "100 fastest requests" sample sits at **10.49 ms** and never comes anywhere near
@@ -249,10 +251,12 @@ the true **26.44 ms** — it can only ever tell you about the sample it was give
 estimates *how much your estimate would wobble if you resampled*; it cannot fix a sample that was
 never representative in the first place. That is the one thing to remember about it.
 
-> **A note on resample size.** Textbook bootstrapping resamples at the *original* sample size (100
-> here), not 32. Smaller resamples widen the bootstrap spread by roughly √(100/32) ≈ 1.77×, so the
-> `size=32` "mini-samples" used above exaggerate the wobble on purpose, to make the spread visible.
-> When you bootstrap a confidence interval for real, resample at the full sample size.
+> **A note on batch size.** The batch size (30 here) controls the *spread* of the bootstrap
+> distribution, not the *center* you're averaging to — averaging the batch means lands on the sample
+> mean at any batch size, which is why batches of 30 recover the mean just fine. Batch size only
+> changes the wobble: smaller batches widen the spread by roughly √(100/30) ≈ 1.8× versus drawing at
+> the full size of 100. So when you bootstrap a *confidence interval* (where the spread is the point),
+> draw at the full sample size; when you just want to reconstruct the mean, small batches are fine.
 
 ## 5. Monte Carlo — a coin problem with a surprising exact answer
 
@@ -289,7 +293,8 @@ interchangeable, so the friend is equally likely to get more *heads* than you as
 P(H_{2026} > H_{2025}) = P(T_{2026} > T_{2025})
 ```
 
-Now rewrite the tails as `T = (\text{tosses}) - H`. The friend's tails exceed yours exactly when:
+Now rewrite each tails count as *tosses − heads* (a person's tails are simply their number of tosses
+minus their heads). The friend's tails exceed yours exactly when:
 
 ```math
 2026 - H_{2026} > 2025 - H_{2025}
@@ -336,8 +341,9 @@ algebra.
 - **Under-powered Monte Carlo.** A few hundred trials gave answers anywhere from 0.4 to 0.6 (the
   convergence plot). Always check that your estimate has stabilised — plot it against trial count, or
   run it twice with different seeds and confirm the answers agree to the precision you need.
-- **Resample size in the bootstrap.** Resample at the original sample size for honest intervals;
-  Section 4 shrank it to 32 only to make the spread easy to see.
+- **Batch size in the bootstrap.** Averaging the batch means recovers the mean at any batch size, but
+  the *spread* depends on it — draw at the full sample size for honest confidence intervals; Section 4
+  used batches of 30 to widen (and so show off) the spread.
 
 ## 7. Recap & what's next
 
@@ -346,10 +352,10 @@ algebra.
   matching **σ/√n** to two decimals.
 - A **single sample misses** μ (ours by +0.89 ms); the **average of many** samples finds it. That's
   why aggregation is trustworthy and one measurement isn't.
-- **Bootstrapping** manufactures a sampling distribution from one sample by resampling with
-  replacement. Aggregated, it recovered μ (26.46 vs 26.44) — but only because the sample was
-  representative; on a biased sample it reproduced the bias (10.49, never reaching 26.44). It
-  estimates *wobble*, not *truth*.
+- **Bootstrapping** draws many small batches (10,000 of size 30) from one sample and averages their
+  means — recovering μ (26.46 vs 26.44) — but only because the sample was representative; on a biased
+  sample it reproduced the bias (10.49, never reaching 26.44). It reconstructs the mean, and its spread
+  estimates the *wobble*.
 - **Monte Carlo simulation** answers "what's P(X)" by playing X out millions of times. The
   2026-vs-2025 coin problem came out at **0.50026**, confirming the exact **1/2** the symmetry
   argument proves — the extra toss is worth nothing.
