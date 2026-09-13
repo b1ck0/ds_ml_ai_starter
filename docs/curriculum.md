@@ -71,6 +71,15 @@ Every subject folder is organised under the same five sections:
   base-rate shift that undersampling introduces — with the King & Zeng prior-correction as the
   analytic intuition and a Platt-scaling contrast (and the honest note that isotonic's step function
   can tie ranks, where Platt preserves them exactly). Builds on DS-4/DS-6/DS-8; relates to DS-17.
+- **Central Limit Theorem, bootstrapping & Monte Carlo simulation** (SPEC-DS-21) — the two big
+  "simulate instead of solve" ideas. The CLT (sample mean approximately Normal with standard error
+  sigma/sqrt(n)) shown on a deliberately non-normal population: many fresh samples at n=10/30/100 turn
+  a skewed population into a bell curve of means whose spread matches sigma/sqrt(n); then
+  **bootstrapping** one sample (mini-resamples) to recover that sampling distribution when you only
+  have one sample — with the honest caveat that the bootstrap centers on the *sample* mean and
+  reproduces a biased sample's bias. **Monte Carlo** solves "P(more heads from 2026 tosses than 2025
+  tosses)" by simulation (approximately 0.5) and by the exact head/tail-symmetry argument (exactly
+  1/2). Builds on DS-1; the bootstrap ties to DS-8/DS-14.
 
 ### Cloud Environment Setup
 - **Google Vertex AI** — notebooks, training via Vertex AI Pipelines, MLOps advantages over ad-hoc

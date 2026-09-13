@@ -20,7 +20,8 @@ Hypothesis testing & EDA · imputation · collinearity · train/valid/holdout sp
 (undersampling & ensembles) · forecasting (composite synthetic signals) · feature selection · AutoML ·
 model registry (MLflow) · feature store (Feast) · Bayesian inference (Gaussian-noise regression +
 AR(1) with PyMC) · trustworthy probabilities on imbalanced data (out-of-time validation, Brier score,
-precision@top-N, isotonic/Platt calibration).
+precision@top-N, isotonic/Platt calibration) · Central Limit Theorem, bootstrapping & Monte Carlo
+simulation (the σ/√n law on a skewed population, and a coin-toss probability with a surprising exact answer).
 
 ## Cloud Environment Setup
 Vertex AI · Azure ML · SageMaker · batch vs online inference · production monitoring (concept/data/
@@ -30,4 +31,4 @@ model drift, retraining triggers) · in-database ML (BigQuery ML, Redshift ML).
 MLOps pipelines, model promotion decisions, monitoring, and retraining — see the Cloud section and
 `docs/definition-of-done.md`.
 
-_All 21 Data Science chapters (DS-0 → DS-20) are complete — see the sections above._
+_All 22 Data Science chapters (DS-0 → DS-21) are complete — see the sections above._
