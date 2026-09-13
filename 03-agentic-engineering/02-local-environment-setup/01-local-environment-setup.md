@@ -784,7 +784,7 @@ environments — which is exactly what Sections 2–3 just proved by actually ru
   request flows FastAPI → ADK runtime → (MCP tool call *or* pgvector memory lookup) → LLM, and only the
   last arrow costs money.
 
-Back to the map from the cold open — every box is now either built or ready:
+Every box in the opening diagram is now either built or ready:
 
 ```mermaid
 flowchart LR

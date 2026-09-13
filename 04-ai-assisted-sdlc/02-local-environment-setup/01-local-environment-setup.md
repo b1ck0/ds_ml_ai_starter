@@ -626,7 +626,7 @@ there.
   own files as the live example, and closed the loop on the cold open: a rule in prose is a request,
   a rule in `settings.json` is a guarantee.
 
-Back to the map from the cold open — every box is now built, and you watched it govern a real change:
+The opening diagram, filled in — every box built, and you watched it govern a real change:
 
 ```mermaid
 flowchart LR
