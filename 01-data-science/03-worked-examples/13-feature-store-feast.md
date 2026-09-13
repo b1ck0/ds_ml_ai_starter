@@ -36,10 +36,10 @@ flowchart TB
     MODEL --> BAD["scores every live request<br/>on a feature definition<br/>it never actually trained on"]
 ```
 
-Nobody sees an exception. Nothing crashes. The model just quietly scores worse in production than it
+Nobody sees an exception. Nothing crashes. The model just scores worse in production than it
 did in validation — and because both pipelines call their output `conv_rate`, there's no obvious
 place to even look. This is **train/serve skew**: the same *name*, computed by two different pieces
-of code that drift apart, silently, the moment either one changes without the other.
+of code that drift apart the moment either one changes without the other.
 
 The whole idea: **if training and serving don't run the
 exact same code to compute a feature, they will eventually disagree, and nothing will tell you.**
@@ -64,7 +64,7 @@ never actually the same code. Column names drift (`conv_rate` vs. `conversion_ra
 `NULL`-handling rule differs, a rolling window is "30 days" in one and "last calendar month" in the
 other, a unit changes. The model was trained on one definition and is scored in production against a
 *silently different* one — and that's one of the most common causes of a model that validates
-beautifully offline and then quietly underperforms, or actively misbehaves, once it's live, with no
+beautifully offline and then underperforms, or actively misbehaves, once it's live, with no
 exception thrown anywhere to tell you why.
 
 The fix a feature store provides: **define each feature exactly once**, and hand both the training
@@ -599,7 +599,7 @@ directly: adopt this once duplicate feature logic is a real, felt problem, not p
 ## 7. Recap & what's next
 
 - **Train/serve skew** happens when training and serving compute "the same" feature with two
-  different implementations that quietly drift apart. Feast's fix is structural: define a
+  different implementations that drift apart. Feast's fix is structural: define a
   `FeatureView` exactly once and read it through two retrieval calls instead of two codebases (LO1).
 - **Slow (batch) and fast (near-real-time) features** aren't a property of the store — they're a
   property of how often a feature is recomputed and how short a staleness window it can tolerate,

@@ -447,7 +447,7 @@ def _record_invoice_tool_schema() -> dict:
 model — the current pydantic v2 API for this
 ([source: pydantic docs](https://docs.pydantic.dev/latest/concepts/json_schema/) (checked
 2026-09-03)). Reusing it here means the model is asked for *exactly* the shape `schema.py` will later
-validate — the two can't silently drift apart the way a hand-written duplicate schema could.
+validate — the two can't drift apart the way a hand-written duplicate schema could.
 
 Just like [`code/mcp_db/llm_client.py`](code/mcp_db/llm_client.py) in the earlier MCP chapter, this
 function checks for `ANTHROPIC_API_KEY` and `ANTHROPIC_MODEL` and imports `anthropic` lazily, so
@@ -813,7 +813,7 @@ a Java service, rather than relying on either alone.
 ### 5.2 A missing required field
 
 Take the very same raw dict Section 3.1 extracted, and delete one required key before validating —
-simulating an extractor (rule-based or LLM) that silently dropped a field:
+simulating an extractor (rule-based or LLM) that dropped a field:
 
 ```python
 broken_raw = dict(raw)

@@ -538,7 +538,7 @@ calibration window: 20237 rows, 467 positive (2.3077%) -- true prevalence, never
 ```
 
 `IsotonicRegression.fit(X, y)` takes a **1-D array of scores**, not a feature matrix — this is
-genuinely unusual next to almost every other sklearn estimator, and worth double-checking before you
+unusual next to almost every other sklearn estimator, and worth double-checking before you
 call it: pass `model.predict_proba(...)[:, 1]`, never `X`
 ([source: NOTE-DS-20-5](../../research/NOTE-DS-20-5-sklearn-api.md)). Internally it fits a
 monotonically non-decreasing step function via the **Pool-Adjacent-Violators (PAV)** algorithm —
@@ -657,7 +657,7 @@ overfit a small, noisy sample.
   docs' own guideline is ≥1,000 calibration samples, with real overfitting risk below ~500–1,000
   ([NOTE-DS-20-3](../../research/NOTE-DS-20-3-calibration-isotonic-platt.md)). This chapter's
   20,237-row window is comfortably above that; Section 6 still showed a small ranking wobble at
-  N=50-200 purely from sparse high-score bins — with a genuinely small calibration set, expect that
+  N=50-200 purely from sparse high-score bins — with a small calibration set, expect that
   effect to be much larger.
 - **Reading Brier without the base-rate context is misleading in both directions.** A trivial
   always-predict-negative model on ~2% data scores a "good-looking" raw Brier near 0.02 by

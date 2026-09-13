@@ -611,7 +611,7 @@ flowchart TD
   retraining. `app.py`'s `feature_order` comes from `model_metadata.json`, written by the *same*
   training run that produced the model — not hardcoded twice in two files that can drift apart. This
   is the ML-serving analogue of a Java client and server disagreeing about a serialized object's field
-  order: it doesn't throw immediately, it just silently produces wrong answers.
+  order: it doesn't throw immediately, it just produces wrong answers.
 - **Skew across environments, not just across code changes.** `app.py`'s `lifespan` function
   explicitly compares `model_metadata.json`'s recorded `sklearn_version` against the `sklearn`
   installed in the running environment and **refuses to start** on a mismatch, rather than risking a
@@ -631,7 +631,7 @@ flowchart TD
   *correct* looks like: `distance_km=-1.0` never reached `model.predict()`. Skip the pydantic layer
   (or build the request DTO with loose typing, e.g. accepting any string) and a malformed or
   adversarial payload reaches the model directly — best case it raises deep inside scikit-learn with
-  an unhelpful stack trace; worst case it silently produces a nonsensical prediction that looks valid.
+  an unhelpful stack trace; worst case it produces a nonsensical prediction that looks valid.
   Validate at the edge, the same reflex as never trusting an unvalidated `@RequestBody` past your
   controller layer in a Java service.
 - **Batch's failure mode is quieter than online's.** An online service that's broken returns 500s

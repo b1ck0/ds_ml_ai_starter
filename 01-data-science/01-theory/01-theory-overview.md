@@ -26,7 +26,7 @@ You wouldn't start reading a new codebase file-by-file with no architecture diag
 the overview first: the major components, what talks to what, the names you'll keep bumping into.
 That's what this chapter is for data science. Every concept the worked-example chapters put into
 practice gets the same treatment here — a plain-language intuition, a one-line note on why it
-matters, a Java analogy where one genuinely helps, and a **forward link** to the chapter that runs
+matters, a Java analogy where one helps, and a **forward link** to the chapter that runs
 it on real code and real data.
 
 **How to use this chapter:** skim it once, end to end, before you touch any worked example. Don't
@@ -233,7 +233,7 @@ flowchart LR
   category to a single integer that preserves order — compact, and correct for a truly *ordered*
   category (`low` < `medium` < `high`), but silently invents a false ordering if you apply it to a
   nominal one (there's no meaningful sense in which `red < green < blue`). *Why it matters:*
-  picking the wrong one doesn't crash anything — it just quietly teaches the model a relationship
+  picking the wrong one doesn't crash anything — it just teaches the model a relationship
   that isn't real.
   **Forward link:** [Regression — NYC Taxi Fare
   Prediction](../03-worked-examples/05-regression-nyc-taxi.md).
@@ -738,7 +738,7 @@ flowchart LR
 ```
 
 Four extensions that don't fit neatly into one box on the loop above — each solves a real problem
-the earlier sections quietly assumed away:
+the earlier sections assumed away:
 
 - **Class imbalance** — one class vastly outnumbers another (fraud detection: legitimate
   transactions might outnumber fraud 999-to-1). **Why it matters:** accuracy becomes actively

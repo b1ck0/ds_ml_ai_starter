@@ -66,7 +66,7 @@ substitute a documented default (`0`, `Optional.empty()`, a sentinel). Either wa
 handled *locally* and the rest of the pipeline never has to think about it again. Machine learning
 input doesn't offer that escape hatch. A `scikit-learn` estimator's `.fit()` will raise on a `NaN`
 — but the "fix" isn't a null check, because whatever value you put in that cell becomes training
-signal. Fill it wrong and you're not defusing a bug, you're quietly teaching the model something
+signal. Fill it wrong and you're not defusing a bug, you're teaching the model something
 false about the world. This chapter is about the difference: what each common filling strategy
 actually *does* to your data, and the one discipline (fit imputation on train only) that keeps the
 fix from becoming its own bug.
@@ -210,7 +210,7 @@ print(numeric_missing_idx & sex_missing_idx)     # {3, 339}
   (5× Adelie/Torgersen, 5× Gentoo/Biscoe, 1× Adelie/Dream). That clustering by an *observed*
   column (species, island) is the shape of MAR, not pure noise — field conditions on some
   island/species combinations apparently made sexing harder. This is exactly the 11-row set the
-  cold open used to show `dropna()` quietly erasing a subgroup, not a random sample.
+  cold open used to show `dropna()` erasing a subgroup, not a random sample.
 
 Neither pattern is provable from 344 rows alone — this is intuition-building, not a formal
 missingness test — but it already tells you something actionable: the numeric gap is small and
@@ -532,7 +532,7 @@ that fold's training rows only, automatically.
   other labels manufactures ground truth that was never observed — your model's evaluation metric
   becomes partly a measure of how well it predicts its own fabricated targets. If a target value
   is missing, that row belongs in a held-out "can't score this" bucket or gets dropped, not filled.
-- **Mean/median imputation quietly inflates confidence.** Section 3 showed variance shrinking by
+- **Mean/median imputation inflates confidence.** Section 3 showed variance shrinking by
   ~14% at 30% missingness. A shrunk-variance column produces artificially tight confidence
   intervals and p-values downstream — the model (or a hypothesis test built on top of it, see
   DS-1) looks more certain than the underlying data actually supports, because part of what it's
@@ -566,7 +566,7 @@ that fold's training rows only, automatically.
   the strategy you pick changes what the model learns. Rubin's 1976 MCAR/MAR/MNAR taxonomy is
   still the vocabulary `sklearn.impute` (and this chapter) is organized around.
 - **The naive fixes fail first, and that's the point.** `dropna()` silently deletes a non-random
-  subgroup (the cold open's 11 penguins); filling every gap with the column average silently
+  subgroup (the cold open's 11 penguins); filling every gap with the column average
   shrinks variance and correlation (~14% on both, Section 3). Neither crashes — both need to be
   *seen* to be caught.
 - `sns.heatmap(df.isna())` turns "which cells are missing" into a pattern you can read by eye —

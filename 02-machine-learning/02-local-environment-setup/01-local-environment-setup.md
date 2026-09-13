@@ -481,7 +481,7 @@ flowchart LR
   Section 1 described — a DL framework's pinned `numpy`/`protobuf` range colliding with the DS
   stack's. Keep `.venv-ml` for deep learning, and the DS venv for everything else.
 - **Unpinned installs.** `pip install torch` with no version pin resolves to whatever is newest on
-  the day you run it — not reproducible, and liable to silently swap CPU/CUDA defaults between
+  the day you run it — not reproducible, and liable to swap CPU/CUDA defaults between
   releases. Always pin exact versions, as this chapter's commands do.
 
 ## 6. Recap & what's next

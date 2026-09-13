@@ -405,7 +405,7 @@ The three model families this chapter compares, and the one-line pitch for each 
 you'd want in a design doc before picking one:
 
 - **`LinearRegression`** — fits one global weighted sum of the features. Cheapest to train, easiest
-  to explain, and (as §7 shows) its predictions genuinely don't change no matter how you scale
+  to explain, and (as §7 shows) its predictions don't change no matter how you scale
   the inputs. Only as good as the model can be if the true relationship really is close to linear.
 - **`RandomForestRegressor`** — **bagging**: many decision trees, each trained on a bootstrap
   resample of the data with a random subset of features per split, predictions averaged. Reduces
@@ -655,7 +655,7 @@ KNeighborsRegressor(k=15)   MinMaxScaler 4.425674 2.103729 1.552526 0.966169
              RandomForest   MinMaxScaler 3.375202 1.837172 1.467064 0.974199
 ```
 
-Three genuinely different stories in one table:
+Three different stories in one table:
 
 - **`LinearRegression`'s metrics are *bit-for-bit identical* across all three scalings.** This
   surprises people who've heard "linear models need scaling" as a blanket rule — plain

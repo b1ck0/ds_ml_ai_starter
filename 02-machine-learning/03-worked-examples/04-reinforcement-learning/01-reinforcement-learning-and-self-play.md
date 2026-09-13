@@ -996,7 +996,7 @@ AlphaZero's training run used **5,000 first-generation TPUs to generate self-pla
 second-generation TPUs to train the network**, reaching superhuman chess strength within **24 hours**
 of that (NOTE-ML-15-3) — thousands of accelerators, not one CPU core; a state space around $10^{43}$
 to $10^{47}$ positions, not 240. That gap is not a rounding error, and it's the honest reason this
-chapter builds a genuinely tiny worked example instead of pretending to scale it up: the *concepts* in
+chapter builds a tiny worked example instead of pretending to scale it up: the *concepts* in
 §§2–5 (MDP, Bellman, TD updates, on-policy vs. off-policy) are exactly what AlphaZero runs on — the
 compute to run them on real chess is a different problem entirely.
 

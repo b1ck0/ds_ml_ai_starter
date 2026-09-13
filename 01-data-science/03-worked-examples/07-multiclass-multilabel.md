@@ -39,7 +39,7 @@ flowchart TB
 ```
 
 This chapter is about telling the two shapes apart, training a model for each, and — the part
-that actually bites in production — understanding how a single averaged metric can quietly hide a
+that actually bites in production — understanding how a single averaged metric can hide a
 class your model is bad at.
 
 ## 1. What & why

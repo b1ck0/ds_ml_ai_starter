@@ -122,7 +122,7 @@ compute
   This one is usually a **symptom**, not a distinct root cause: it shows up whenever the *inputs* the
   model scores have shifted (a fixed model's `predict(X)` is a deterministic function of `X`, so its
   output distribution can only move if `X`'s distribution moves) — whether that shift is real-world
-  data drift or a broken upstream feature pipeline quietly feeding the model garbage. Its practical
+  data drift or a broken upstream feature pipeline feeding the model garbage. Its practical
   value is that it needs **no ground-truth labels** to compute: you always have the model's own
   predictions, even when the true outcome (did this transaction turn out to be fraud?) won't be known
   for days or weeks. Its practical limit is the flip side of the same fact: because `predict(X)`
@@ -453,7 +453,7 @@ actually matter for the specific model, tuned to that model's own noise floor ra
 verbatim from a blog post's default.
 
 Not every drift alert needs a full retrain, either. If the *ranking* still holds up but the predicted
-*probabilities* have quietly drifted off the diagonal — exactly the reliability-diagram check
+*probabilities* have drifted off the diagonal — exactly the reliability-diagram check
 [DS-20](../03-worked-examples/15-calibration-ranking-imbalanced.md) builds — refitting a calibrator
 (isotonic or Platt) on a fresh true-prevalence hold-out is a far cheaper fix than retraining the whole
 classifier, and it's worth checking for before reaching for the heavier option.
@@ -490,7 +490,7 @@ traffic — the **champion** — only by beating it on **two** separate evaluati
 - **A recent labelled window** — the latest slice of production data with true labels attached. This
   is what tells you the challenger has actually adapted to whatever changed. It is also,
   by itself, dangerous to trust alone: a challenger retrained purely on recent (already-drifted) data
-  can look great on more recent data almost by construction, while quietly forgetting how to handle
+  can look great on more recent data almost by construction, while forgetting how to handle
   cases that were common before the drift and are still going to show up again.
 - **A frozen golden dataset** — a fixed, curated set of examples that never changes, covering the
   cases you never want a new model to get wrong: known edge cases, past incidents, rare-but-critical
@@ -563,7 +563,7 @@ snapshotted from whatever data happened to be around at training time.
   anything.
 - **Three drifts, three different footprints.** Data drift moves `P(X)` and is visible on the inputs
   (the coffee shop's regulars are replaced by tourists, the rule stays true); concept drift moves
-  `X → y` and is invisible on the inputs (the same customers, but the tipping rule silently changed);
+  `X → y` and is invisible on the inputs (the same customers, but the tipping rule changed);
   prediction drift moves the model's own output distribution and needs no labels at all — but,
   because it is computed from `predict(X)` alone, it is exactly as blind to concept drift as PSI and
   the KS-test are ([NOTE-20](../../research/NOTE-20-drift-detection.md)).

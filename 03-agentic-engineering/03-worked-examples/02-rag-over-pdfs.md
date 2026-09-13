@@ -523,7 +523,7 @@ version... is 1.3.0") and the official Anthropic docs
 both cited in `research/NOTE-AGENT-4-provider-sdks.md`, checked 2026-09-02) — not asserted from memory.
 The model id is deliberately read from `ANTHROPIC_MODEL` rather than hard-coded: NOTE-AGENT-4's
 verified-current id at time of writing was `claude-opus-5` (checked 2026-09-02), and model ids move on;
-this chapter will not bake in a default that quietly goes stale.
+this chapter will not bake in a default that goes stale.
 
 ![RAG-over-PDFs pipeline: acme_handbook.pdf through ingest.py's parse+chunk+embed, into the local index, through retrieve.py's cosine top-k, into answer.py's prompt assembly, hitting a key-gated boundary that either falls back to printing the assembled context (no key) or calls the Anthropic Messages API for a generated, cited answer (key set)](artefacts/rag_pdf_pipeline_diagram.png)
 

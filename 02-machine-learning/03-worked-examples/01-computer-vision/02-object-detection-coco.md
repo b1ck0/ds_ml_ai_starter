@@ -255,7 +255,7 @@ names. `outputs["labels"]` values are indices into this exact 91-entry list — 
 always correct, with **no arithmetic needed**. The natural first guess, "labels must be 1-indexed
 into the 80 real names, so subtract 1," is wrong and silently returns the *wrong class name* for
 every object whose true category ID falls after one of the 10 gaps (for example, everything from
-`"stop sign"` onward is shifted by at least one gap) — it doesn't crash, it just quietly mislabels
+`"stop sign"` onward is shifted by at least one gap) — it doesn't crash, it just mislabels
 things. Section 7 returns to this.
 
 ## 4. Run inference on a real photo
