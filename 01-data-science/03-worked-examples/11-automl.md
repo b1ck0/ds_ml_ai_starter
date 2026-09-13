@@ -25,8 +25,8 @@ all at (mostly) default hyperparameters, hand-picked by the author
 ([classification-titanic.md](06-classification-titanic.md)).
 
 **AutoML is what happens when you stop running that search by hand and let a machine run it
-instead — the same CASH search, done systematically rather than ad hoc.** One sentence you could
-repeat at dinner: *instead of you guessing which model and which settings to try next, the machine
+instead — the same CASH search, done systematically rather than ad hoc.** Or plainly:
+*instead of you guessing which model and which settings to try next, the machine
 tries many combinations and remembers what worked.*
 
 That's the loop this whole chapter fills in, one box at a time — sample a pipeline, evaluate it,

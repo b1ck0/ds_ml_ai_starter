@@ -49,7 +49,7 @@ come from any of six local builds, and nobody wrote down which — except it's w
 because a JAR at least survives in `target/` after the *next* build overwrites it. The notebook's
 `model` variable doesn't even do that; it's gone the instant the next cell runs.
 
-Here's the one-sentence version you could repeat at dinner: **an experiment tracker is a CI
+Put simply: **an experiment tracker is a CI
 dashboard for training runs, and a model registry is an artifact repository for trained models** —
 and **MLflow** is both, running entirely on your own machine, for free. The rest of this chapter
 rebuilds exactly the six-step scenario above, correctly this time. By the end, the question from

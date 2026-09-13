@@ -43,7 +43,7 @@ question by cosine similarity, and — only at the very last step, and only if y
 key — generate a prose answer that cites which chunks it came from. Everything through retrieval runs
 on a CPU with no key at all; **that is the actual point of this chapter**, not a simplification for
 teaching purposes. RAG's retrieval half is honest, inspectable, ordinary code. Only the final "write
-me a sentence" step needs an LLM. One sentence to keep, the kind you could repeat at dinner:
+me a sentence" step needs an LLM. The idea worth keeping:
 **retrieval isn't a workaround for a small context window — it's how you avoid making the model read
 the whole library every time it wants one page.**
 

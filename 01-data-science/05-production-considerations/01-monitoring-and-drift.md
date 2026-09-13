@@ -24,7 +24,7 @@ for *why* a model rots (**drift**), how to detect it while it's happening, when 
 trigger a retrain, and how to decide whether a freshly retrained candidate actually deserves to
 replace the model currently in production.
 
-One sentence you could repeat at dinner: **a model doesn't tell you when it's wrong — you have to
+Put bluntly: **a model doesn't tell you when it's wrong — you have to
 go looking, because the world it learned from keeps moving after you stop watching.**
 
 ## 1. What & why — a model is an assumption that nothing checks for you

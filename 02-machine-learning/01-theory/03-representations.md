@@ -22,7 +22,7 @@ definition, a family tree, or a grammar rule — it only ever saw which words te
 other words in ordinary text, and that alone was enough for "royalty," "gender," and "queen" to
 fall out as directions and landmarks in a few-hundred-dimensional space.
 
-Here's the one-sentence version, the kind you could repeat at dinner: **if you place words in space
+Here it is in one line: **if you place words in space
 so that similar meanings end up as nearby points, the geometry of that space starts doing a little
 bit of grammar and reasoning for you, for free.** §2's worked example below reproduces this exact
 trick — not with 2013's word2vec, but with a real, current embedding model — and the vector

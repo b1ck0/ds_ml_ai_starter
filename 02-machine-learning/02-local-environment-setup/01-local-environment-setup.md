@@ -25,7 +25,7 @@ machine *does* have an NVIDIA GPU, just with a driver that doesn't match the CUD
 was compiled against, and the very first real GPU call raises something like `CUDA driver version is
 insufficient for CUDA runtime version` — a problem this chapter's §5 covers in full.
 
-Here's the one-sentence version you could repeat at standup: **`pip` doesn't know whether your
+In one sentence: **`pip` doesn't know whether your
 machine has a GPU it can use — leave that unstated, and it guesses, and the guess can cost you
 gigabytes or a crash.**
 

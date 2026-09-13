@@ -22,7 +22,7 @@ per
 [source: Hubel & Wiesel's visual feature detectors, summarized from their Nobel-cited work](https://en.wikipedia.org/wiki/David_H._Hubel)
 (checked 2026-09-03)).
 
-Here's the one-sentence version you could repeat at dinner: **the brain doesn't look at a whole
+The one-sentence version: **the brain doesn't look at a whole
 scene at once — it tiles the visual field with small, local edge-detectors, each tuned to one
 pattern, and builds everything else on top of that.** That is, mechanically, what a convolutional
 neural network does in software: a small filter, applied at every position, hunting for one

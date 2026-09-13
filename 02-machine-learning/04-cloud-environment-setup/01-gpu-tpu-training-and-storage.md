@@ -34,7 +34,7 @@ one or two more orders of magnitude past that again, over a dataset that itself 
 laptop's disk. That combination — a training loop too slow to finish in a useful time, over data too
 big to hold locally — is the wall this chapter is about.
 
-Here's the one-line version, the kind you could repeat at dinner: **you only leave the laptop when
+In one line: **you only leave the laptop when
 the clock or the disk forces you to — never because a bigger tool feels more serious.**
 
 ```mermaid

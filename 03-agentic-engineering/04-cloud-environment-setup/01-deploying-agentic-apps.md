@@ -44,8 +44,8 @@ instant a stranger's HTTP request has to reach it:
 
 None of this is a flaw in the agent itself — the MCP tool boundary, the RAG retrieval loop, the LLM
 call are all unchanged. What breaks is everything wrapped around it: where it runs, where its data
-lives, where its secrets come from, and who's watching it once real traffic hits it. Here's the
-one-sentence version, the kind you could repeat at dinner: **production doesn't change what your
+lives, where its secrets come from, and who's watching it once real traffic hits it. The rule,
+plainly: **production doesn't change what your
 agent does — it changes where every piece of it lives, and who's allowed to see it.**
 
 ```mermaid

@@ -47,7 +47,7 @@ bishop 3, a rook 5, a queen 9
 on how far each piece can move, not a law of chess. TD-Gammon's, DQN's, and AlphaZero's whole premise
 is: what if the evaluation function didn't have to be guessed? What if it learned itself, from playing?
 
-**One sentence you could repeat at dinner: instead of being told which moves are good, a
+**The core idea: instead of being told which moves are good, a
 reinforcement-learning agent plays, loses, wins, and slowly works out for itself which moves tend to
 lead somewhere good.** This chapter builds that idea from the ground up, on a chess board small enough
 to watch it happen.

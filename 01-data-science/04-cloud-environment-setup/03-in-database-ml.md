@@ -34,7 +34,7 @@ leaves the warehouse twice (out to train, back in to score). Right: the data nev
 paths land the same `churn_score` column in the same table; they differ enormously in how much
 infrastructure sits between the data and the answer.*
 
-Five steps collapse to two. That's this chapter in one sentence you could repeat at dinner: **if
+Five steps collapse to two — the whole chapter, really: **if
 your data already lives in the warehouse, training and scoring a model can just be more SQL.**
 
 Why does that work at all? A modern warehouse isn't a dumb bucket of rows. BigQuery stores every

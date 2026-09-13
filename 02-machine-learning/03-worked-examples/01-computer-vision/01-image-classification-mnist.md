@@ -32,7 +32,7 @@ pipeline: load data, define a model, run a training loop, evaluate it. That's th
 this chapter, and it's the shape every later computer-vision chapter in this course reuses on
 harder problems.
 
-Here's the one-sentence version you could repeat at dinner: **teach a computer to recognize a
+The whole thing in one sentence: **teach a computer to recognize a
 handwritten digit by showing it tens of thousands of examples and letting it slowly correct its own
 mistakes.** The rest of this chapter is that sentence, unpacked one step at a time.
 

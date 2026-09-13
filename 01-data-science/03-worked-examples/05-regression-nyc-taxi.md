@@ -38,7 +38,7 @@ $$0.642 \times 17 - 3.547 = 7.37$$
 That's the model's predicted (log) price for a vintage nobody had tasted yet, computed entirely
 from weather-station numbers.
 
-Here's the one-sentence version of machine learning you can repeat at dinner: **it's finding the
+Machine learning in one sentence: **it's finding the
 parameters in a formula that best describe the data you already have.** `0.642` and `-3.547` are
 the two parameters; "best describe" means some optimizer picked them to minimize error across every
 vintage on record — what "error" means precisely, and how it's minimized, is §3 and §4 of this

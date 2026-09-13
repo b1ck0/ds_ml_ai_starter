@@ -45,7 +45,7 @@ it is right or badly wrong. A panel that has to *state a position, defend it aga
 either converge or admit it didn't* is a cheap, mechanical way to surface exactly the disagreement a
 single call would hide.
 
-The sentence to keep, the kind you could repeat at dinner: **one model answering alone can't tell
+The point, in a sentence: **one model answering alone can't tell
 you whether a question was actually settled — get a panel to argue it out, and you find out.**
 
 ## 1. What & why — the panel-of-experts framing

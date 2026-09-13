@@ -21,7 +21,7 @@ diseased. **The question a box literally cannot answer is: which pixels, exactly
 
 **Semantic segmentation** answers exactly that — not "where's the box," but "for every single pixel
 in this image, which class is it?" One class label per pixel, everywhere, no rectangle involved. Say
-it the way you'd repeat it at dinner: **segmentation means the model doesn't get to point vaguely at
+it plainly: **segmentation means the model doesn't get to point vaguely at
 a region — it has to commit, pixel by pixel, one verdict at a time, across the entire photo.**
 
 This chapter runs a pretrained segmentation model — no training, same honest scoping as ML-5 — on a

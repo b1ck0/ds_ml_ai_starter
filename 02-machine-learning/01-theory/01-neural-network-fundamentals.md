@@ -37,7 +37,7 @@ one calculus step at a time
 algorithm — **backpropagation** — is still, mechanically, the same one training every network in
 this curriculum decades later.
 
-Here's the whole chapter in one sentence you could repeat at dinner: **a single straight line
+The whole chapter in one sentence: **a single straight line
 can't bend around a problem like XOR, so stack a nonlinear twist between several weighted sums, and
 use backpropagation to train every layer of those sums at once.**
 

@@ -20,7 +20,7 @@ and 3.0 — and nobody touched Project A's code. That is the whole bug report: "
 didn't change anything," which is the single most common environment failure a newcomer to Python
 hits, and it is entirely avoidable.
 
-Here's the one-sentence fix, the kind you could repeat at dinner: **give every project its own
+Here's the one-sentence fix: **give every project its own
 private copy of "installed packages," the same way Java gives every module its own resolved
 classpath, so installing something for one project can never break another.** That private copy is
 called a **virtual environment**, or `venv`, and building one — plus the tools that fill it,
@@ -770,7 +770,7 @@ over `ArrayList`/`ResultSet` with whole-array and whole-table operations. The ne
   already run successfully — its output confirms the whole stack (pandas, numpy, matplotlib, scipy,
   seaborn, scikit-learn, jupyter) is installed and importable.
 
-Back to the map from the opening story — every box is now built:
+The toolchain from the opening, every box now built:
 
 ```mermaid
 flowchart LR

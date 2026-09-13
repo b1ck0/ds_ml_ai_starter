@@ -4,11 +4,10 @@
 
 ## One sentence, then a 140-year-old graph
 
-Here's the whole subject, reduced to one line you could say at a dinner table without losing
-anyone: **data science and machine learning are, underneath every buzzword, finding the numbers
-in a formula that best describe the data you have.** That's it. Everything else in this chapter —
-every acronym, every diagram, every Greek letter — is either a way to get better data to feed that
-formula, a way to fit it, or a way to check whether you can trust the fit.
+Here's the whole subject in a single line:
+**data science and machine learning are, underneath every buzzword, finding the numbers
+in a formula that best describe the data you have.** That's it. Everything else here serves that
+formula — getting better data into it, fitting it, and checking whether the result holds up.
 
 That idea is older than computers. In 1886, the English polymath Francis Galton was measuring the
 heights of parents and their grown children and noticed something odd: very tall parents tended to
@@ -24,11 +23,11 @@ Galton's 1886 paper *Regression towards mediocrity in hereditary stature*, based
 half the vocabulary in this chapter comes from.
 
 You wouldn't start reading a new codebase file-by-file with no architecture diagram — you'd want
-the map first: what are the major components, what talks to what, which names you'll keep bumping
-into. This chapter is that map for data science. It defines, in one place, every concept the
-curriculum's worked-example chapters put into practice: a plain-language intuition first, a
-one-line "why it matters" second, a Java-shaped analogy where one genuinely helps, and a **forward
-link** to the chapter that runs it on real code and real data.
+the overview first: the major components, what talks to what, the names you'll keep bumping into.
+That's what this chapter is for data science. Every concept the worked-example chapters put into
+practice gets the same treatment here — a plain-language intuition, a one-line note on why it
+matters, a Java analogy where one genuinely helps, and a **forward link** to the chapter that runs
+it on real code and real data.
 
 **How to use this chapter:** skim it once, end to end, before you touch any worked example. Don't
 try to memorize it. When a term resurfaces two chapters from now, come back here for the
@@ -37,11 +36,11 @@ stays light on derivations and code — one exception in Section 5 gets a real s
 plots, because "bias–variance trade-off" and "overfitting" are much easier to *see* than to be
 told about.
 
-## The spine every chapter hangs on
+## The loop every chapter walks
 
 Every worked-example chapter in this curriculum — wine, taxis, Titanic, forecasts, all of it —
-walks the same seven-step loop. This is the map to keep coming back to; every section below will
-re-show it with the piece that section covers marked:
+walks the same seven-step loop. Keep coming back to it; every section below re-shows the loop with
+its own box marked:
 
 ```mermaid
 flowchart LR
@@ -738,7 +737,7 @@ flowchart LR
     MT --> ME["Model<br/>Evaluation"]
 ```
 
-Four extensions that don't fit neatly into one box on the spine above — each solves a real problem
+Four extensions that don't fit neatly into one box on the loop above — each solves a real problem
 the earlier sections quietly assumed away:
 
 - **Class imbalance** — one class vastly outnumbers another (fraud detection: legitimate
@@ -798,7 +797,7 @@ the earlier sections quietly assumed away:
 
 ## 8. Recap & what's next
 
-The map, compressed to one pass — every box on the spine, checked off:
+Every box on the loop one more time, with the section that covered each:
 
 ```mermaid
 flowchart LR

@@ -15,7 +15,7 @@ change what Claude Code allows."
 ([source: Claude Code — Configure permissions](https://code.claude.com/docs/en/permissions), checked
 2026-09-03.)
 
-Here's the one-sentence version, the kind you could repeat at dinner: **a rule written in prose is a
+The short version: **a rule written in prose is a
 request; a rule enforced by the tool is a guarantee — and a governed local setup is entirely about
 building the second kind, not settling for the first.**
 

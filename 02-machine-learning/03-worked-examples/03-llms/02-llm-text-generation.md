@@ -22,7 +22,7 @@ interface — a method signature, a REST schema, a message contract — and you 
 changing code and redeploying. An instruction-tuned LLM inverts that: there's no separate
 "configuration" layer, no method overload, no compiled contract the runtime enforces for you. The
 only lever you have is the text you send it, and you pull that lever on every single call, with no
-redeploy at all. One sentence you could repeat at dinner: **the prompt is the program.**
+redeploy at all. The whole idea in four words: **the prompt is the program.**
 Plain-language gloss: a **prompt** is just the literal text you send the model on one call — every
 word of it is "the code," there's no config file behind it.
 

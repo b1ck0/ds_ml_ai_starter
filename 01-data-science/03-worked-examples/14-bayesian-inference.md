@@ -45,7 +45,7 @@ carry that information — it hands back a point, not a range. This chapter fits
 model a completely different way — one that returns a **distribution over lines**, not one line —
 and shows you exactly what that buys you.
 
-**One sentence you could repeat at dinner: instead of solving for the single best answer, Bayesian
+**In one sentence: instead of solving for the single best answer, Bayesian
 inference asks "given what I already believed, and the evidence I just saw, what's the whole range of
 answers I should still consider — and how much do I believe each one?"**
 

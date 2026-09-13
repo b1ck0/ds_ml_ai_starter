@@ -13,7 +13,7 @@ Collinearity is that bug, moved into a regression model. When two columns carry 
 information, the model can't tell which one deserves the credit for predicting the label, and the
 number it hands back — the coefficient — becomes arbitrary: it can flip sign, blow up, or shrink
 toward zero depending on which particular sample of data it happened to be fit on. One plain
-sentence you could repeat at dinner: **when two features tell the model the same story, the model
+sentence: **when two features tell the model the same story, the model
 can't decide which one to believe, and its answer stops meaning anything.**
 
 This chapter shows you how to catch that before it ships, states the rule that prevents it — **use

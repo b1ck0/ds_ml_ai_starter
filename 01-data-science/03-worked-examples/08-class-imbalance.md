@@ -27,7 +27,7 @@ flowchart LR
     ACC -.->|"the trap: one number hides the other"| REC
 ```
 
-Here's the one-sentence version you could repeat at dinner: **when the thing you're looking for is
+Here's the crux: **when the thing you're looking for is
 rare, "usually right" and "actually useful" are two completely different claims, and accuracy only
 measures the first one.** The rest of this chapter proves that with real numbers, then builds —
 rung by rung — the four things that actually help: class weighting, resampling, an **ensemble of

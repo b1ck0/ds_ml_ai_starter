@@ -31,7 +31,7 @@ three structural limits:
   invisible — not "unlikely to know," structurally *incapable* of knowing, the same way a compiled JAR
   can't see a file created after it was built.
 
-Here's the one-sentence version you could repeat at dinner: **an LLM only ever knows two things — what
+Boiled down: **an LLM only ever knows two things — what
 got baked into its weights at training time, and whatever you paste back into the prompt yourself.**
 Everything else in this chapter, and every remaining chapter in Agentic Engineering, is built on that
 one sentence. Two structurally different fixes exist, plus the piece of infrastructure that makes the

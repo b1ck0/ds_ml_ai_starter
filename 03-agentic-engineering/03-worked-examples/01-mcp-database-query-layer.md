@@ -31,7 +31,7 @@ read-only tools — no `run_sql` tool anywhere in sight. It then drives that ser
 Python test client with no LLM involved at all, and an (optional, key-gated) LLM client that
 discovers the tools itself and decides which one to call.
 
-One sentence to keep, the kind you could repeat at dinner: **give the model a menu of safe, named
+The rule to keep: **give the model a menu of safe, named
 actions — never a live connection and the freedom to write its own SQL.**
 
 If you have ever written a `@RestController` with a handful of narrow endpoints instead of handing

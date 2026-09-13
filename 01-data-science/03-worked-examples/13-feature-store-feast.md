@@ -41,7 +41,7 @@ did in validation — and because both pipelines call their output `conv_rate`, 
 place to even look. This is **train/serve skew**: the same *name*, computed by two different pieces
 of code that drift apart, silently, the moment either one changes without the other.
 
-Here's the one-sentence version you could repeat at dinner: **if training and serving don't run the
+The whole idea: **if training and serving don't run the
 exact same code to compute a feature, they will eventually disagree, and nothing will tell you.**
 
 If you've ever maintained a REST DTO and its corresponding JPA entity by hand and watched them drift

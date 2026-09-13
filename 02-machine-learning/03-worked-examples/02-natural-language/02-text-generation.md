@@ -15,7 +15,7 @@ asserted from a hunch. (An earlier pass at this curriculum assumed you could tak
 point it at `generate()` — you can't, and this chapter starts by showing exactly why, in the
 model's own words, before it shows you the model family that *can*.)
 
-Here's the one-sentence version, the kind you could repeat at dinner: **an encoder reads a whole
+The distinction in a sentence: **an encoder reads a whole
 input at once to understand it; a decoder writes one piece at a time, using only what's already
 been written, over and over, until it decides to stop.** If you've built request-handling code in
 Java, this maps onto a distinction you already carry around: a **validator** that reads an entire

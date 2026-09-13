@@ -49,7 +49,7 @@ leaning positive. A **pretrained transformer encoder** builds exactly that: a ve
 that depends on *every other word around it* (a **contextual representation**), learned once from
 enormous amounts of text, before it ever saw a single one of your labelled examples.
 
-Here's the one-sentence version you could repeat at dinner: **stand your classifier on a model that
+Put plainly: **stand your classifier on a model that
 already read a huge slice of the internet, instead of teaching a blank word-counter your language
 from scratch.** That reuse — start from a general-purpose base instead of from zero — is called
 **transfer learning**, and it's the idea this whole chapter puts to work.

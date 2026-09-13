@@ -19,7 +19,7 @@ regression already answered in the [taxi-fare chapter](05-regression-nyc-taxi.md
 features, a fitted formula, a way to grade it — except now the rows arrive in a strict order, and
 that one fact quietly breaks almost every rule that chapter relied on.
 
-One sentence you could repeat at dinner: **forecasting is regression where the calendar is also a
+One sentence: **forecasting is regression where the calendar is also a
 feature, and shuffling the calendar breaks everything.**
 
 ```mermaid
